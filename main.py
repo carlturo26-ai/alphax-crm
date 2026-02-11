@@ -460,13 +460,14 @@ elif page == "Socios":
     members_list = query.order_by(Member.name).all()
     
     if members_list:
-        # Prepare data
+        # Prepare data with Visual Status
         data = {
             "ID": [m.id for m in members_list],
+            "Estado Visual": ["✅ Activo" if m.active else "❌ Inactivo" for m in members_list], # NEW
             "Nombre": [m.name for m in members_list],
             "Teléfono": [m.phone for m in members_list],
             "Grupo": [m.group for m in members_list],
-            "Activo": [m.active for m in members_list]
+            "Activo": [m.active for m in members_list] # Keep for editing
         }
         df_members = pd.DataFrame(data)
         
@@ -480,6 +481,7 @@ elif page == "Socios":
             df_members,
             column_config={
                 "ID": st.column_config.NumberColumn(disabled=True),
+                "Estado Visual": st.column_config.TextColumn("Estado", disabled=True), # Read-only Visual
                 "Nombre": st.column_config.TextColumn(disabled=True),
                 "Teléfono": st.column_config.TextColumn("WhatsApp (Ej: 57...)", required=False),
                 "Grupo": st.column_config.SelectboxColumn("Grupo", options=existing_groups, required=True),
