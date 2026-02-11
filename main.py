@@ -609,4 +609,18 @@ elif page == "Configuración":
         session.commit()
         session.close()
         st.warning("Base de datos limpiada.")
+        
+    st.markdown("---")
+    st.subheader("🔧 Herramientas de Mantenimiento")
+    
+    if st.button("🛠️ Migrar DB (Agregar campo 'pagado_por')"):
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                # Postgres specific
+                conn.execute(text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by VARCHAR;"))
+                conn.commit()
+            st.success("✅ Columna 'paid_by' agregada exitosamente. ¡Ya puedes usar los Gastos!")
+        except Exception as e:
+            st.error(f"Error en migración: {e}")
 
