@@ -354,20 +354,67 @@ if page == "Dashboard":
         st.warning(f"Estamos a día {current_day}. Recuerda enviar cobros pronto.")
         
     # Query Debtors
-                        "Acción": st.column_config.LinkColumn(
-                            "Notificar",
-                            help="Abrir WhatsApp con mensaje pre-llenado",
-                            display_text="📲 Enviar WhatsApp"
-                        )
-                    },
-                    use_container_width=True
-                )
-                
-                # Copy helper
-                names_text = "\n".join([m.name for m in pending_members])
-                st.text_area("Copiar lista de nombres (si prefieres usar lista de difusión):", value=names_text, height=100)
-        else:
-            st.success(f"¡Todos los socios ('{selected_group}') están al día en {current_month_name}! 🎉")
+    try:
+        # 1. Get all active members IDs (filtered by group if selected)
+        active_m_query = session.query(Member).filter(Member.active == True)
+        if selected_group != "Todos":
+            active_m_query = active_m_query.filter(Member.group == selected_group)
+        
+        active_members = active_m_query.all()
+        active_ids = {m.id for m in active_members}
+        
+        # 2. Get members who PAID in current month
+        paid_query = session.query(Transaction.member_id).join(Member).filter(
+            Transaction.year == current_year,
+            Transaction.month == current_month_name,
+            Transaction.status == 'PAID'
+        )
+        if selected_group != "Todos":
+            paid_query = paid_query.filter(Member.group == selected_group)
+            
+        paid_ids = {r[0] for r in paid_query.all()}
+        
+        # 3. Diff
+        pending_ids = active_ids - paid_ids
+        pending_members = [m for m in active_members if m.id in pending_ids]
+        
+        col_d1, col_d2 = st.columns([1, 3])
+        col_d1.metric("Pendientes", len(pending_members), delta_color="inverse")
+        
+        with col_d2:
+            if pending_members:
+                with st.expander(f":black[Ver Lista de {len(pending_members)} Deudores ({current_month_name})]", expanded=True):
+                    # Prepare data with WhatsApp Link
+                    dept_data = []
+                    import urllib.parse
+                    
+                    for m in pending_members:
+                        # User-Defined Copy (Persuasive & Wolf Theme)
+                        msg = f"¡Hola *{m.name.title()}*! espero todo vaya super bien!\n\nTe escribo un mensajito rápido para recordarte el pago de la mensualidad correspondiente a este mes. Agradezco mucho si puedes gestionarlo pronto para mantener todo en orden administrativo ✅.\n\n¡Un abrazo y a seguir sumando kilómetros 🐺!"
+                        encoded_msg = urllib.parse.quote(msg)
+                        
+                        # Phone Logic (Safe Access)
+                        phone_number = getattr(m, 'phone', "")
+                        # Clean phone number (remove +, spaces)
+                        if phone_number:
+                            phone_number = "".join(filter(str.isdigit, phone_number))
+                            wa_link = f"https://wa.me/{phone_number}?text={encoded_msg}"
+                        else:
+                             # Fallback if no phone
+                             wa_link = f"https://wa.me/?text={encoded_msg}"
+
+                        link_html = f'<a href="{wa_link}" target="_blank">📲 Enviar WhatsApp</a>'
+                        dept_data.append({"Nombre": m.name, "Acción": link_html})
+                        
+                    df_dept = pd.DataFrame(dept_data)
+                    st.write(df_dept.to_html(escape=False, index=False), unsafe_allow_html=True)
+            else:
+                 st.success("¡Nadie debe nada! 🎉")
+                 
+    except Exception as e:
+        session.rollback()
+        st.warning("⚠️ No se pudo cargar la lista de deudores (Faltan columnas en DB).")
+        st.info("👉 Ve a 'Configuración' -> 'ACTUALIZAR DB'.")
     
     session.close()
 
