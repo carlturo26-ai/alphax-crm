@@ -35,6 +35,7 @@ class Member(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     group = Column(String) # Carlos, Alejandro, Aprendizaje
+    phone = Column(String, nullable=True) # WhatsApp Number (International Format)
     active = Column(Boolean, default=True)
     notes = Column(String, nullable=True)
     

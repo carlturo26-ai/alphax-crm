@@ -181,23 +181,29 @@ if page == "Dashboard":
         st.error(f"⚠️ Actualización Requerida: {e}")
         st.info("Esto es normal por la nueva función de 'Control de Saldos'.")
         
-        if st.button("🛠️ TOCA AQUÍ PARA ACTUALIZAR DB", type="primary"):
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                try:
-                    # SQLite compatible (No IF NOT EXISTS)
-                    conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+        st.markdown("---")
+        st.subheader("🔧 Herramientas de Mantenimiento")
+        
+        if st.button("🛠️ ACTUALIZAR DB (Agregar campos: Teléfono y Control Saldos)"):
+            try:
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    # 1. Add Paid By to Expenses
+                    try:
+                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                    except:
+                        pass # Probably exists
+                    
+                    # 2. Add Phone to Members
+                    try:
+                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
+                    except:
+                        pass # Probably exists
+                        
                     conn.commit()
-                    st.success("✅ ¡Actualización exitosa! Recarga la página.")
-                    st.rerun()
-                except Exception as e_sql:
-                    # Ignore if column already exists
-                    err_msg = str(e_sql).lower()
-                    if "duplicate" in err_msg or "exists" in err_msg:
-                        st.success("✅ La base de datos ya estaba actualizada. Recarga la página.")
-                        st.rerun()
-                    else:
-                        st.error(f"Error crítico: {e_sql}")
+                st.success("✅ ¡Base de datos actualizada! Ahora puedes registrar teléfonos.")
+            except Exception as e:
+                st.error(f"Error en migración: {e}")
         total_expenses = 0 # Fallback
     
     net_profit = total_income - total_expenses
@@ -340,7 +346,15 @@ if page == "Dashboard":
                     # Customizable Message
                     msg = f"Hola {m.name.title()}, te recordamos amablemente tu pago de la mensualidad de *{current_month_name}* en AlphaX. ¡Gracias!"
                     encoded_msg = urllib.parse.quote(msg)
-                    wa_link = f"https://wa.me/?text={encoded_msg}"
+                    
+                    # Phone Logic
+                    phone_number = m.phone if m.phone else ""
+                    # Clean phone number (remove +, spaces)
+                    if phone_number:
+                        phone_number = "".join(filter(str.isdigit, phone_number))
+                        wa_link = f"https://wa.me/{phone_number}?text={encoded_msg}"
+                    else:
+                        wa_link = f"https://wa.me/?text={encoded_msg}"
                     
                     dept_data.append({
                         "Nombre": m.name,
@@ -380,6 +394,8 @@ elif page == "Socios":
         with st.form("new_member"):
             c1, c2 = st.columns(2)
             new_name = c1.text_input("Nombre Completo")
+            new_phone = c1.text_input("Teléfono (Ej: 57300...)", placeholder="573001234567")
+            
             existing_groups = [r[0] for r in session.query(Member.group).distinct().all() if r[0]]
             new_group = c2.selectbox("Grupo", existing_groups + ["Nuevo..."])
             
@@ -391,7 +407,7 @@ elif page == "Socios":
                 if exists:
                     st.error("Ya existe un atleta con este nombre.")
                 else:
-                    m = Member(name=new_name.upper(), group=new_group, active=True)
+                    m = Member(name=new_name.upper(), group=new_group, phone=new_phone, active=True)
                     session.add(m)
                     session.commit()
                     st.success(f"Atleta {new_name} creado exitosamente.")
@@ -414,44 +430,24 @@ elif page == "Socios":
         data = {
             "ID": [m.id for m in members_list],
             "Nombre": [m.name for m in members_list],
+            "Teléfono": [m.phone for m in members_list],
             "Grupo": [m.group for m in members_list],
             "Activo": [m.active for m in members_list]
         }
         df_members = pd.DataFrame(data)
         
-        # --- STYLED VIEW ---
-        st.caption("Vista Previa (Colores por Estado)")
-        
-        # Add a display column for Status
-        df_display = df_members.copy()
-        df_display["Estado"] = df_display["Activo"].apply(lambda x: "✅ OK" if x else "❌ INACTIVO")
-        
-        # Define Style
-        def style_rows(row):
-            # Target colors:
-            # Active: Greenish BG, Black Text
-            # Inactive: Reddish BG, Red Text
-            if "✅" in row["Estado"]:
-                return ['background-color: #d4edda; color: #000000; font-weight: bold;'] * len(row)
-            else:
-                return ['background-color: #f8d7da; color: #D8000C; font-weight: bold;'] * len(row)
-                
-        # Apply Style to specific columns or all? passing axis=1 styles row
-        st.dataframe(
-            df_display[["ID", "Nombre", "Grupo", "Estado"]].style.apply(style_rows, axis=1),
-            use_container_width=True,
-            hide_index=True
-        )
-
         # --- EDITOR ---
         st.markdown("### ✏️ Editor de Datos")
-        existing_groups = [r[0] for r in session.query(Member.group).distinct().all() if r[0]] # Re-query for scope safety
+        st.caption("Agrega los teléfonos aquí para activar WhatsApp directo.")
+        
+        existing_groups = [r[0] for r in session.query(Member.group).distinct().all() if r[0]] 
         
         edited_df = st.data_editor(
             df_members,
             column_config={
                 "ID": st.column_config.NumberColumn(disabled=True),
-                "Nombre": st.column_config.TextColumn(disabled=True), # Prevent accidental renames for now
+                "Nombre": st.column_config.TextColumn(disabled=True),
+                "Teléfono": st.column_config.TextColumn("WhatsApp (Ej: 57...)", required=False),
                 "Grupo": st.column_config.SelectboxColumn("Grupo", options=existing_groups, required=True),
                 "Activo": st.column_config.CheckboxColumn("¿Activo?", help="Desmarcar para inhabilitar")
             },
@@ -466,13 +462,16 @@ elif page == "Socios":
                 m_id = row["ID"]
                 m_active = row["Activo"]
                 m_group = row["Grupo"]
+                m_phone = row["Teléfono"]
                 
                 # Fetch and update
                 m_obj = session.query(Member).filter(Member.id == m_id).first()
                 if m_obj:
-                    if m_obj.active != m_active or m_obj.group != m_group:
+                    # Update if changed
+                    if (m_obj.active != m_active) or (m_obj.group != m_group) or (m_obj.phone != m_phone):
                         m_obj.active = m_active
                         m_obj.group = m_group
+                        m_obj.phone = m_phone
             
             session.commit()
             st.success("Cambios actualizados correctamente.")
