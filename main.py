@@ -207,7 +207,33 @@ if page == "Dashboard":
         total_expenses = 0 # Fallback
     
     net_profit = total_income - total_expenses
-    member_count = member_query.count()
+    
+    try:
+        member_count = member_query.count()
+    except Exception as e_mem:
+        st.error(f"⚠️ Necesitas actualizar la base de datos para usar WhatsApp.")
+        member_count = 0
+        if st.button("🛠️ TOCAR AQUÍ PARA HABILITAR WHATSAPP", type="primary", key="fix_members"):
+             try:
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    # 1. Add Phone to Members
+                    try:
+                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
+                    except:
+                        pass # Probably exists
+                        
+                    # 2. Ensure Paid By to Expenses exists too
+                    try:
+                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                    except:
+                        pass 
+                        
+                    conn.commit()
+                st.success("✅ ¡Actualizado! Recargando...")
+                st.rerun()
+             except Exception as e:
+                st.error(str(e))
     
     # Metrics Layout
     col1, col2, col3, col4 = st.columns(4)
