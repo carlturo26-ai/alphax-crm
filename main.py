@@ -196,6 +196,17 @@ with st.sidebar:
 if page == "Dashboard":
     st.header("📊 Resumen del Club (2026)")
     
+    # DEBUG SECTION (Temporary)
+    with st.expander("🛠️ DEBUG: Database Status"):
+        st.write(f"DB Path used: {engine.url}")
+        try:
+            with SessionLocal() as db:
+                m_count = db.query(Member).count()
+                t_count = db.query(Transaction).count()
+                st.success(f"Connected! Members: {m_count}, Transactions: {t_count}")
+        except Exception as e:
+            st.error(f"DB Error: {e}")
+    
     # Filter by Group
     session = SessionLocal()
     groups = ["Todos"] + [r[0] for r in session.query(Member.group).distinct().all() if r[0]]
