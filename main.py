@@ -413,7 +413,7 @@ if page == "Dashboard":
                  
     except Exception as e:
         session.rollback()
-        st.warning("⚠️ No se pudo cargar la lista de deudores (Faltan columnas en DB).")
+        st.error(f"⚠️ Error cargando deudores: {e}")
         st.info("👉 Ve a 'Configuración' -> 'ACTUALIZAR DB'.")
     
     session.close()
