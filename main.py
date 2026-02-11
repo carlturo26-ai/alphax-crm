@@ -725,9 +725,9 @@ elif page == "Configuración":
         else:
              st.error("No se encontró DATABASE_URL configurada en esta App.")
 
-    # New Download Button Section
+    # New Download Button Section (SQLite)
     st.markdown("---")
-    st.subheader("💾 Copia de Seguridad")
+    st.subheader("💾 Copia de Seguridad (SQLite Local)")
     st.info("Si tu App está usando una memoria temporal (sin Secretos), descarga tus datos aquí para usarlos con el Bot.")
     
     db_file_path = os.path.join("data", "club_crm.db")
@@ -741,4 +741,40 @@ elif page == "Configuración":
             )
     else:
         st.warning("⚠️ No se encontró archivo de base de datos local (club_crm.db).")
+
+    # Excel Export Button (Universal)
+    st.markdown("---")
+    st.subheader("📊 Exportar Datos a Excel (Backup Completo)")
+    st.info("Genera una copia de seguridad en Excel con todas tus tablas: Socios, Pagos y Gastos.")
+    
+    if st.button("📥 Generar Backup en Excel"):
+        try:
+            # Create a BytesIO buffer
+            from io import BytesIO
+            import pandas as pd
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Get DataFrames
+                # Use current engine (Postgres or SQLite)
+                df_members = pd.read_sql("SELECT * FROM members", engine)
+                df_transactions = pd.read_sql("SELECT * FROM transactions", engine)
+                df_expenses = pd.read_sql("SELECT * FROM expenses", engine)
+                
+                # Write Sheets
+                df_members.to_excel(writer, sheet_name='Socios', index=False)
+                df_transactions.to_excel(writer, sheet_name='Pagos', index=False)
+                df_expenses.to_excel(writer, sheet_name='Gastos', index=False)
+                
+            output.seek(0)
+            
+            st.download_button(
+                label="⬇️ Descargar Backup Excel (.xlsx)",
+                data=output,
+                file_name=f"alphax_backup_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            st.success("✅ Archivo generado. ¡Descárgalo arriba!")
+            
+        except Exception as e:
+            st.error(f"Error generando Excel: {e}")
 
