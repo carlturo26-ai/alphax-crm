@@ -278,40 +278,58 @@ if page == "Dashboard":
             
         with col_c2:
             st.markdown("### 📉 Desglose de Gastos")
-            # Get Expenses Data
-            all_expenses = expense_query.all()
-            if all_expenses:
-                # Prepare data for charts
-                data_exp = [{"Category": e.category or "General", "Amount": e.amount, "Pagado Por": e.paid_by or "AlphaX (Caja)"} for e in all_expenses]
-                df_exp = pd.DataFrame(data_exp)
+            # SAFE QUERY EXECUTION
+            try:
+                all_expenses = expense_query.all()
                 
-                # Group by Category (Pie Chart)
-                df_exp_grouped = df_exp.groupby("Category")["Amount"].sum().reset_index()
-                
-                fig_exp = px.pie(
-                    df_exp_grouped, 
-                    values="Amount", 
-                    names="Category", 
-                    color_discrete_sequence=px.colors.sequential.RdBu,
-                    hole=0.4
-                )
-                fig_exp.update_traces(textposition='inside', textinfo='percent+label')
-                fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
-                st.plotly_chart(fig_exp, use_container_width=True)
-                
-                # NEW: Breakdown by Payer
-                st.markdown("##### 👥 Control de Saldos")
-                df_payer = df_exp.groupby("Pagado Por")["Amount"].sum().reset_index()
-                
-                fig_payer = px.bar(df_payer, x="Pagado Por", y="Amount", text_auto='.2s', color="Pagado Por", color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig_payer.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
-                st.plotly_chart(fig_payer, use_container_width=True)
-                
-                # Optional: Show Detailed List expander
-                with st.expander("Ver Detalle de Gastos"):
-                    st.dataframe(df_exp, use_container_width=True)
-            else:
-                st.info("No hay gastos registrados aún.")
+                if all_expenses:
+                    # Prepare data for charts with safe attribute access
+                    data_exp = []
+                    for e in all_expenses:
+                        paid_by_val = getattr(e, 'paid_by', 'AlphaX (Caja)')
+                        data_exp.append({
+                            "Category": e.category or "General", 
+                            "Amount": e.amount, 
+                            "Pagado Por": paid_by_val
+                        })
+                        
+                    df_exp = pd.DataFrame(data_exp)
+                    
+                    # Group by Category (Pie Chart)
+                    df_exp_grouped = df_exp.groupby("Category")["Amount"].sum().reset_index()
+                    
+                    fig_exp = px.pie(
+                        df_exp_grouped, 
+                        values="Amount", 
+                        names="Category", 
+                        color_discrete_sequence=px.colors.sequential.RdBu,
+                        hole=0.4
+                    )
+                    fig_exp.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
+                    st.plotly_chart(fig_exp, use_container_width=True)
+                    
+                    # Breakdown by Payer
+                    st.markdown("##### 👥 Control de Saldos")
+                    if not df_exp.empty and "Pagado Por" in df_exp.columns:
+                        df_payer = df_exp.groupby("Pagado Por")["Amount"].sum().reset_index()
+                        
+                        fig_payer = px.bar(df_payer, x="Pagado Por", y="Amount", text_auto='.2s', color="Pagado Por", color_discrete_sequence=px.colors.qualitative.Pastel)
+                        fig_payer.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
+                        st.plotly_chart(fig_payer, use_container_width=True)
+                    
+                    # Optional: Show Detailed List expander
+                    with st.expander("Ver Detalle de Gastos"):
+                        st.dataframe(df_exp, use_container_width=True)
+                else:
+                    st.info("No hay gastos registrados aún.")
+                    
+            except Exception as e:
+                session.rollback() # CRITICAL: Fix 'current transaction is aborted'
+                st.warning("⚠️ Actualización Requerida: Faltan columnas en la Base de Datos (Gastos).")
+                # st.caption(f"Detalle técnico: {e}") 
+                # Keep it clean for user, they know they need to update
+                st.info("👉 Ve a 'Configuración' y dale al botón 'ACTUALIZAR DB' para arreglarlo.")
     
     # --- DEUDORES / PENDIENTES ---
     st.markdown("---")
