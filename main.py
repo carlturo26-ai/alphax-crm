@@ -21,87 +21,87 @@ st.markdown("""
     /* Import Nunito Sans */
     @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap');
 
-    /* AGGRESSIVE GLOBAL RESET: Force White Text on Dark Background */
-    html, body, [class*="css"], div, p, span, h1, h2, h3, h4, h5, h6, li, a, label {
-        color: #FFFFFF !important;
+    /* GLOBAL RESET: Dark Mode Standard */
+    html, body, [class*="css"], .stApp {
         font-family: 'Nunito Sans', sans-serif;
-    }
-    
-    /* Force Main Background */
-    .stApp {
+        color: #FFFFFF !important;
         background-color: #0e1117 !important;
     }
 
-    /* INPUTS: Force Black Text on White Background */
-    input, textarea, select {
-        color: #000000 !important;
-        -webkit-text-fill-color: #000000 !important; /* Safari fix */
-        background-color: #FFFFFF !important;
+    /* TEXT VISIBILITY: Force all main text to White */
+    p, h1, h2, h3, h4, h5, h6, li, span, div, label, .stMarkdown, .stText {
+        color: #FFFFFF !important;
     }
     
-    /* Fix for Streamlit Input Widgets Containers */
-    div[data-baseweb="input"] {
-        background-color: #FFFFFF !important;
-        border: 1px solid #33C1FF;
+    /* INPUTS: Force WHITE TEXT (to match Dark Background) */
+    input, textarea, select, .stTextInput > div > div, .stNumberInput > div > div {
+        color: #FFFFFF !important;
+        background-color: transparent !important; /* Let Streamlit Dark BG show */
+        -webkit-text-fill-color: #FFFFFF !important;
+        caret-color: #33C1FF;
     }
-    div[data-baseweb="input"] > div {
-        color: #000000 !important;
-        background-color: #FFFFFF !important;
-    }
-    
-    /* Selectbox specific fixes */
+
+    /* SELECTBOX / DROPDOWNS - The tricky part */
     div[data-baseweb="select"] > div {
-        background-color: #FFFFFF !important;
-        color: #000000 !important;
+        background-color: #262730 !important; /* Dark Grey */
+        color: #FFFFFF !important;
+        border-color: #33C1FF !important;
     }
-    div[data-testid="stSelectbox"] label p {
-        color: #33C1FF !important; /* Labels in Blue */
+    /* The selected value text */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] div {
+        color: #FFFFFF !important;
+    }
+    
+    /* DROPDOWN MENU OPTIONS (When opened) */
+    div[data-baseweb="menu"], div[role="listbox"] {
+        background-color: #262730 !important;
+    }
+    div[role="option"] {
+        color: #FFFFFF !important;
+        background-color: #262730 !important;
+    }
+    /* Highlighted option */
+    div[role="option"]:hover, div[role="option"][aria-selected="true"] {
+        background-color: #33C1FF !important;
+        color: #000000 !important; /* Black text on Blue highlight */
     }
 
-    /* DROPDOWN MENUS (Popovers) */
-    div[role="listbox"] li, div[role="option"] div {
-        color: #000000 !important; /* Black text in options */
-    }
-
-    /* Placeholder Text */
+    /* PLACEHOLDERS */
     ::placeholder {
-        color: #666666 !important;
+        color: #CCCCCC !important; /* Light Grey */
         opacity: 1;
     }
     
-    /* Header Colors - AlphaX Blue */
+    /* FILE UPLOADER */
+    div[data-testid="stFileUploader"] {
+        color: #FFFFFF !important;
+    }
+    div[data-testid="stFileUploader"] section {
+        background-color: #262730 !important;
+    }
+
+    /* DATAFRAME FIXES */
+    div[data-testid="stDataFrame"] {
+        background-color: #262730;
+    }
+
+    /* HEADERS & ACCENTS */
     h1, h2, h3, .stMetricLabel {
         color: #33C1FF !important; 
     }
 
-    /* Metric Cards */
-    .metric-card {
-        background-color: #1A1C24;
-        border: 1px solid #33C1FF;
-        padding: 20px;
-        border-radius: 10px;
-        color: white !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    
-    /* Buttons */
+    /* BUTTONS */
     .stButton > button {
         border-radius: 8px;
         font-weight: 600;
         border: 1px solid #33C1FF;
-        color: #000000 !important; /* IDLE: Black Text */
-        background-color: #FFFFFF !important; /* IDLE: White BG */
-        transition: all 0.3s ease;
+        color: #FFFFFF !important;
+        background-color: #262730 !important; /* Dark Button */
     }
     .stButton > button:hover {
-        background-color: #000000 !important; /* HOVER: Black BG */
-        color: #FFFFFF !important; /* HOVER: White Text */
+        background-color: #33C1FF !important;
+        color: #000000 !important;
         border-color: #33C1FF;
-    }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #11141A;
     }
     </style>
     """, unsafe_allow_html=True)
