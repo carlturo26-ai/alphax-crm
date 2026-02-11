@@ -369,8 +369,8 @@ if page == "Dashboard":
                 import urllib.parse
                 
                 for m in pending_members:
-                    # Customizable Message
-                    msg = f"Hola {m.name.title()}, te recordamos amablemente tu pago de la mensualidad de *{current_month_name}* en AlphaX. ¡Gracias!"
+                    # Persuasive & Friendly
+                    msg = f"Hola *{m.name.title()}* 👋, esperamos que estés teniendo un excelente día.\n\nTe escribimos de *AlphaX* para recordarte amablemente que tu mensualidad de *{current_month_name}* está pendiente.\n\nAgradecemos mucho tu apoyo para seguir entrenando con toda la energía ⚡.\n\n¡Quedamos atentos a tu comprobante! Un abrazo."
                     encoded_msg = urllib.parse.quote(msg)
                     
                     # Phone Logic
