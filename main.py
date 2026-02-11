@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 import streamlit as st
 import pandas as pd
-from database import init_db, SessionLocal, Member, Transaction, Expense
+from database import init_db, SessionLocal, Member, Transaction, Expense, engine
 from logic import import_excel_data, get_summary_kpis
 import plotly.express as px
 
@@ -21,86 +21,55 @@ st.markdown("""
     /* Import Nunito Sans */
     @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap');
 
-    /* Global Font Application */
-    /* Global Font Application */
-    html, body, [class*="css"] {
+    /* AGGRESSIVE GLOBAL RESET: Force White Text on Dark Background */
+    html, body, [class*="css"], div, p, span, h1, h2, h3, h4, h5, h6, li, a, label {
+        color: #FFFFFF !important;
         font-family: 'Nunito Sans', sans-serif;
-        color: #FFFFFF !important; /* Force White Text */
     }
     
-    /* Force specific elements to white if they resist */
-    p, .stMarkdown, .stText, span, div, h1, h2, h3, h4, h5, h6, .stMetricLabel {
-        color: #FFFFFF !important;
+    /* Force Main Background */
+    .stApp {
+        background-color: #0e1117 !important;
     }
 
-    /* --- AGGRESSIVE INPUT FIXES --- */
-    
-    /* 1. Generic Inputs (Text, Number, Date) - Text Black */
+    /* INPUTS: Force Black Text on White Background */
     input, textarea, select {
         color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important; /* Safari fix */
+        background-color: #FFFFFF !important;
     }
     
-    /* 2. Selectboxes (Complex Divs) - Force EVERYTHING inside to Black */
-    div[data-baseweb="select"] * {
-        color: #000000 !important; 
-        fill: #000000 !important; /* For SVGs/Arrows */
+    /* Fix for Streamlit Input Widgets Containers */
+    div[data-baseweb="input"] {
+        background-color: #FFFFFF !important;
+        border: 1px solid #33C1FF;
+    }
+    div[data-baseweb="input"] > div {
+        color: #000000 !important;
+        background-color: #FFFFFF !important;
     }
     
-    /* 3. Dropdown Menus (The list that opens) & Popovers */
-    div[data-baseweb="menu"] *, 
-    div[data-baseweb="popover"] *, 
-    div[role="listbox"] *, 
-    li[role="option"] * {
+    /* Selectbox specific fixes */
+    div[data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
         color: #000000 !important;
     }
-    
-    /* 4. File Uploader - Force EVERYTHING to Black */
-    div[data-testid="stFileUploader"] * {
-        color: #000000 !important;
-    }
-    div[data-testid="stFileUploader"] button {
-        border-color: #33C1FF !important; /* Keep branding on border */
+    div[data-testid="stSelectbox"] label p {
+        color: #33C1FF !important; /* Labels in Blue */
     }
 
-    /* 5. DataFrame Toolbar and Search Inputs */
-    div[data-testid="stElementToolbar"] button, div[data-testid="stElementToolbar"] input {
-        color: #000000 !important;
-    }
-    div[data-testid="stElementToolbar"] svg {
-        fill: #000000 !important;
-    }
-    
-    /* Force DataFrame Inputs explicitly */
-    div[data-testid="stDataFrame"] input {
-        color: #000000 !important;
+    /* DROPDOWN MENUS (Popovers) */
+    div[role="listbox"] li, div[role="option"] div {
+        color: #000000 !important; /* Black text in options */
     }
 
-    /* 5. Specific Input Wrappers */
-    .stTextInput div, .stNumberInput div, .stDateInput div {
-        color: #000000 !important; 
-    }
-    
-    /* 5. Specific Input Wrappers */
-    .stTextInput div, .stNumberInput div, .stDateInput div {
-        color: #000000 !important; 
-    }
-    
-    /* Placeholder Text styling to ensure visibility */
+    /* Placeholder Text */
     ::placeholder {
         color: #666666 !important;
         opacity: 1;
     }
-
-    .stTextInput input, .stNumberInput input, .stDateInput input {
-        color: #000000 !important;
-    }
-
-    /* Backgrounds */
-    .stApp {
-        background-color: #0e1117;
-    }
-
-    /* Header Colors - AlphaX Blue (Selectively Override White) */
+    
+    /* Header Colors - AlphaX Blue */
     h1, h2, h3, .stMetricLabel {
         color: #33C1FF !important; 
     }
@@ -111,38 +80,26 @@ st.markdown("""
         border: 1px solid #33C1FF;
         padding: 20px;
         border-radius: 10px;
-        color: white;
+        color: white !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    /* Buttons - High Specificity Override */
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
+    /* Buttons */
+    .stButton > button {
         border-radius: 8px;
         font-weight: 600;
         border: 1px solid #33C1FF;
-        background-color: #FFFFFF !important; /* Force White Background */
-        color: #000000 !important; /* Force Black Text */
+        color: #000000 !important; /* IDLE: Black Text */
+        background-color: #FFFFFF !important; /* IDLE: White BG */
         transition: all 0.3s ease;
     }
-    
-    /* IDLE STATE: Force internal elements to be Black */
-    div.stButton > button *, div[data-testid="stFormSubmitButton"] > button * {
-         color: #000000 !important;
+    .stButton > button:hover {
+        background-color: #000000 !important; /* HOVER: Black BG */
+        color: #FFFFFF !important; /* HOVER: White Text */
+        border-color: #33C1FF;
     }
 
-    /* HOVER STATE: Black Background, White Text */
-    div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {
-        background-color: #000000 !important; /* Black Background */
-        color: #FFFFFF !important; /* White Text */
-        border-color: #FFFFFF;
-    }
-    
-    /* HOVER STATE: Force internal elements to be White */
-    div.stButton > button:hover *, div[data-testid="stFormSubmitButton"] > button:hover * {
-         color: #FFFFFF !important;
-    }
-
-    /* Sidebar - Optional tweak */
+    /* Sidebar */
     section[data-testid="stSidebar"] {
         background-color: #11141A;
     }
@@ -195,17 +152,6 @@ with st.sidebar:
 # --- PAGE: DASHBOARD ---
 if page == "Dashboard":
     st.header("📊 Resumen del Club (2026)")
-    
-    # DEBUG SECTION (Temporary)
-    with st.expander("🛠️ DEBUG: Database Status"):
-        st.write(f"DB Path used: {engine.url}")
-        try:
-            with SessionLocal() as db:
-                m_count = db.query(Member).count()
-                t_count = db.query(Transaction).count()
-                st.success(f"Connected! Members: {m_count}, Transactions: {t_count}")
-        except Exception as e:
-            st.error(f"DB Error: {e}")
     
     # Filter by Group
     session = SessionLocal()
