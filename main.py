@@ -725,3 +725,20 @@ elif page == "Configuración":
         else:
              st.error("No se encontró DATABASE_URL configurada en esta App.")
 
+    # New Download Button Section
+    st.markdown("---")
+    st.subheader("💾 Copia de Seguridad")
+    st.info("Si tu App está usando una memoria temporal (sin Secretos), descarga tus datos aquí para usarlos con el Bot.")
+    
+    db_file_path = os.path.join("data", "club_crm.db")
+    if os.path.exists(db_file_path):
+        with open(db_file_path, "rb") as f:
+            st.download_button(
+                label="📥 Descargar Base de Datos (club_crm.db)",
+                data=f,
+                file_name="club_crm.db",
+                mime="application/octet-stream"
+            )
+    else:
+        st.warning("⚠️ No se encontró archivo de base de datos local (club_crm.db).")
+
