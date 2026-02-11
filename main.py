@@ -184,10 +184,20 @@ if page == "Dashboard":
         if st.button("🛠️ TOCA AQUÍ PARA ACTUALIZAR DB", type="primary"):
             from sqlalchemy import text
             with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by VARCHAR;"))
-                conn.commit()
-            st.success("✅ ¡Actualización exitosa! Por favor recarga la página.")
-            st.rerun()
+                try:
+                    # SQLite compatible (No IF NOT EXISTS)
+                    conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                    conn.commit()
+                    st.success("✅ ¡Actualización exitosa! Recarga la página.")
+                    st.rerun()
+                except Exception as e_sql:
+                    # Ignore if column already exists
+                    err_msg = str(e_sql).lower()
+                    if "duplicate" in err_msg or "exists" in err_msg:
+                        st.success("✅ La base de datos ya estaba actualizada. Recarga la página.")
+                        st.rerun()
+                    else:
+                        st.error(f"Error crítico: {e_sql}")
         total_expenses = 0 # Fallback
     
     net_profit = total_income - total_expenses
