@@ -205,10 +205,50 @@ if page == "Dashboard":
         df_rev['month'] = pd.Categorical(df_rev['month'], categories=months_order, ordered=True)
         df_grouped = df_rev.groupby("month")["amount"].sum().reset_index()
         
-        fig = px.bar(df_grouped, x="month", y="amount", title=f"Ingresos Mensuales: {selected_group}", color_discrete_sequence=["#00CC96"])
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No hay datos de ingresos para este filtro.")
+        # --- CHARTS ROW ---
+        col_c1, col_c2 = st.columns(2)
+        
+        with col_c1:
+            st.markdown("### 📈 Ingresos Mensuales")
+            fig_rev = px.bar(
+                df_grouped, 
+                x="month", 
+                y="amount", 
+                # title="Ingresos Mensuales", 
+                color_discrete_sequence=["#33C1FF"],
+                text_auto='.2s'
+            )
+            fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
+            st.plotly_chart(fig_rev, use_container_width=True)
+            
+        with col_c2:
+            st.markdown("### 📉 Desglose de Gastos")
+            # Get Expenses Data
+            all_expenses = expense_query.all()
+            if all_expenses:
+                # Prepare data for charts
+                data_exp = [{"Category": e.category or "General", "Amount": e.amount} for e in all_expenses]
+                df_exp = pd.DataFrame(data_exp)
+                
+                # Group by Category (Pie Chart)
+                df_exp_grouped = df_exp.groupby("Category")["Amount"].sum().reset_index()
+                
+                fig_exp = px.pie(
+                    df_exp_grouped, 
+                    values="Amount", 
+                    names="Category", 
+                    color_discrete_sequence=px.colors.sequential.RdBu,
+                    hole=0.4
+                )
+                fig_exp.update_traces(textposition='inside', textinfo='percent+label')
+                fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
+                st.plotly_chart(fig_exp, use_container_width=True)
+                
+                # Optional: Show Detailed List expander
+                with st.expander("Ver Detalle de Gastos"):
+                    st.dataframe(df_exp, use_container_width=True)
+            else:
+                st.info("No hay gastos registrados aún.")
     
     # --- DEUDORES / PENDIENTES ---
     st.markdown("---")
