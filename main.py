@@ -332,12 +332,39 @@ if page == "Dashboard":
     with col_d2:
         if pending_members:
             with st.expander(f":black[Ver Lista de {len(pending_members)} Deudores ({current_month_name})]", expanded=True):
-                dept_data = [{"Nombre": m.name, "Grupo": m.group, "Estado": "Pendiente ⏳"} for m in pending_members]
-                st.dataframe(dept_data, use_container_width=True)
+                # Prepare data with WhatsApp Link
+                dept_data = []
+                import urllib.parse
+                
+                for m in pending_members:
+                    # Customizable Message
+                    msg = f"Hola {m.name.title()}, te recordamos amablemente tu pago de la mensualidad de *{current_month_name}* en AlphaX. ¡Gracias!"
+                    encoded_msg = urllib.parse.quote(msg)
+                    wa_link = f"https://wa.me/?text={encoded_msg}"
+                    
+                    dept_data.append({
+                        "Nombre": m.name,
+                        "Grupo": m.group,
+                        "Estado": "Pendiente ⏳",
+                        "Acción": wa_link
+                    })
+                
+                # Display DataFrame with Link Column
+                st.dataframe(
+                    dept_data, 
+                    column_config={
+                        "Acción": st.column_config.LinkColumn(
+                            "Notificar",
+                            help="Abrir WhatsApp con mensaje pre-llenado",
+                            display_text="📲 Enviar WhatsApp"
+                        )
+                    },
+                    use_container_width=True
+                )
                 
                 # Copy helper
                 names_text = "\n".join([m.name for m in pending_members])
-                st.text_area("Copiar lista para ManyChat/WhatsApp:", value=names_text, height=100)
+                st.text_area("Copiar lista de nombres (si prefieres usar lista de difusión):", value=names_text, height=100)
         else:
             st.success(f"¡Todos los socios ('{selected_group}') están al día en {current_month_name}! 🎉")
     
