@@ -171,11 +171,24 @@ if page == "Dashboard":
     total_income = sum(t.amount for t in txs)
     
     # Calculate Expenses
-    expense_query = session.query(Expense)
-    # If filtering by group, we assume expenses are GLOBAL for now unless we add group to expenses too.
-    # User didn't specify group-level expenses, usually expenses are general club-wide or specific.
-    # For now, let's keep expenses Global.
-    total_expenses = sum(e.amount for e in expense_query.all())
+    try:
+        expense_query = session.query(Expense)
+        # If filtering by group, we assume expenses are GLOBAL for now unless we add group to expenses too.
+        # For now, let's keep expenses Global.
+        total_expenses = sum(e.amount for e in expense_query.all())
+    except Exception as e:
+        # Schema Error Catch - Schema Migration Handler
+        st.error(f"⚠️ Actualización Requerida: {e}")
+        st.info("Esto es normal por la nueva función de 'Control de Saldos'.")
+        
+        if st.button("🛠️ TOCA AQUÍ PARA ACTUALIZAR DB", type="primary"):
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by VARCHAR;"))
+                conn.commit()
+            st.success("✅ ¡Actualización exitosa! Por favor recarga la página.")
+            st.rerun()
+        total_expenses = 0 # Fallback
     
     net_profit = total_income - total_expenses
     member_count = member_query.count()
