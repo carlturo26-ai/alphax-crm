@@ -368,6 +368,14 @@ if page == "Dashboard":
                 dept_data = []
                 import urllib.parse
                 
+                for m in pending_members:
+                    # User-Defined Copy (Persuasive & Wolf Theme)
+                    msg = f"¡Hola *{m.name.title()}*! espero todo vaya super bien!\n\nTe escribo un mensajito rápido para recordarte el pago de la mensualidad correspondiente a este mes. Agradezco mucho si puedes gestionarlo pronto para mantener todo en orden administrativo ✅.\n\n¡Un abrazo y a seguir sumando kilómetros 🐺!"
+                    encoded_msg = urllib.parse.quote(msg)
+                    
+                    # Phone Logic
+                    phone_number = m.phone if m.phone else ""
+                    # Clean phone number (remove +, spaces)
                     if phone_number:
                         phone_number = "".join(filter(str.isdigit, phone_number))
                         wa_link = f"https://wa.me/{phone_number}?text={encoded_msg}"
