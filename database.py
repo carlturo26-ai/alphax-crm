@@ -63,6 +63,7 @@ class Expense(Base):
     amount = Column(Float)
     date = Column(Date, default=datetime.now)
     category = Column(String, nullable=True) # e.g. Operativo, Honorarios, Piscina
+    paid_by = Column(String, nullable=True) # Carlos, Alejandro, AlphaX
     created_at = Column(Date, default=datetime.now)
 
 def init_db():

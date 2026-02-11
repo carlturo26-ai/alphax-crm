@@ -554,11 +554,16 @@ elif page == "Gastos":
         amt = c2.number_input("Monto", min_value=0, step=1000)
         c3, c4 = st.columns(2)
         cat = c3.selectbox("Categoría", ["Operativo", "Honorarios", "Alquiler", "Mantenimiento", "Otros"])
-        date_exp = c4.date_input("Fecha", value=datetime.today())
+        
+        # New Field: Paid By
+        payer = c4.selectbox("Pagado Por", ["AlphaX (Caja)", "Carlos", "Alejandro"])
+        
+        date_exp = st.date_input("Fecha", value=datetime.today())
         
         submitted = st.form_submit_button("Registrar Gasto")
         if submitted and desc and amt > 0:
-            exp = Expense(description=desc, amount=amt, category=cat, date=date_exp)
+            # Save new field
+            exp = Expense(description=desc, amount=amt, category=cat, date=date_exp, paid_by=payer)
             session.add(exp)
             session.commit()
             st.success("Gasto guardado.")
@@ -569,7 +574,8 @@ elif page == "Gastos":
     
     expenses = session.query(Expense).order_by(Expense.date.desc()).all()
     if expenses:
-        data = [{"ID": e.id, "Fecha": e.date, "Descripción": e.description, "Categoría": e.category, "Monto": f"${e.amount:,.0f}"} for e in expenses]
+        # Include Paid By in table
+        data = [{"ID": e.id, "Fecha": e.date, "Descripción": e.description, "Categoría": e.category, "Monto": f"${e.amount:,.0f}", "Pagado Por": e.paid_by} for e in expenses]
         st.dataframe(data, use_container_width=True)
         
         if st.button("Borrar Último Gasto"):
