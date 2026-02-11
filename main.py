@@ -227,7 +227,7 @@ if page == "Dashboard":
             all_expenses = expense_query.all()
             if all_expenses:
                 # Prepare data for charts
-                data_exp = [{"Category": e.category or "General", "Amount": e.amount} for e in all_expenses]
+                data_exp = [{"Category": e.category or "General", "Amount": e.amount, "Pagado Por": e.paid_by or "AlphaX (Caja)"} for e in all_expenses]
                 df_exp = pd.DataFrame(data_exp)
                 
                 # Group by Category (Pie Chart)
@@ -243,6 +243,14 @@ if page == "Dashboard":
                 fig_exp.update_traces(textposition='inside', textinfo='percent+label')
                 fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
                 st.plotly_chart(fig_exp, use_container_width=True)
+                
+                # NEW: Breakdown by Payer
+                st.markdown("##### 👥 Control de Saldos")
+                df_payer = df_exp.groupby("Pagado Por")["Amount"].sum().reset_index()
+                
+                fig_payer = px.bar(df_payer, x="Pagado Por", y="Amount", text_auto='.2s', color="Pagado Por", color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_payer.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
+                st.plotly_chart(fig_payer, use_container_width=True)
                 
                 # Optional: Show Detailed List expander
                 with st.expander("Ver Detalle de Gastos"):
