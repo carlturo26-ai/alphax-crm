@@ -674,10 +674,9 @@ elif page == "Gastos":
 # --- PAGE: CONFIG ---
 elif page == "Configuración":
     st.header("⚙️ Configuración")
-    st.write("Versión 1.0 - AlphaX CRM")
+    st.write("Versión 1.2 - AlphaX CRM (Con Soporte WhatsApp)")
     
     if st.button("Resetear Base de Datos (⚠️ Peligro)"):
-        # Logic to clear tables
         session = SessionLocal()
         session.query(Transaction).delete()
         session.query(Member).delete()
@@ -688,14 +687,41 @@ elif page == "Configuración":
     st.markdown("---")
     st.subheader("🔧 Herramientas de Mantenimiento")
     
-    if st.button("🛠️ Migrar DB (Agregar campo 'pagado_por')"):
+    # Updated Migration Button for Phone & Expenses
+    if st.button("🛠️ ACTUALIZAR DB (Agregar campos: Teléfono y Control Saldos)"):
         try:
             from sqlalchemy import text
             with engine.connect() as conn:
-                # Postgres specific
-                conn.execute(text("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by VARCHAR;"))
+                # 1. Add Paid By to Expenses
+                try:
+                    conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                except:
+                    pass # Probably exists
+                
+                # 2. Add Phone to Members
+                try:
+                    conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
+                except:
+                    pass # Probably exists
+                    
                 conn.commit()
-            st.success("✅ Columna 'paid_by' agregada exitosamente. ¡Ya puedes usar los Gastos!")
+            st.success("✅ ¡Base de datos actualizada! Ahora puedes registrar teléfonos.")
         except Exception as e:
             st.error(f"Error en migración: {e}")
+
+    # Secrets Revealer for Bot
+    st.markdown("---")
+    with st.expander("🔌 Conexión para el Bot Local"):
+        st.info("Copia esta dirección y pégala cuando el Bot te la pida (en la ventana negra).")
+        
+        db_url = None
+        if "DATABASE_URL" in st.secrets:
+             db_url = st.secrets["DATABASE_URL"]
+        elif "DATABASE_URL" in os.environ:
+             db_url = os.environ["DATABASE_URL"]
+        
+        if db_url:
+             st.code(db_url, language="bash")
+        else:
+             st.error("No se encontró DATABASE_URL configurada en esta App.")
 
