@@ -4,6 +4,9 @@ from database import SessionLocal, Member, Transaction, init_db
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
+# Force Reload Trigger (Debug)
+print("DEBUG: Logic Module Loaded") 
+
 def is_stop_word(name):
     """Returns True if the name suggests a calculation, expense or divider line."""
     if not isinstance(name, str):
