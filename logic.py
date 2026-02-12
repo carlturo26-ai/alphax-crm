@@ -170,6 +170,78 @@ def import_excel_data(file_path, sheets_to_import=None):
     finally:
         session.close()
 
+def update_member_phones(file_path):
+    """
+    Reads an Excel file (likely a Backup or Custom list) and updates
+    PHONE numbers for existing members.
+    Does NOT delete or create members/transactions.
+    """
+    session = SessionLocal()
+    updated_count = 0
+    not_found_count = 0
+    
+    try:
+        xls = pd.ExcelFile(file_path)
+        # Try to find a "Socios" sheet first (from our backup), else use first sheet
+        target_sheet = "Socios" if "Socios" in xls.sheet_names else xls.sheet_names[0]
+        
+        df = pd.read_excel(file_path, sheet_name=target_sheet)
+        
+        # Normalize columns
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Identify Columns
+        name_col = None
+        phone_col = None
+        
+        # Heuristic for Name
+        possible_name_cols = ["NOMBRE", "NAME", "SOCIO", "ATLETA", "MEMBER"]
+        for c in df.columns:
+            if c in possible_name_cols:
+                name_col = c
+                break
+        if not name_col: name_col = df.columns[0] # Fallback
+        
+        # Heuristic for Phone
+        possible_phone_cols = ["TELEFONO", "PHONE", "CELULAR", "WHATSAPP", "TELÉFONO"]
+        for c in df.columns:
+            if c in possible_phone_cols:
+                phone_col = c
+                break
+                
+        if not phone_col:
+            return "Error: No se encontró columna de Teléfono/WhatsApp en el archivo."
+            
+        # Iterate and Update
+        for index, row in df.iterrows():
+            raw_name = row[name_col]
+            raw_phone = row[phone_col]
+            
+            if pd.isna(raw_name) or pd.isna(raw_phone):
+                continue
+                
+            name_str = str(raw_name).strip().upper()
+            phone_str = str(raw_phone).strip()
+            
+            # Find Member
+            member = session.query(Member).filter(Member.name == name_str).first()
+            if member:
+                # Update if different? Just overwrite to be safe
+                if member.phone != phone_str:
+                    member.phone = phone_str
+                    updated_count += 1
+            else:
+                not_found_count += 1
+                
+        session.commit()
+        return f"✅ Teléfonos actualizados: {updated_count}. (No encontrados: {not_found_count})"
+        
+    except Exception as e:
+        session.rollback()
+        return f"Error actualizando teléfonos: {str(e)}"
+    finally:
+        session.close()
+
 def get_summary_kpis():
     session = SessionLocal()
     
