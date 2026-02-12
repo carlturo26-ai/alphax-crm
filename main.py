@@ -718,7 +718,8 @@ elif page == "Configuración":
                 try:
                     # Force conversion from BigInt/Integer to Boolean causes: operator does not exist: bigint = boolean
                     conn.execute(text("ALTER TABLE members ALTER COLUMN active DROP DEFAULT;")) 
-                    conn.execute(text("ALTER TABLE members ALTER COLUMN active TYPE BOOLEAN USING active::boolean;"))
+                    # Robust conversion: 1 -> true, 0 -> false
+                    conn.execute(text("ALTER TABLE members ALTER COLUMN active TYPE BOOLEAN USING (active::integer <> 0);"))
                     conn.execute(text("ALTER TABLE members ALTER COLUMN active SET DEFAULT true;"))
                 except Exception as ex_bool:
                     # st.write(f"Nota debug: {ex_bool}")
