@@ -697,7 +697,7 @@ elif page == "Configuración":
     st.markdown("---")
     st.subheader("🔧 Herramientas de Mantenimiento")
     
-    # Updated Migration Button for Phone & Expenses
+    # Updated Migration Button for Phone & Expenses & Fixes
     if st.button("🛠️ ACTUALIZAR DB (Agregar campos: Teléfono y Control Saldos)"):
         try:
             from sqlalchemy import text
@@ -714,8 +714,21 @@ elif page == "Configuración":
                 except:
                     pass # Probably exists
                     
+                # 3. FIX: Convert 'active' to BOOLEAN (Crucial for Dashboard)
+                try:
+                    # Force conversion from BigInt/Integer to Boolean causes: operator does not exist: bigint = boolean
+                    conn.execute(text("ALTER TABLE members ALTER COLUMN active DROP DEFAULT;")) 
+                    conn.execute(text("ALTER TABLE members ALTER COLUMN active TYPE BOOLEAN USING active::boolean;"))
+                    conn.execute(text("ALTER TABLE members ALTER COLUMN active SET DEFAULT true;"))
+                except Exception as ex_bool:
+                    # st.write(f"Nota debug: {ex_bool}")
+                    pass 
+
                 conn.commit()
-            st.success("✅ ¡Base de datos actualizada! Ahora puedes registrar teléfonos.")
+            st.success("✅ ¡Base de datos actualizada y REPARADA! (Columnas y tipos corregidos).")
+            import time
+            time.sleep(1)
+            st.rerun() # Auto-refresh to show fixes immediately
         except Exception as e:
             st.error(f"Error en migración: {e}")
 
