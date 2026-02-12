@@ -4,7 +4,7 @@ import os
 import streamlit as st
 import pandas as pd
 from database import init_db, SessionLocal, Member, Transaction, Expense, engine
-from logic import import_excel_data, get_summary_kpis
+from logic import import_excel_data, get_summary_kpis, update_member_phones
 import plotly.express as px
 
 # Configuración de página
@@ -138,6 +138,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Importar Excel")
     uploaded_file = st.file_uploader("Cargar 'CUENTA MULTISPORT'", type=["xlsx"])
+    
+    # NEW CHECKBOX FOR MERGE
+    merge_phones = st.checkbox("☑️ Solo actualizar teléfonos (Merge)", help="Marca esto para subir tu Backup y recuperar los teléfonos sin borrar nada más.")
+    
     if uploaded_file:
         if st.button("Procesar Archivo"):
             with st.spinner("Importando datos..."):
@@ -146,8 +150,12 @@ with st.sidebar:
                 with open(temp_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                msg = import_excel_data(temp_path)
-                st.success(msg)
+                if merge_phones:
+                     msg = update_member_phones(temp_path)
+                     st.success(msg)
+                else:
+                     msg = import_excel_data(temp_path)
+                     st.success(msg)
 
 # --- PAGE: DASHBOARD ---
 if page == "Dashboard":
@@ -686,13 +694,26 @@ elif page == "Configuración":
     st.header("⚙️ Configuración")
     st.write("Versión 1.2 - AlphaX CRM (Con Soporte WhatsApp)")
     
-    if st.button("Resetear Base de Datos (⚠️ Peligro)"):
+    if st.button("⚠️ BORRAR BASE DE DATOS (RESETEO TOTAL)"):
         session = SessionLocal()
-        session.query(Transaction).delete()
-        session.query(Member).delete()
-        session.commit()
-        session.close()
-        st.warning("Base de datos limpiada.")
+        try:
+            from sqlalchemy import text
+            # HARD RESET: Drop tables to force schema rebuild (Fixes BigInt vs Boolean issues)
+            session.execute(text("DROP TABLE IF EXISTS transactions CASCADE;"))
+            session.execute(text("DROP TABLE IF EXISTS expenses CASCADE;"))
+            session.execute(text("DROP TABLE IF EXISTS members CASCADE;"))
+            session.commit()
+            st.warning("Tablas eliminadas...")
+            
+            # Re-init DB to create tables with correct schema
+            from database import init_db
+            init_db()
+            st.success("♻️ Base de datos RECONSTRUIDA y lista. (Schema Fixed)")
+            
+        except Exception as e:
+            st.error(f"Error reseteando: {e}")
+        finally:
+            session.close()
         
     st.markdown("---")
     st.subheader("🔧 Herramientas de Mantenimiento")
