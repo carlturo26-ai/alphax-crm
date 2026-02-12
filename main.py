@@ -411,11 +411,28 @@ if page == "Dashboard":
                              # Fallback if no phone
                              wa_link = f"https://wa.me/?text={encoded_msg}"
 
-                        link_html = f'<a href="{wa_link}" target="_blank">📲 Enviar WhatsApp</a>'
-                        dept_data.append({"Nombre": m.name, "Acción": link_html})
+                        # Modern DataFrame with Width Control
+                        dept_data.append({"Nombre": m.name, "WhatsApp": wa_link})
                         
                     df_dept = pd.DataFrame(dept_data)
-                    st.write(df_dept.to_html(escape=False, index=False), unsafe_allow_html=True)
+                    
+                    st.dataframe(
+                        df_dept,
+                        column_config={
+                            "WhatsApp": st.column_config.LinkColumn(
+                                "Acción (WhatsApp)",
+                                help="Click para abrir WhatsApp Web",
+                                validate="^https://.*",
+                                display_text="📲 Enviar Cobro"
+                            ),
+                            "Nombre": st.column_config.TextColumn(
+                                "Socio Pendiente",
+                                width="large" # Force wider name column
+                            )
+                        },
+                        hide_index=True,
+                        use_container_width=True # FIX: Expands to full width
+                    )
             else:
                  st.success("¡Nadie debe nada! 🎉")
                  
