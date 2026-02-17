@@ -3,8 +3,13 @@ from datetime import datetime
 import os
 import streamlit as st
 import pandas as pd
-from database import init_db, SessionLocal, Member, Transaction, Expense, engine
-from logic import import_excel_data, get_summary_kpis, update_member_phones
+
+try:
+    from database import init_db, SessionLocal, Member, Transaction, Expense, engine
+    from logic import import_excel_data, get_summary_kpis, update_member_phones
+except Exception as e:
+    st.error(f"💀 Error CRÍTICO de Importación: {e}")
+    st.stop()
 import plotly.express as px
 
 # Configuración de página
