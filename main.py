@@ -501,53 +501,93 @@ if page == "Dashboard":
         expenses_paid_by_alejandro = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Alejandro')
         expenses_paid_by_carlos = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Carlos')
         
-        # 2. Lógica Comercial Negociada
-        # Ingreso Privado Alejandro (80/20)
+        # New: Tracking physical cash received
+        caja_alejandro = 0
+        caja_carlos = 0
+        
+        for t in liq_txs:
+            # Si el pago tiene 'received_by' (nuevo sistema)
+            if getattr(t, 'received_by', None) and t.received_by in ["Alejandro", "Carlos"]:
+                if t.received_by == "Alejandro":
+                    caja_alejandro += t.amount
+                elif t.received_by == "Carlos":
+                    caja_carlos += t.amount
+            # Fallback para pagos viejos sin 'received_by' (Enero/Febrero)
+            else:
+                if t.member.group == "Alejandro":
+                    caja_alejandro += t.amount
+                elif t.member.group == "Carlos":
+                    caja_carlos += t.amount
+                elif t.member.group == "Aprendizaje":
+                    if liq_month in ["ENERO", "FEBRERO"] and liq_year == 2026:
+                        caja_alejandro += t.amount
+                    else:
+                        caja_carlos += t.amount
+
+        # 2. Lógica Comercial Negociada (Honorarios que GANAN)
         alejandro_share_alejandro = income_alejandro * 0.80
         carlos_share_alejandro = income_alejandro * 0.20
         
-        # Pozo de Aprendizaje (Cubre Gastos y se divide 50/50)
         pozo_aprendizaje = income_aprendizaje
         gastos_a_cubrir = total_expenses_liq
         balance_aprendizaje = pozo_aprendizaje - gastos_a_cubrir
-        mitad_balance = balance_aprendizaje / 2.0  # Puede ser positivo (superávit) o negativo (déficit)
+        mitad_balance = balance_aprendizaje / 2.0 
         
-        # Liquidación Final
+        # Honorarios Totales (Lo que cada uno DEBE tener al final)
         honorarios_alejandro_base = alejandro_share_alejandro + mitad_balance
         honorarios_carlos_base = income_carlos + carlos_share_alejandro + mitad_balance
         
         total_alejandro = honorarios_alejandro_base + expenses_paid_by_alejandro
         total_carlos = honorarios_carlos_base + expenses_paid_by_carlos
         
+        # 3. Flujo de Caja (Quién le debe a quién)
+        deuda_a_alejandro = total_alejandro - caja_alejandro
+        deuda_a_carlos = total_carlos - caja_carlos
+        
         # UI
         st.markdown(f"#### Resultados de {liq_month.title()} {int(liq_year)}")
+        
+        # Alerta de Transferencia Principal
+        st.markdown("---")
+        if deuda_a_alejandro > 0:
+            st.error(f"### 💸 TRANSFERENCIA PENDIENTE: **Carlos** debe girarle **${deuda_a_alejandro:,.0f}** a Alejandro.")
+        elif deuda_a_carlos > 0:
+            st.error(f"### 💸 TRANSFERENCIA PENDIENTE: **Alejandro** debe girarle **${deuda_a_carlos:,.0f}** a Carlos.")
+        else:
+            st.success("### ✅ CUENTAS SALDADAS: Ninguno se debe dinero este mes.")
+        st.markdown("---")
+        
         # Usamos contenedores estilizados
         col_res1, col_res2 = st.columns(2)
         
         with col_res1:
             st.info("🐺 **ALEJANDRO**")
-            st.markdown(f"- **80% Grupo Alejandro:** `+${alejandro_share_alejandro:,.0f}`")
+            st.markdown(f"**Revisión de Honorarios (Gané):**")
+            st.markdown(f"- 80% Grupo Alejandro: `+${alejandro_share_alejandro:,.0f}`")
             if balance_aprendizaje < 0:
-                st.markdown(f"- **50% Déficit (Faltante p/Gastos):** `-${abs(mitad_balance):,.0f}`")
+                st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance):,.0f}`")
             else:
-                st.markdown(f"- **50% Superávit (Sobrante Aprendizaje):** `+${mitad_balance:,.0f}`")
+                st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance:,.0f}`")
             if expenses_paid_by_alejandro > 0:
-                st.markdown(f"- **Devolución Gastos (Bolsillo):** `+${expenses_paid_by_alejandro:,.0f}`")
+                st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_alejandro:,.0f}`")
             
-            st.metric("Total a Transferir/Recibir", value=f"${total_alejandro:,.0f}")
+            st.metric("Total que DEBE tener (Honorarios)", value=f"${total_alejandro:,.0f}")
+            st.metric("Total que TIENE FÍSICAMENTE (Caja)", value=f"${caja_alejandro:,.0f}", delta=f"{caja_alejandro - total_alejandro:,.0f} (Tiene vs Ideal)", delta_color="inverse")
 
         with col_res2:
             st.error("🦁 **CARLOS**")
-            st.markdown(f"- **100% Grupo Carlos:** `+${income_carlos:,.0f}`")
-            st.markdown(f"- **20% Grupo Alejandro:** `+${carlos_share_alejandro:,.0f}`")
+            st.markdown(f"**Revisión de Honorarios (Gané):**")
+            st.markdown(f"- 100% Grupo Carlos: `+${income_carlos:,.0f}`")
+            st.markdown(f"- 20% Grupo Alejandro: `+${carlos_share_alejandro:,.0f}`")
             if balance_aprendizaje < 0:
-                st.markdown(f"- **50% Déficit (Faltante p/Gastos):** `-${abs(mitad_balance):,.0f}`")
+                st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance):,.0f}`")
             else:
-                st.markdown(f"- **50% Superávit (Sobrante Aprendizaje):** `+${mitad_balance:,.0f}`")
+                st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance:,.0f}`")
             if expenses_paid_by_carlos > 0:
-                st.markdown(f"- **Devolución Gastos (Bolsillo):** `+${expenses_paid_by_carlos:,.0f}`")
+                st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_carlos:,.0f}`")
             
-            st.metric("Total Equivalente (Dueño)", value=f"${total_carlos:,.0f}")
+            st.metric("Total que DEBE tener (Honorarios)", value=f"${total_carlos:,.0f}")
+            st.metric("Total que TIENE FÍSICAMENTE (Caja)", value=f"${caja_carlos:,.0f}", delta=f"{caja_carlos - total_carlos:,.0f} (Tiene vs Ideal)", delta_color="inverse")
 
         with st.expander("Ver Matemática del Pozo de Aprendizaje y Gastos"):
             st.write(f"1. **Ingresos del Grupo Aprendizaje:** `${pozo_aprendizaje:,.0f}`")
@@ -692,8 +732,13 @@ elif page == "Novedades/Pagos":
         # Payment Type / Frequency
         package_type = st.selectbox("Tipo de Pago", ["Mensual", "Trimestral (3 Meses)", "Semestral (6 Meses)", "Anual (12 Meses)"])
         
-    # Status is mostly PAID for packages, but let's keep it flexible
-    status = st.selectbox("Estado", ["PAID", "PENDING"])
+    c5, c6 = st.columns(2)
+    with c5:
+        # Status is mostly PAID for packages, but let's keep it flexible
+        status = st.selectbox("Estado", ["PAID", "PENDING"])
+    with c6:
+        # Bank Account routing
+        received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos", "Alejandro", "Efectivo/Caja"])
         
     if st.button("Registrar Transacción", type="primary"):
         if selected_member:
@@ -729,7 +774,8 @@ elif page == "Novedades/Pagos":
                     year=current_year,
                     amount=current_amount,
                     status=status,
-                    period=f"{current_year}-{current_month_name[:3]}"
+                    period=f"{current_year}-{current_month_name[:3]}",
+                    received_by=received_by if i == 0 else "" # Solo la cuota 1 trae la plata real al banco
                 )
                 session.add(new_tx)
             
@@ -885,7 +931,13 @@ elif page == "Configuración":
                 except:
                     pass # Probably exists
                     
-                # 3. FIX: Convert 'active' to BOOLEAN (Crucial for Dashboard)
+                # 3. Add Received By to Transactions (Bank Account Routing)
+                try:
+                    conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
+                except:
+                    pass # Probably exists
+                    
+                # 4. FIX: Convert 'active' to BOOLEAN (Crucial for Dashboard)
                 try:
                     # Force conversion from BigInt/Integer to Boolean causes: operator does not exist: bigint = boolean
                     conn.execute(text("ALTER TABLE members ALTER COLUMN active DROP DEFAULT;")) 

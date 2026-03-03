@@ -52,6 +52,7 @@ class Transaction(Base):
     amount = Column(Float)
     status = Column(String)  # PAID, PENDING, WAIVED
     payment_date = Column(Date, default=datetime.now)
+    received_by = Column(String, nullable=True) # Account that received the money
     created_at = Column(Date, default=datetime.now)
     
     member = relationship("Member", back_populates="transactions")
