@@ -463,6 +463,106 @@ if page == "Dashboard":
         st.error(f"⚠️ Error cargando deudores: {e}")
         st.info("👉 Ve a 'Configuración' -> 'ACTUALIZAR DB'.")
     
+    # --- LIQUIDACIÓN DE SOCIOS ---
+    st.markdown("---")
+    st.subheader("🤝 Liquidación Mensual de Entrenadores")
+    st.caption("Calculadora financiera para dividir honorarios según el modelo de negocio AlphaX.")
+    
+    # Selectores para la liquidación
+    c_liq1, c_liq2 = st.columns(2)
+    with c_liq1:
+        liq_month = st.selectbox("Mes a liquidar", months_list, index=current_month_index)
+    with c_liq2:
+        liq_year = st.number_input("Año a liquidar", value=current_year, step=1)
+        
+    try:
+        # Fetching valid payouts for the month
+        liq_txs = session.query(Transaction).join(Member).filter(
+            Transaction.month == liq_month,
+            Transaction.year == liq_year,
+            Transaction.status == 'PAID'
+        ).all()
+        
+        # Fetching expenses for the month
+        from sqlalchemy import extract
+        liq_month_idx = months_list.index(liq_month) + 1
+        
+        liq_exp_query = session.query(Expense).filter(
+            extract('month', Expense.date) == liq_month_idx,
+            extract('year', Expense.date) == liq_year
+        ).all()
+        
+        # 1. Variables Base
+        income_alejandro = sum(t.amount for t in liq_txs if t.member.group == "Alejandro")
+        income_carlos = sum(t.amount for t in liq_txs if t.member.group == "Carlos")
+        income_aprendizaje = sum(t.amount for t in liq_txs if t.member.group == "Aprendizaje")
+        
+        total_expenses_liq = sum(e.amount for e in liq_exp_query)
+        expenses_paid_by_alejandro = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Alejandro')
+        expenses_paid_by_carlos = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Carlos')
+        
+        # 2. Lógica Comercial Negociada
+        # Ingreso Privado Alejandro (80/20)
+        alejandro_share_alejandro = income_alejandro * 0.80
+        carlos_share_alejandro = income_alejandro * 0.20
+        
+        # Pozo de Aprendizaje (Cubre Gastos y se divide 50/50)
+        pozo_aprendizaje = income_aprendizaje
+        gastos_a_cubrir = total_expenses_liq
+        balance_aprendizaje = pozo_aprendizaje - gastos_a_cubrir
+        mitad_balance = balance_aprendizaje / 2.0  # Puede ser positivo (superávit) o negativo (déficit)
+        
+        # Liquidación Final
+        honorarios_alejandro_base = alejandro_share_alejandro + mitad_balance
+        honorarios_carlos_base = income_carlos + carlos_share_alejandro + mitad_balance
+        
+        total_alejandro = honorarios_alejandro_base + expenses_paid_by_alejandro
+        total_carlos = honorarios_carlos_base + expenses_paid_by_carlos
+        
+        # UI
+        st.markdown(f"#### Resultados de {liq_month.title()} {int(liq_year)}")
+        # Usamos contenedores estilizados
+        col_res1, col_res2 = st.columns(2)
+        
+        with col_res1:
+            st.info("🐺 **ALEJANDRO**")
+            st.markdown(f"- **80% Grupo Alejandro:** `+${alejandro_share_alejandro:,.0f}`")
+            if balance_aprendizaje < 0:
+                st.markdown(f"- **50% Déficit (Faltante p/Gastos):** `-${abs(mitad_balance):,.0f}`")
+            else:
+                st.markdown(f"- **50% Superávit (Sobrante Aprendizaje):** `+${mitad_balance:,.0f}`")
+            if expenses_paid_by_alejandro > 0:
+                st.markdown(f"- **Devolución Gastos (Bolsillo):** `+${expenses_paid_by_alejandro:,.0f}`")
+            
+            st.metric("Total a Transferir/Recibir", value=f"${total_alejandro:,.0f}")
+
+        with col_res2:
+            st.error("🦁 **CARLOS**")
+            st.markdown(f"- **100% Grupo Carlos:** `+${income_carlos:,.0f}`")
+            st.markdown(f"- **20% Grupo Alejandro:** `+${carlos_share_alejandro:,.0f}`")
+            if balance_aprendizaje < 0:
+                st.markdown(f"- **50% Déficit (Faltante p/Gastos):** `-${abs(mitad_balance):,.0f}`")
+            else:
+                st.markdown(f"- **50% Superávit (Sobrante Aprendizaje):** `+${mitad_balance:,.0f}`")
+            if expenses_paid_by_carlos > 0:
+                st.markdown(f"- **Devolución Gastos (Bolsillo):** `+${expenses_paid_by_carlos:,.0f}`")
+            
+            st.metric("Total Equivalente (Dueño)", value=f"${total_carlos:,.0f}")
+
+        with st.expander("Ver Matemática del Pozo de Aprendizaje y Gastos"):
+            st.write(f"1. **Ingresos del Grupo Aprendizaje:** `${pozo_aprendizaje:,.0f}`")
+            st.write(f"2. **Total de Gastos Realizados en el Mes:** `${gastos_a_cubrir:,.0f}`")
+            
+            if balance_aprendizaje >= 0:
+                st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (Se divide entre 2)")
+            else:
+                st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (Se divide entre 2 para que lo asuman)")
+
+    except Exception as e:
+        session.rollback()
+        st.error(f"⚠️ Error calculando liquidación: {e}")
+        st.info("Nota: Requieres subir primero pagos para que la tabla empiece a calcular.")
+        
     session.close()
 
 # --- PAGE: SOCIOS ---
