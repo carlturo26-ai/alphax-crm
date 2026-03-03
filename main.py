@@ -180,43 +180,46 @@ if page == "Dashboard":
         member_query = member_query.filter(Member.group == selected_group)
         
     # KPIs Calculation
-    txs = tx_query.filter(Transaction.status == 'PAID').all()
-    total_income = sum(t.amount for t in txs)
+    try:
+        txs = tx_query.filter(Transaction.status == 'PAID').all()
+        total_income = sum(t.amount for t in txs)
+    except Exception as e_tx:
+        st.error(f"⚠️ Actualización Requerida en Pagos: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
+        st.info("Ve a 'Configuración' y haz clic en 'ACTUALIZAR DB'.")
+        txs = []
+        total_income = 0
     
     # Calculate Expenses
     try:
         expense_query = session.query(Expense)
-        # If filtering by group, we assume expenses are GLOBAL for now unless we add group to expenses too.
-        # For now, let's keep expenses Global.
         total_expenses = sum(e.amount for e in expense_query.all())
     except Exception as e:
         # Schema Error Catch - Schema Migration Handler
-        st.error(f"⚠️ Actualización Requerida: {e}")
-        st.info("Esto es normal por la nueva función de 'Control de Saldos'.")
+        st.error(f"⚠️ Actualización Requerida en Gastos: Selecciona el botón de mantenimiento abajo.")
         
         st.markdown("---")
-        st.subheader("🔧 Herramientas de Mantenimiento")
+        st.subheader("🔧 Herramientas de Mantenimiento Rápido")
         
-        if st.button("🛠️ ACTUALIZAR DB (Agregar campos: Teléfono y Control Saldos)"):
+        if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS"):
             try:
                 from sqlalchemy import text
                 with engine.connect() as conn:
-                    # 1. Add Paid By to Expenses
                     try:
                         conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
                     except:
-                        pass # Probably exists
-                    
-                    # 2. Add Phone to Members
+                        pass
                     try:
                         conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
                     except:
-                        pass # Probably exists
-                        
+                        pass
+                    try:
+                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
+                    except:
+                        pass
                     conn.commit()
-                st.success("✅ ¡Base de datos actualizada! Ahora puedes registrar teléfonos.")
-            except Exception as e:
-                st.error(f"Error en migración: {e}")
+                st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
+            except Exception as e_mig:
+                st.error(f"Error forzando actualización: {e_mig}")
         total_expenses = 0 # Fallback
     
     net_profit = total_income - total_expenses
