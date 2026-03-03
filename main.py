@@ -306,7 +306,9 @@ if page == "Dashboard":
         df_exp_cat = pd.DataFrame()
 
     # 3. Preparar Datos de Utilidad Neta
-    df_net = pd.merge(df_rev_grouped, df_exp_grouped, on="month", how="outer").fillna(0)
+    df_net = pd.merge(df_rev_grouped, df_exp_grouped, on="month", how="outer")
+    df_net["amount"] = df_net["amount"].fillna(0)
+    df_net["Amount"] = df_net["Amount"].fillna(0)
     df_net["Neto"] = df_net["amount"] - df_net["Amount"]
     df_net["Tipo"] = df_net["Neto"].apply(lambda x: "Ganancia" if x >= 0 else "Pérdida")
     
