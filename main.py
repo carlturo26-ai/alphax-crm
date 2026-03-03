@@ -255,94 +255,106 @@ if page == "Dashboard":
     col3.metric("Resultado Neto", f"${net_profit:,.0f}")
     col4.metric("Socios", member_count)
     
-    # Graphs
-    # Get dataframe from filtered stats
+    # --- GRÁFICOS Y ANÁLISIS ---
+    months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
+                    "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+    
+    # 1. Preparar Datos de Ingresos
     data_rev = []
     for t in txs:
         data_rev.append({"month": t.month, "amount": t.amount, "type": "Ingreso"})
-    
-    # Add expenses to graph? Or kept separate. Maybe specific graph for Balance.
-    # Let's keep the Income graph by month as is, and add an Expense Breakdown?
-    
     df_rev = pd.DataFrame(data_rev)
-    
     if not df_rev.empty:
-        months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
-                        "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
-        
         df_rev['month'] = pd.Categorical(df_rev['month'], categories=months_order, ordered=True)
-        df_grouped = df_rev.groupby("month")["amount"].sum().reset_index()
+        df_rev_grouped = df_rev.groupby("month", observed=False)["amount"].sum().reset_index()
+    else:
+        df_rev_grouped = pd.DataFrame({"month": months_order, "amount": [0]*12})
+        df_rev_grouped['month'] = pd.Categorical(df_rev_grouped['month'], categories=months_order, ordered=True)
+
+    # 2. Preparar Datos de Gastos
+    data_exp = []
+    try:
+        all_expenses = expense_query.all()
+        for e in all_expenses:
+            if hasattr(e, 'date') and e.date:
+                m_str = months_order[e.date.month - 1]
+            else:
+                m_str = "SIN MES"
+            paid_by_val = getattr(e, 'paid_by', 'AlphaX (Caja)')
+            data_exp.append({
+                "month": m_str,
+                "Category": e.category or "General", 
+                "Amount": e.amount, 
+                "Pagado Por": paid_by_val,
+                "Descripción": e.description
+            })
+        df_exp = pd.DataFrame(data_exp)
+    except Exception as e:
+        session.rollback()
+        df_exp = pd.DataFrame()
+        st.warning(f"⚠️ Error cargando gastos: {e}")
+
+    if not df_exp.empty:
+        df_exp['month'] = pd.Categorical(df_exp['month'], categories=months_order, ordered=True)
+        df_exp_grouped = df_exp.groupby("month", observed=False)["Amount"].sum().reset_index()
+        df_exp_cat = df_exp.groupby(["month", "Category"], observed=False)["Amount"].sum().reset_index()
+        # Filtramos ceros para el gráfico de barras apiladas
+        df_exp_cat = df_exp_cat[df_exp_cat["Amount"] > 0]
+    else:
+        df_exp_grouped = pd.DataFrame({"month": months_order, "Amount": [0]*12})
+        df_exp_grouped['month'] = pd.Categorical(df_exp_grouped['month'], categories=months_order, ordered=True)
+        df_exp_cat = pd.DataFrame()
+
+    # 3. Preparar Datos de Utilidad Neta
+    df_net = pd.merge(df_rev_grouped, df_exp_grouped, on="month", how="outer").fillna(0)
+    df_net["Neto"] = df_net["amount"] - df_net["Amount"]
+    df_net["Tipo"] = df_net["Neto"].apply(lambda x: "Ganancia" if x >= 0 else "Pérdida")
+    
+    # Eliminar meses futuros sin datos para que el gráfico no se vea vacío a la derecha
+    # Opcional: Mostrar solo meses con movimientos
+    has_movement = (df_net["amount"] > 0) | (df_net["Amount"] > 0) | (df_net["Neto"] != 0)
+    # Por ahora dejamos todos los meses como pidió el usuario para ver evolución, o filtramos si vemos que es mejor.
+    
+    # --- FILA DE GRÁFICOS 1 (Ingresos y Gastos) ---
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.markdown("### 📈 Evolución Ingresos")
+        fig_rev = px.bar(
+            df_rev_grouped, x="month", y="amount", 
+            color_discrete_sequence=["#33C1FF"], text_auto='.2s'
+        )
+        fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
+        st.plotly_chart(fig_rev, use_container_width=True)
         
-        # --- CHARTS ROW ---
-        col_c1, col_c2 = st.columns(2)
-        
-        with col_c1:
-            st.markdown("### 📈 Ingresos Mensuales")
-            fig_rev = px.bar(
-                df_grouped, 
-                x="month", 
-                y="amount", 
-                # title="Ingresos Mensuales", 
-                color_discrete_sequence=["#33C1FF"],
-                text_auto='.2s'
+    with col_c2:
+        st.markdown("### 📉 Evolución Gastos (Por Categoría)")
+        if not df_exp_cat.empty:
+            fig_exp = px.bar(
+                df_exp_cat, x="month", y="Amount", color="Category",
+                text_auto='.2s', color_discrete_sequence=px.colors.qualitative.Pastel,
+                barmode='stack'
             )
-            fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
-            st.plotly_chart(fig_rev, use_container_width=True)
-            
-        with col_c2:
-            st.markdown("### 📉 Desglose de Gastos")
-            # SAFE QUERY EXECUTION
-            try:
-                all_expenses = expense_query.all()
-                
-                if all_expenses:
-                    # Prepare data for charts with safe attribute access
-                    data_exp = []
-                    for e in all_expenses:
-                        paid_by_val = getattr(e, 'paid_by', 'AlphaX (Caja)')
-                        data_exp.append({
-                            "Category": e.category or "General", 
-                            "Amount": e.amount, 
-                            "Pagado Por": paid_by_val
-                        })
-                        
-                    df_exp = pd.DataFrame(data_exp)
-                    
-                    # Group by Category (Pie Chart)
-                    df_exp_grouped = df_exp.groupby("Category")["Amount"].sum().reset_index()
-                    
-                    fig_exp = px.pie(
-                        df_exp_grouped, 
-                        values="Amount", 
-                        names="Category", 
-                        color_discrete_sequence=px.colors.sequential.RdBu,
-                        hole=0.4
-                    )
-                    fig_exp.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
-                    st.plotly_chart(fig_exp, use_container_width=True)
-                    
-                    # Breakdown by Payer
-                    st.markdown("##### 👥 Control de Saldos")
-                    if not df_exp.empty and "Pagado Por" in df_exp.columns:
-                        df_payer = df_exp.groupby("Pagado Por")["Amount"].sum().reset_index()
-                        
-                        fig_payer = px.bar(df_payer, x="Pagado Por", y="Amount", text_auto='.2s', color="Pagado Por", color_discrete_sequence=px.colors.qualitative.Pastel)
-                        fig_payer.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", showlegend=False)
-                        st.plotly_chart(fig_payer, use_container_width=True)
-                    
-                    # Optional: Show Detailed List expander
-                    with st.expander("Ver Detalle de Gastos"):
-                        st.dataframe(df_exp, use_container_width=True)
-                else:
-                    st.info("No hay gastos registrados aún.")
-                    
-            except Exception as e:
-                session.rollback() # CRITICAL: Fix 'current transaction is aborted'
-                st.warning("⚠️ Actualización Requerida: Faltan columnas en la Base de Datos (Gastos).")
-                # st.caption(f"Detalle técnico: {e}") 
-                # Keep it clean for user, they know they need to update
-                st.info("👉 Ve a 'Configuración' y dale al botón 'ACTUALIZAR DB' para arreglarlo.")
+            fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
+            st.plotly_chart(fig_exp, use_container_width=True)
+        else:
+            st.info("No hay gastos registrados aún.")
+
+    # --- FILA DE GRÁFICOS 2 (Utilidad Neta) ---
+    st.markdown("### ⚖️ Utilidad Neta (Ingresos - Gastos)")
+    fig_net = px.bar(
+        df_net, x="month", y="Neto", text_auto='.2s',
+        color="Tipo", color_discrete_map={"Ganancia": "#33C1FF", "Pérdida": "#FF4B4B"}
+    )
+    fig_net.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
+    st.plotly_chart(fig_net, use_container_width=True)
+    
+    # --- TABLA DETALLADA DE GASTOS ---
+    if not df_exp.empty:
+        with st.expander("📋 Ver Desglose Detallado de Gastos por Mes", expanded=False):
+            df_disp = df_exp.copy()
+            df_disp['Amount'] = df_disp['Amount'].apply(lambda x: f"${x:,.0f}")
+            df_disp.rename(columns={'month': 'Mes', 'Category': 'Categoría', 'Amount': 'Monto'}, inplace=True)
+            st.dataframe(df_disp[["Mes", "Categoría", "Descripción", "Monto", "Pagado Por"]], use_container_width=True)
     
     # --- DEUDORES / PENDIENTES ---
     st.markdown("---")
