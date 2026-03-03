@@ -325,6 +325,7 @@ if page == "Dashboard":
             df_rev_grouped, x="month", y="amount", 
             color_discrete_sequence=["#33C1FF"], text_auto='.2s'
         )
+        fig_rev.update_traces(hovertemplate='Mes: %{x}<br>Total: $%{y:,.0f}<extra></extra>')
         fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
         st.plotly_chart(fig_rev, use_container_width=True)
         
@@ -336,6 +337,7 @@ if page == "Dashboard":
                 text_auto='.2s', color_discrete_sequence=px.colors.qualitative.Pastel,
                 barmode='stack'
             )
+            fig_exp.update_traces(hovertemplate='Mes: %{x}<br>Categoría: %{color}<br>Total: $%{y:,.0f}<extra></extra>')
             fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
             st.plotly_chart(fig_exp, use_container_width=True)
         else:
@@ -347,6 +349,7 @@ if page == "Dashboard":
         df_net, x="month", y="Neto", text_auto='.2s',
         color="Tipo", color_discrete_map={"Ganancia": "#33C1FF", "Pérdida": "#FF4B4B"}
     )
+    fig_net.update_traces(hovertemplate='Mes: %{x}<br>Neto: $%{y:,.0f}<extra></extra>')
     fig_net.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
     st.plotly_chart(fig_net, use_container_width=True)
     
@@ -709,17 +712,28 @@ elif page == "Gastos":
     st.markdown("---")
     st.subheader("Historial de Gastos")
     
-    expenses = session.query(Expense).order_by(Expense.date.desc()).all()
+    expenses = session.query(Expense).order_by(Expense.date.desc()).limit(50).all()
     if expenses:
         # Include Paid By in table
         data = [{"ID": e.id, "Fecha": e.date, "Descripción": e.description, "Categoría": e.category, "Monto": f"${e.amount:,.0f}", "Pagado Por": e.paid_by} for e in expenses]
         st.dataframe(data, use_container_width=True)
         
-        if st.button("Borrar Último Gasto"):
-             last = expenses[0]
-             session.delete(last)
-             session.commit()
-             st.rerun()
+        # Selective Deletion for Expenses
+        with st.expander("🗑️ Eliminar un Gasto"):
+            st.warning("Esta acción borrará el gasto seleccionado.")
+            options = {f"ID: {e.id} - {e.description} - ${e.amount:,.0f} ({e.date})": e.id for e in expenses}
+            selected_option = st.selectbox("Seleccionar Gasto a Eliminar", list(options.keys()))
+            
+            if st.button("Eliminar Gasto Seleccionado", type="primary"):
+                exp_id_to_delete = options[selected_option]
+                exp_to_del = session.query(Expense).filter(Expense.id == exp_id_to_delete).first()
+                if exp_to_del:
+                    session.delete(exp_to_del)
+                    session.commit()
+                    st.success(f"Gasto {exp_id_to_delete} eliminado.")
+                    st.rerun()
+                else:
+                    st.error("No se encontró el gasto.")
     else:
         st.info("No hay gastos registrados.")
         
