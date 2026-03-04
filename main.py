@@ -744,7 +744,29 @@ elif page == "Novedades/Pagos":
         # Month List for Indexing
         months_list = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
                        "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
-        start_month = st.selectbox("Mes de Inicio", months_list)
+        
+        # Filter logic to prevent duplicate month entries
+        paid_months = []
+        if selected_member:
+            try:
+                mem_obj_temp = session.query(Member).filter(Member.name == selected_member).first()
+                if mem_obj_temp:
+                    paid_txs = session.query(Transaction.month).filter(
+                        Transaction.member_id == mem_obj_temp.id,
+                        Transaction.year == 2026, # Current operational year
+                        Transaction.status == 'PAID'
+                    ).all()
+                    paid_months = [m[0] for m in paid_txs]
+            except Exception:
+                pass # Safe fallback
+        
+        available_months = [m for m in months_list if m not in paid_months]
+        
+        if not available_months:
+            st.warning("Este socio ya completó todos sus pagos de 2026.")
+            start_month = None
+        else:
+            start_month = st.selectbox("Mes de Inicio (Disponibles)", available_months)
         
     with col4:
         # Payment Type / Frequency
@@ -759,7 +781,7 @@ elif page == "Novedades/Pagos":
         received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos", "Alejandro", "Efectivo/Caja"])
         
     if st.button("Registrar Transacción", type="primary"):
-        if selected_member:
+        if selected_member and start_month:
             mem_obj = session.query(Member).filter(Member.name == selected_member).first()
             
             # Determine Duration
@@ -802,10 +824,6 @@ elif page == "Novedades/Pagos":
                 st.success(f"¡Paquete registrado! Se crearon {duration} pagos (Mes 1: ${amount:,.0f}, Resto: $0 cubierto).")
             else:
                 st.success("Pago registrado exitosamente!")
-            
-            session.add(new_tx)
-            session.commit()
-            st.success("Pago registrado exitosamente!")
             
     # --- HISTORIAL Y ANULACIÓN ---
     st.markdown("---")
