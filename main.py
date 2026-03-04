@@ -1025,9 +1025,33 @@ elif page == "Configuración":
                 df_expenses = pd.read_sql("SELECT * FROM expenses", engine)
                 
                 # Write Sheets
-                df_members.to_excel(writer, sheet_name='Socios', index=False)
-                df_transactions.to_excel(writer, sheet_name='Pagos', index=False)
-                df_expenses.to_excel(writer, sheet_name='Gastos', index=False)
+                df_members_out = df_members.rename(columns={
+                    "id": "ID", "name": "Nombre", "group": "Grupo", 
+                    "active": "Activo", "created_at": "Fecha Registro", "phone": "Teléfono"
+                })
+                # Drop unnecessary columns if they exist
+                if "created_at" in df_members_out.columns: df_members_out["Fecha Registro"] = pd.to_datetime(df_members_out["Fecha Registro"]).dt.tz_localize(None)
+
+                df_transactions_out = df_transactions.rename(columns={
+                    "id": "ID", "member_id": "ID Socio", "period": "Periodo", 
+                    "year": "Año", "month": "Mes", "amount": "Monto", 
+                    "status": "Estado", "payment_date": "Fecha Pago", 
+                    "created_at": "Fecha Registro", "received_by": "Cuenta Destino"
+                })
+                if "Fecha Registro" in df_transactions_out.columns: df_transactions_out["Fecha Registro"] = pd.to_datetime(df_transactions_out["Fecha Registro"]).dt.tz_localize(None)
+                if "Fecha Pago" in df_transactions_out.columns: df_transactions_out["Fecha Pago"] = pd.to_datetime(df_transactions_out["Fecha Pago"]).dt.tz_localize(None)
+
+                df_expenses_out = df_expenses.rename(columns={
+                    "id": "ID", "description": "Descripción", "amount": "Monto", 
+                    "date": "Fecha", "category": "Categoría", "created_at": "Fecha Registro",
+                    "paid_by": "Pagado Por"
+                })
+                if "Fecha" in df_expenses_out.columns: df_expenses_out["Fecha"] = pd.to_datetime(df_expenses_out["Fecha"]).dt.tz_localize(None)
+                if "Fecha Registro" in df_expenses_out.columns: df_expenses_out["Fecha Registro"] = pd.to_datetime(df_expenses_out["Fecha Registro"]).dt.tz_localize(None)
+
+                df_members_out.to_excel(writer, sheet_name='Socios', index=False)
+                df_transactions_out.to_excel(writer, sheet_name='Pagos', index=False)
+                df_expenses_out.to_excel(writer, sheet_name='Gastos', index=False)
                 
             output.seek(0)
             
