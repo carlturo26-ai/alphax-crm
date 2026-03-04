@@ -866,7 +866,7 @@ elif page == "Novedades/Pagos":
     
     if recent_txs:
         # Table data
-        hist_data = [{"ID": t.id, "Fecha": t.created_at, "Socio": t.member.name, "Mes": t.month, "Monto": f"${t.amount:,.0f}", "Estado": t.status} 
+        hist_data = [{"ID": t.id, "Fecha": t.created_at, "Socio": t.member.name, "Mes": t.month, "Monto": f"${t.amount:,.0f}", "Cuenta Destino": t.received_by, "Estado": t.status} 
                      for t in recent_txs]
         st.dataframe(hist_data, use_container_width=True)
         
