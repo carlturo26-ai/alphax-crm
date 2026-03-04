@@ -606,8 +606,33 @@ if page == "Dashboard":
 
     except Exception as e:
         session.rollback()
-        st.error(f"⚠️ Error calculando liquidación: {e}")
-        st.info("Nota: Requieres subir primero pagos para que la tabla empiece a calcular.")
+        st.error(f"⚠️ Actualización Requerida en Liquidación: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
+        
+        st.markdown("---")
+        st.subheader("🔧 Herramientas de Mantenimiento Rápido")
+        if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS", key="fix_liq"):
+            try:
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    try:
+                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                    except:
+                        pass
+                    try:
+                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
+                    except:
+                        pass
+                    try:
+                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
+                    except:
+                        pass
+                    conn.commit()
+                st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
+                import time
+                time.sleep(1)
+                st.rerun()
+            except Exception as e_mig:
+                st.error(f"Error forzando actualización: {e_mig}")
         
     session.close()
 
