@@ -282,50 +282,75 @@ if page == "Dashboard":
     months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
                     "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
     
-    # 1. Preparar Datos de Ingresos
-    data_rev = []
-    for t in txs:
-        data_rev.append({"month": t.month, "amount": t.amount, "type": "Ingreso"})
-    df_rev = pd.DataFrame(data_rev)
-    if not df_rev.empty:
-        df_rev['month'] = pd.Categorical(df_rev['month'], categories=months_order, ordered=True)
-        df_rev_grouped = df_rev.groupby("month", observed=False)["amount"].sum().reset_index()
-    else:
-        df_rev_grouped = pd.DataFrame({"month": months_order, "amount": [0]*12})
-        df_rev_grouped['month'] = pd.Categorical(df_rev_grouped['month'], categories=months_order, ordered=True)
-
-    # 2. Preparar Datos de Gastos
-    data_exp = []
+    # 1. Preparar Datos Mensuales con Lógica Estratégica
+    monthly_data = {m: {"Income": 0.0, "Expense": 0.0} for m in months_order}
+    data_exp_cat = [] # Detalle para gráfico apilado de gastos
+    
+    # --- PROCESAR INGRESOS ---
+    # Usamos all_txs (todas las transacciones pagadas) para calcular pedazos según el Entrenador seleccionado
+    for t in all_txs:
+        m = t.month
+        amt = t.amount
+        grp = t.member.group
+        
+        if m in monthly_data:
+            if selected_group == "Todos":
+                monthly_data[m]["Income"] += amt
+            elif selected_group == "Carlos":
+                if grp == "Carlos": monthly_data[m]["Income"] += amt
+                elif grp == "Alejandro": monthly_data[m]["Income"] += amt * 0.20
+                elif grp == "Aprendizaje": monthly_data[m]["Income"] += amt / 2.0
+            elif selected_group == "Alejandro":
+                if grp == "Alejandro": monthly_data[m]["Income"] += amt * 0.80
+                elif grp == "Aprendizaje": monthly_data[m]["Income"] += amt / 2.0
+            elif selected_group == "Aprendizaje":
+                if grp == "Aprendizaje": monthly_data[m]["Income"] += amt
+                
+    # --- PROCESAR GASTOS ---
     try:
         expense_query = session.query(Expense)
-        all_expenses = expense_query.all()
-        for e in all_expenses:
+        all_expenses_list = expense_query.all()
+        for e in all_expenses_list:
             if hasattr(e, 'date') and e.date:
                 m_str = months_order[e.date.month - 1]
             else:
                 m_str = "SIN MES"
-            paid_by_val = getattr(e, 'paid_by', 'AlphaX (Caja)')
-            data_exp.append({
-                "month": m_str,
-                "Category": e.category or "General", 
-                "Amount": e.amount, 
-                "Pagado Por": paid_by_val,
-                "Descripción": e.description
-            })
-        df_exp = pd.DataFrame(data_exp)
+                
+            amt = e.amount
+            # Aplicar partición de gastos si filtramos por Alejandro o Carlos
+            if selected_group in ["Carlos", "Alejandro"]:
+                allocated_exp = amt / 2.0
+            else:
+                allocated_exp = amt
+                
+            if m_str in monthly_data:
+                monthly_data[m_str]["Expense"] += allocated_exp
+                paid_by_val = getattr(e, 'paid_by', 'AlphaX (Caja)')
+                data_exp_cat.append({
+                    "month": m_str,
+                    "Category": e.category or "General", 
+                    "Amount": allocated_exp, 
+                    "Pagado Por": paid_by_val,
+                    "Descripción": e.description
+                })
+        df_exp = pd.DataFrame(data_exp_cat)
     except Exception as e:
         session.rollback()
         df_exp = pd.DataFrame()
         st.warning(f"⚠️ Error cargando gastos: {e}")
-
+        
+    # Construir DataFrames de Resultados para Plotly
+    df_rev_grouped = pd.DataFrame({"month": list(monthly_data.keys()), "amount": [d["Income"] for d in monthly_data.values()]})
+    df_rev_grouped['month'] = pd.Categorical(df_rev_grouped['month'], categories=months_order, ordered=True)
+    
     if not df_exp.empty:
         df_exp['month'] = pd.Categorical(df_exp['month'], categories=months_order, ordered=True)
+        # Re-agrupar para validar la base de datos visual
         df_exp_grouped = df_exp.groupby("month", observed=False)["Amount"].sum().reset_index()
         df_exp_cat = df_exp.groupby(["month", "Category"], observed=False)["Amount"].sum().reset_index()
-        # Filtramos ceros para el gráfico de barras apiladas
         df_exp_cat = df_exp_cat[df_exp_cat["Amount"] > 0]
     else:
-        df_exp_grouped = pd.DataFrame({"month": months_order, "Amount": [0]*12})
+        df_exp_grouped = pd.DataFrame({"month": list(monthly_data.keys()), "Amount": [d["Expense"] for d in monthly_data.values()]})
         df_exp_grouped['month'] = pd.Categorical(df_exp_grouped['month'], categories=months_order, ordered=True)
         df_exp_cat = pd.DataFrame()
 
