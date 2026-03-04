@@ -826,7 +826,35 @@ elif page == "Novedades/Pagos":
     
     # Get recent TXs
     # Joined with Member to see names
-    recent_txs = session.query(Transaction).join(Member).order_by(Transaction.id.desc()).limit(20).all()
+    try:
+        recent_txs = session.query(Transaction).join(Member).order_by(Transaction.id.desc()).limit(20).all()
+    except Exception as e_hist:
+        session.rollback()
+        st.error("⚠️ Actualización Requerida: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
+        if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS", key="fix_hist_pagos"):
+            try:
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    try:
+                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
+                    except:
+                        pass
+                    try:
+                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
+                    except:
+                        pass
+                    try:
+                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
+                    except:
+                        pass
+                    conn.commit()
+                st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
+                import time
+                time.sleep(1)
+                st.rerun()
+            except Exception as e_mig:
+                st.error(f"Error forzando actualización: {e_mig}")
+        recent_txs = []
     
     if recent_txs:
         # Table data
