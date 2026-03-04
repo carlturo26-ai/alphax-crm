@@ -297,6 +297,7 @@ if page == "Dashboard":
     # 2. Preparar Datos de Gastos
     data_exp = []
     try:
+        expense_query = session.query(Expense)
         all_expenses = expense_query.all()
         for e in all_expenses:
             if hasattr(e, 'date') and e.date:
