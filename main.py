@@ -942,6 +942,22 @@ elif page == "Configuración":
             st.error(f"Error reseteando: {e}")
         finally:
             session.close()
+            
+    with st.expander("🧹 Limpiar Contabilidad (Mantener Atletas)"):
+        st.warning("Esta opción borrará todos los **Pagos** y **Gastos** registrados, pero mantendrá intacta tu lista de Socios, Grupos y Teléfonos.")
+        if st.button("BORRAR SÓLO PAGOS Y GASTOS", type="primary"):
+            session = SessionLocal()
+            try:
+                from sqlalchemy import text
+                # Delete records from transactions and expenses, keep tables
+                session.execute(text("DELETE FROM transactions;"))
+                session.execute(text("DELETE FROM expenses;"))
+                session.commit()
+                st.success("✅ Historial de contabilidad en $0. ¡Los atletas siguen a salvo!")
+            except Exception as e_del:
+                st.error(f"Error limpiando contabilidad: {e_del}")
+            finally:
+                session.close()
         
     st.markdown("---")
     st.subheader("🔧 Herramientas de Mantenimiento")
