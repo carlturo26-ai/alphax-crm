@@ -211,22 +211,36 @@ if page == "Dashboard":
     # KPIs Calculation
     try:
         txs = tx_query.filter(Transaction.status == 'PAID').all()
-        total_income = sum(t.amount for t in txs)
-    except Exception as e_tx:
+        
+        all_txs = session.query(Transaction).filter(Transaction.status == 'PAID').all()
+        all_expenses = session.query(Expense).all()
+        total_expenses_raw = sum(e.amount for e in all_expenses)
+        
+        inc_ale = sum(t.amount for t in all_txs if t.member.group == "Alejandro")
+        inc_car = sum(t.amount for t in all_txs if t.member.group == "Carlos")
+        inc_apr = sum(t.amount for t in all_txs if t.member.group == "Aprendizaje")
+        
+        if selected_group == "Todos":
+            total_income = sum(t.amount for t in txs)
+            total_expenses = total_expenses_raw
+        elif selected_group == "Carlos":
+            total_income = inc_car + (inc_ale * 0.20) + (inc_apr / 2.0)
+            total_expenses = total_expenses_raw / 2.0
+        elif selected_group == "Alejandro":
+            total_income = (inc_ale * 0.80) + (inc_apr / 2.0)
+            total_expenses = total_expenses_raw / 2.0
+        elif selected_group == "Aprendizaje":
+            total_income = inc_apr
+            total_expenses = total_expenses_raw
+        else:
+            total_income = sum(t.amount for t in txs)
+            total_expenses = 0
+            
+        net_profit = total_income - total_expenses
+        
+    except Exception as e_mig:
         session.rollback()
-        st.error(f"⚠️ Actualización Requerida en Pagos: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
-        st.info("Ve a 'Configuración' y haz clic en 'ACTUALIZAR DB'.")
-        txs = []
-        total_income = 0
-    
-    # Calculate Expenses
-    try:
-        expense_query = session.query(Expense)
-        total_expenses = sum(e.amount for e in expense_query.all())
-    except Exception as e:
-        session.rollback()
-        # Schema Error Catch - Schema Migration Handler
-        st.error(f"⚠️ Actualización Requerida en Gastos: Selecciona el botón de mantenimiento abajo.")
+        st.error(f"⚠️ Actualización Requerida en Pagos/Gastos: Selecciona el botón de mantenimiento abajo.")
         
         st.markdown("---")
         st.subheader("🔧 Herramientas de Mantenimiento Rápido")
@@ -235,11 +249,13 @@ if page == "Dashboard":
             try:
                 force_schema_update(engine)
                 st.success("✅ Tablas reparadas en la nube. ¡Recarga la página (F5)!")
-            except Exception as e_mig:
-                st.error(f"Error forzando actualización: {e_mig}")
-        total_expenses = 0 # Fallback
-    
-    net_profit = total_income - total_expenses
+            except Exception as e_mig_2:
+                st.error(f"Error forzando actualización: {e_mig_2}")
+        
+        txs = []
+        total_income = 0
+        total_expenses = 0
+        net_profit = 0
     
     try:
         member_count = member_query.count()
