@@ -732,12 +732,24 @@ elif page == "Novedades/Pagos":
     col1, col2 = st.columns(2)
     
     with col1:
-        members = session.query(Member).filter(Member.active == True).all()
-        member_names = [m.name for m in members]
-        selected_member = st.selectbox("Seleccionar Socio", member_names)
+        members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
+        member_names = ["+ Agregar Nuevo Socio..."] + [m.name for m in members]
+        selected_member_ui = st.selectbox("Seleccionar Socio", member_names)
+        
+        new_member_group = None
+        if selected_member_ui == "+ Agregar Nuevo Socio...":
+            final_member_name = st.text_input("Escribe el nombre del nuevo deportista:").strip().upper()
+            new_member_group = st.selectbox("Grupo al que ingresa:", ["Aprendizaje", "Alejandro", "Carlos"])
+        else:
+            final_member_name = selected_member_ui
     
     with col2:
-        amount = st.number_input("Monto", min_value=0, step=1000, value=150000)
+        tarifas = [300000, 315000, 350000, 400000, 405000, 450000, 530000, 1000000, 1320000, 1500000, 1900000, 2280000, 2600000, 3600000, 5000000, 5500000, "Otro Monto..."]
+        amount_sel = st.selectbox("Monto", tarifas, format_func=lambda x: f"${x:,.0f}" if isinstance(x, int) else x)
+        if amount_sel == "Otro Monto...":
+            amount = st.number_input("Monto Manual", min_value=0, step=1000, value=150000)
+        else:
+            amount = amount_sel
     
     col3, col4 = st.columns(2)
     with col3:
@@ -747,9 +759,9 @@ elif page == "Novedades/Pagos":
         
         # Filter logic to prevent duplicate month entries
         paid_months = []
-        if selected_member:
+        if final_member_name and selected_member_ui != "+ Agregar Nuevo Socio...":
             try:
-                mem_obj_temp = session.query(Member).filter(Member.name == selected_member).first()
+                mem_obj_temp = session.query(Member).filter(Member.name == final_member_name).first()
                 if mem_obj_temp:
                     paid_txs = session.query(Transaction.month).filter(
                         Transaction.member_id == mem_obj_temp.id,
@@ -781,8 +793,13 @@ elif page == "Novedades/Pagos":
         received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos", "Alejandro", "Efectivo/Caja"])
         
     if st.button("Registrar Transacción", type="primary"):
-        if selected_member and start_month:
-            mem_obj = session.query(Member).filter(Member.name == selected_member).first()
+        if final_member_name and start_month:
+            mem_obj = session.query(Member).filter(Member.name == final_member_name).first()
+            if not mem_obj:
+                mem_obj = Member(name=final_member_name, group=new_member_group, active=True, phone="")
+                session.add(mem_obj)
+                session.commit()
+                session.refresh(mem_obj)
             
             # Determine Duration
             duration = 1
