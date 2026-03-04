@@ -184,6 +184,7 @@ if page == "Dashboard":
         txs = tx_query.filter(Transaction.status == 'PAID').all()
         total_income = sum(t.amount for t in txs)
     except Exception as e_tx:
+        session.rollback()
         st.error(f"⚠️ Actualización Requerida en Pagos: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
         st.info("Ve a 'Configuración' y haz clic en 'ACTUALIZAR DB'.")
         txs = []
@@ -194,6 +195,7 @@ if page == "Dashboard":
         expense_query = session.query(Expense)
         total_expenses = sum(e.amount for e in expense_query.all())
     except Exception as e:
+        session.rollback()
         # Schema Error Catch - Schema Migration Handler
         st.error(f"⚠️ Actualización Requerida en Gastos: Selecciona el botón de mantenimiento abajo.")
         
@@ -227,6 +229,7 @@ if page == "Dashboard":
     try:
         member_count = member_query.count()
     except Exception as e_mem:
+        session.rollback()
         st.error(f"⚠️ Necesitas actualizar la base de datos para usar WhatsApp.")
         member_count = 0
         if st.button("🛠️ TOCAR AQUÍ PARA HABILITAR WHATSAPP", type="primary", key="fix_members"):
