@@ -12,6 +12,35 @@ except Exception as e:
     st.stop()
 import plotly.express as px
 
+def force_schema_update(db_engine):
+    """
+    Executes schema migrations in AUTOCOMMIT mode.
+    This prevents Postgres from aborting the entire transaction block 
+    if one of the columns already exists.
+    """
+    from sqlalchemy import text
+    queries = [
+        "ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;",
+        "ALTER TABLE members ADD COLUMN phone VARCHAR;",
+        "ALTER TABLE transactions ADD COLUMN received_by VARCHAR;",
+    ]
+    with db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for q in queries:
+            try:
+                conn.execute(text(q))
+            except Exception:
+                pass 
+                
+    with db_engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE members ALTER COLUMN active DROP DEFAULT;"))
+            conn.execute(text("ALTER TABLE members ALTER COLUMN active TYPE BOOLEAN USING (active::integer <> 0);"))
+            conn.execute(text("ALTER TABLE members ALTER COLUMN active SET DEFAULT true;"))
+            conn.commit()
+        except:
+            conn.rollback()
+            pass
+
 # Configuración de página
 st.set_page_config(
     page_title="AlphaX CRM",
@@ -204,22 +233,8 @@ if page == "Dashboard":
         
         if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS"):
             try:
-                from sqlalchemy import text
-                with engine.connect() as conn:
-                    try:
-                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
-                    except:
-                        pass
-                    conn.commit()
-                st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
+                force_schema_update(engine)
+                st.success("✅ Tablas reparadas en la nube. ¡Recarga la página (F5)!")
             except Exception as e_mig:
                 st.error(f"Error forzando actualización: {e_mig}")
         total_expenses = 0 # Fallback
@@ -234,21 +249,7 @@ if page == "Dashboard":
         member_count = 0
         if st.button("🛠️ TOCAR AQUÍ PARA HABILITAR WHATSAPP", type="primary", key="fix_members"):
              try:
-                from sqlalchemy import text
-                with engine.connect() as conn:
-                    # 1. Add Phone to Members
-                    try:
-                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
-                    except:
-                        pass # Probably exists
-                        
-                    # 2. Ensure Paid By to Expenses exists too
-                    try:
-                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
-                    except:
-                        pass 
-                        
-                    conn.commit()
+                force_schema_update(engine)
                 st.success("✅ ¡Actualizado! Recargando...")
                 st.rerun()
              except Exception as e:
@@ -612,21 +613,7 @@ if page == "Dashboard":
         st.subheader("🔧 Herramientas de Mantenimiento Rápido")
         if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS", key="fix_liq"):
             try:
-                from sqlalchemy import text
-                with engine.connect() as conn:
-                    try:
-                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
-                    except:
-                        pass
-                    conn.commit()
+                force_schema_update(engine)
                 st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
                 import time
                 time.sleep(1)
@@ -833,21 +820,7 @@ elif page == "Novedades/Pagos":
         st.error("⚠️ Actualización Requerida: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
         if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS", key="fix_hist_pagos"):
             try:
-                from sqlalchemy import text
-                with engine.connect() as conn:
-                    try:
-                        conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
-                    except:
-                        pass
-                    try:
-                        conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
-                    except:
-                        pass
-                    conn.commit()
+                force_schema_update(engine)
                 st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
                 import time
                 time.sleep(1)
@@ -974,40 +947,9 @@ elif page == "Configuración":
     st.subheader("🔧 Herramientas de Mantenimiento")
     
     # Updated Migration Button for Phone & Expenses & Fixes
-    if st.button("🛠️ ACTUALIZAR DB (Agregar campos: Teléfono y Control Saldos)"):
+    if st.button("🛠️ ACTUALIZAR DB (Agregar campos nuevos generales)"):
         try:
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                # 1. Add Paid By to Expenses
-                try:
-                    conn.execute(text("ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;"))
-                except:
-                    pass # Probably exists
-                
-                # 2. Add Phone to Members
-                try:
-                    conn.execute(text("ALTER TABLE members ADD COLUMN phone VARCHAR;"))
-                except:
-                    pass # Probably exists
-                    
-                # 3. Add Received By to Transactions (Bank Account Routing)
-                try:
-                    conn.execute(text("ALTER TABLE transactions ADD COLUMN received_by VARCHAR;"))
-                except:
-                    pass # Probably exists
-                    
-                # 4. FIX: Convert 'active' to BOOLEAN (Crucial for Dashboard)
-                try:
-                    # Force conversion from BigInt/Integer to Boolean causes: operator does not exist: bigint = boolean
-                    conn.execute(text("ALTER TABLE members ALTER COLUMN active DROP DEFAULT;")) 
-                    # Robust conversion: 1 -> true, 0 -> false
-                    conn.execute(text("ALTER TABLE members ALTER COLUMN active TYPE BOOLEAN USING (active::integer <> 0);"))
-                    conn.execute(text("ALTER TABLE members ALTER COLUMN active SET DEFAULT true;"))
-                except Exception as ex_bool:
-                    # st.write(f"Nota debug: {ex_bool}")
-                    pass 
-
-                conn.commit()
+            force_schema_update(engine)
             st.success("✅ ¡Base de datos actualizada y REPARADA! (Columnas y tipos corregidos).")
             import time
             time.sleep(1)
