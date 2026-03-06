@@ -477,10 +477,11 @@ if page == "Dashboard":
                         # Clean phone number (remove +, spaces)
                         if phone_number:
                             phone_number = "".join(filter(str.isdigit, phone_number))
-                            wa_link = f"https://wa.me/{phone_number}?text={encoded_msg}"
+                            # Use web.whatsapp.com explicitly to force browser handling (Business account)
+                            wa_link = f"https://web.whatsapp.com/send?phone={phone_number}&text={encoded_msg}"
                         else:
                              # Fallback if no phone
-                             wa_link = f"https://wa.me/?text={encoded_msg}"
+                             wa_link = f"https://web.whatsapp.com/send?text={encoded_msg}"
 
                         # Modern DataFrame with Width Control
                         dept_data.append({"Nombre": m.name, "WhatsApp": wa_link})
