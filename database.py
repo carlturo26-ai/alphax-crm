@@ -37,6 +37,7 @@ class Member(Base):
     group = Column(String) # Carlos, Alejandro, Aprendizaje
     phone = Column(String, nullable=True) # WhatsApp Number (International Format)
     active = Column(Boolean, default=True)
+    start_month = Column(String, default="ENERO") # Month the member joined the club
     notes = Column(String, nullable=True)
     
     transactions = relationship("Transaction", back_populates="member")

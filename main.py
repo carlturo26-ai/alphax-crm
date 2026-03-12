@@ -23,6 +23,7 @@ def force_schema_update(db_engine):
         "ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;",
         "ALTER TABLE members ADD COLUMN phone VARCHAR;",
         "ALTER TABLE transactions ADD COLUMN received_by VARCHAR;",
+        "ALTER TABLE members ADD COLUMN start_month VARCHAR DEFAULT 'ENERO';"
     ]
     with db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for q in queries:
@@ -453,9 +454,17 @@ if page == "Dashboard":
             
         paid_ids = {r[0] for r in paid_query.all()}
         
-        # 3. Diff
+        # 3. Diff and Filter by Start Month
         pending_ids = active_ids - paid_ids
-        pending_members = [m for m in active_members if m.id in pending_ids]
+        
+        true_pending_members = []
+        for m in active_members:
+            if m.id in pending_ids:
+                m_start = getattr(m, 'start_month', 'ENERO')
+                m_start_idx = months_list.index(m_start) if m_start in months_list else 0
+                if m_start_idx <= current_month_index:
+                    true_pending_members.append(m)
+        pending_members = true_pending_members
         
         col_d1, col_d2 = st.columns([1, 3])
         col_d1.metric("Pendientes", len(pending_members), delta_color="inverse")
@@ -671,6 +680,10 @@ elif page == "Socios":
     st.header("👥 Gestión de Socios")
     session = SessionLocal()
 
+    # Months list for dropdowns
+    months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
+                    "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+
     # 1. Add New Member
     with st.expander("➕ Registrar Nuevo Atleta"):
         with st.form("new_member"):
@@ -680,6 +693,7 @@ elif page == "Socios":
             
             existing_groups = [r[0] for r in session.query(Member.group).distinct().all() if r[0]]
             new_group = c2.selectbox("Grupo", existing_groups + ["Nuevo..."])
+            new_start_month = c2.selectbox("Mes de Inicio (Inscripción)", months_order)
             
             submit_member = st.form_submit_button("Guardar Atleta")
             
@@ -689,10 +703,10 @@ elif page == "Socios":
                 if exists:
                     st.error("Ya existe un atleta con este nombre.")
                 else:
-                    m = Member(name=new_name.upper(), group=new_group, phone=new_phone, active=True)
+                    m = Member(name=new_name.upper(), group=new_group, phone=new_phone, start_month=new_start_month, active=True)
                     session.add(m)
                     session.commit()
-                    st.success(f"Atleta {new_name} creado exitosamente.")
+                    st.success(f"Atleta {new_name} creado exitosamente. Obligaciones inician en {new_start_month}.")
                     st.rerun()
 
     st.markdown("---")
@@ -715,6 +729,7 @@ elif page == "Socios":
             "Nombre": [m.name for m in members_list],
             "Teléfono": [m.phone for m in members_list],
             "Grupo": [m.group for m in members_list],
+            "Mes Inicio": [getattr(m, 'start_month', 'ENERO') for m in members_list],
             "Activo": [m.active for m in members_list] # Keep for editing
         }
         df_members = pd.DataFrame(data)
@@ -733,6 +748,7 @@ elif page == "Socios":
                 "Nombre": st.column_config.TextColumn(disabled=True),
                 "Teléfono": st.column_config.TextColumn("WhatsApp (Ej: 57...)", required=False),
                 "Grupo": st.column_config.SelectboxColumn("Grupo", options=existing_groups, required=True),
+                "Mes Inicio": st.column_config.SelectboxColumn("Inicio (Cobros)", options=months_order, required=True),
                 "Activo": st.column_config.CheckboxColumn("¿Activo?", help="Desmarcar para inhabilitar")
             },
             hide_index=True,
@@ -747,15 +763,18 @@ elif page == "Socios":
                 m_active = row["Activo"]
                 m_group = row["Grupo"]
                 m_phone = row["Teléfono"]
+                m_start_month = row["Mes Inicio"]
                 
                 # Fetch and update
                 m_obj = session.query(Member).filter(Member.id == m_id).first()
                 if m_obj:
+                    old_start = getattr(m_obj, 'start_month', 'ENERO')
                     # Update if changed
-                    if (m_obj.active != m_active) or (m_obj.group != m_group) or (m_obj.phone != m_phone):
+                    if (m_obj.active != m_active) or (m_obj.group != m_group) or (m_obj.phone != m_phone) or (old_start != m_start_month):
                         m_obj.active = m_active
                         m_obj.group = m_group
                         m_obj.phone = m_phone
+                        m_obj.start_month = m_start_month
             
             session.commit()
             st.success("Cambios actualizados correctamente.")
@@ -780,9 +799,11 @@ elif page == "Novedades/Pagos":
         selected_member_ui = st.selectbox("Seleccionar Socio", member_names)
         
         new_member_group = None
+        new_member_start_month = "ENERO" # Default
         if selected_member_ui == "+ Agregar Nuevo Socio...":
             final_member_name = st.text_input("Escribe el nombre del nuevo deportista:").strip().upper()
             new_member_group = st.selectbox("Grupo al que ingresa:", ["Aprendizaje", "Alejandro", "Carlos"])
+            new_member_start_month = st.selectbox("Mes de Inicio (Inscripción):", ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"])
         else:
             final_member_name = selected_member_ui
     
@@ -800,12 +821,18 @@ elif page == "Novedades/Pagos":
         months_list = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
                        "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
         
-        # Filter logic to prevent duplicate month entries
+        # Filter logic to prevent duplicate month entries AND enforce start month
         paid_months = []
+        member_start_idx = 0
         if final_member_name and selected_member_ui != "+ Agregar Nuevo Socio...":
             try:
                 mem_obj_temp = session.query(Member).filter(Member.name == final_member_name).first()
                 if mem_obj_temp:
+                    # Enforce start month
+                    m_start = getattr(mem_obj_temp, 'start_month', 'ENERO')
+                    if m_start in months_list:
+                        member_start_idx = months_list.index(m_start)
+                        
                     paid_txs = session.query(Transaction.month).filter(
                         Transaction.member_id == mem_obj_temp.id,
                         Transaction.year == 2026, # Current operational year
@@ -814,8 +841,11 @@ elif page == "Novedades/Pagos":
                     paid_months = [m[0] for m in paid_txs]
             except Exception:
                 pass # Safe fallback
+        elif final_member_name:
+            member_start_idx = months_list.index(new_member_start_month) if new_member_start_month in months_list else 0
         
-        available_months = [m for m in months_list if m not in paid_months]
+        valid_months = months_list[member_start_idx:]
+        available_months = [m for m in valid_months if m not in paid_months]
         
         if not available_months:
             st.warning("Este socio ya completó todos sus pagos de 2026.")
@@ -839,7 +869,7 @@ elif page == "Novedades/Pagos":
         if final_member_name and start_month:
             mem_obj = session.query(Member).filter(Member.name == final_member_name).first()
             if not mem_obj:
-                mem_obj = Member(name=final_member_name, group=new_member_group, active=True, phone="")
+                mem_obj = Member(name=final_member_name, group=new_member_group, active=True, phone="", start_month=new_member_start_month)
                 session.add(mem_obj)
                 session.commit()
                 session.refresh(mem_obj)
