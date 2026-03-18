@@ -1140,12 +1140,22 @@ elif page == "Configuración":
                 # Drop unnecessary columns if they exist
                 if "created_at" in df_members_out.columns: df_members_out["Fecha Registro"] = pd.to_datetime(df_members_out["Fecha Registro"]).dt.tz_localize(None)
 
+                # Build a dictionary to map IDs to Names
+                id_to_name = dict(zip(df_members["id"], df_members["name"]))
+                df_transactions["Atleta"] = df_transactions["member_id"].map(id_to_name).fillna("Desconocido")
+                
                 df_transactions_out = df_transactions.rename(columns={
-                    "id": "ID", "member_id": "ID Socio", "period": "Periodo", 
+                    "id": "ID", "period": "Periodo", 
                     "year": "Año", "month": "Mes", "amount": "Monto", 
                     "status": "Estado", "payment_date": "Fecha Pago", 
                     "created_at": "Fecha Registro", "received_by": "Cuenta Destino"
                 })
+                
+                # Enforce a clean, human-readable column order
+                wanted_tx_cols = ["ID", "Atleta", "Periodo", "Año", "Mes", "Monto", "Estado", "Cuenta Destino", "Fecha Pago", "Fecha Registro"]
+                valid_tx_cols = [c for c in wanted_tx_cols if c in df_transactions_out.columns]
+                df_transactions_out = df_transactions_out[valid_tx_cols]
+                
                 if "Fecha Registro" in df_transactions_out.columns: df_transactions_out["Fecha Registro"] = pd.to_datetime(df_transactions_out["Fecha Registro"]).dt.tz_localize(None)
                 if "Fecha Pago" in df_transactions_out.columns: df_transactions_out["Fecha Pago"] = pd.to_datetime(df_transactions_out["Fecha Pago"]).dt.tz_localize(None)
 
