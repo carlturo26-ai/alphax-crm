@@ -24,8 +24,24 @@ except (FileNotFoundError, KeyError):
         os.makedirs(DB_FOLDER)
     DB_PATH = f"sqlite:///{os.path.join(DB_FOLDER, 'club_crm.db')}"
 
-engine = create_engine(DB_PATH, echo=False)
-SessionLocal = sessionmaker(bind=engine)
+@st.cache_resource(show_spinner=False)
+def get_engine(db_url):
+    # Optimize pooling settings specifically for Cloud Postgres (Neon)
+    if db_url.startswith("sqlite"):
+        return create_engine(db_url, echo=False, connect_args={"check_same_thread": False})
+    else:
+        # pool_recycle=300 limits lifespan of connections to 5 min, matching Neon's default autosuspend
+        return create_engine(
+            db_url, 
+            echo=False, 
+            pool_size=5, 
+            max_overflow=10, 
+            pool_recycle=300, 
+            pool_pre_ping=True
+        )
+
+engine = get_engine(DB_PATH)
+SessionLocal = sessionmaker(bind=engine, autoflush=False)
 Base = declarative_base()
 
 # Models

@@ -50,93 +50,71 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos personalizados (CSS Hack para branding)
+# Estilos personalizados (CSS Hack para branding AlphaX)
 st.markdown("""
+    <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-    /* Import Nunito Sans */
-    @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&display=swap');
-
     /* GLOBAL RESET: Dark Mode Standard */
     html, body, [class*="css"], .stApp {
-        font-family: 'Nunito Sans', sans-serif;
+        font-family: 'Nunito Sans', sans-serif !important;
+        background-color: #050505 !important;
         color: #FFFFFF !important;
-        background-color: #0e1117 !important;
     }
 
-    /* TEXT VISIBILITY: Force all main text to White */
-    p, h1, h2, h3, h4, h5, h6, li, span, div, label, .stMarkdown, .stText {
-        color: #FFFFFF !important;
+    /* Make all grey text bright cyan */
+    p, label, span, .stMarkdown, h1, h2, h3, h4, h5, h6 {
+        color: #00EEFF !important;
+    }
+
+    /* Cards */
+    .metric-card {
+        background-color: #121212;
+        border: 1px solid #00EEFF;
+        padding: 20px;
+        border-radius: 10px;
+        color: #00EEFF;
+        box-shadow: 0 0 10px rgba(0, 238, 255, 0.1);
+    }
+
+    /* Sidebar and inputs to fit theme */
+    section[data-testid="stSidebar"] {
+        background-color: #0a0a0a !important;
+        border-right: 1px solid rgba(0, 238, 255, 0.2);
     }
     
-    /* INPUTS: Force WHITE TEXT (to match Dark Background) */
-    input, textarea, select, .stTextInput > div > div, .stNumberInput > div > div {
+    .stDataFrame, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stNumberInput > div > div > input {
         color: #FFFFFF !important;
-        background-color: transparent !important; /* Let Streamlit Dark BG show */
-        -webkit-text-fill-color: #FFFFFF !important;
-        caret-color: #33C1FF;
+        caret-color: #00EEFF;
     }
-
-    /* SELECTBOX / DROPDOWNS - The tricky part */
+    
     div[data-baseweb="select"] > div {
-        background-color: #262730 !important; /* Dark Grey */
-        color: #FFFFFF !important;
-        border-color: #33C1FF !important;
+        background-color: #121212 !important;
+        border-color: #00EEFF !important;
     }
-    /* The selected value text */
-    div[data-testid="stSelectbox"] div[data-baseweb="select"] div {
+
+    div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {
+        background-color: #121212 !important;
         color: #FFFFFF !important;
     }
     
-    /* DROPDOWN MENU OPTIONS (When opened) */
-    div[data-baseweb="menu"], div[role="listbox"] {
-        background-color: #262730 !important;
-    }
-    div[role="option"] {
-        color: #FFFFFF !important;
-        background-color: #262730 !important;
-    }
-    /* Highlighted option */
     div[role="option"]:hover, div[role="option"][aria-selected="true"] {
-        background-color: #33C1FF !important;
-        color: #000000 !important; /* Black text on Blue highlight */
-    }
-
-    /* PLACEHOLDERS */
-    ::placeholder {
-        color: #CCCCCC !important; /* Light Grey */
-        opacity: 1;
-    }
-    
-    /* FILE UPLOADER */
-    div[data-testid="stFileUploader"] {
-        color: #FFFFFF !important;
-    }
-    div[data-testid="stFileUploader"] section {
-        background-color: #262730 !important;
-    }
-
-    /* DATAFRAME FIXES */
-    div[data-testid="stDataFrame"] {
-        background-color: #262730;
-    }
-
-    /* HEADERS & ACCENTS */
-    h1, h2, h3, .stMetricLabel {
-        color: #33C1FF !important; 
+        background-color: #00EEFF !important;
+        color: #000000 !important;
     }
 
     /* BUTTONS */
     .stButton > button {
         border-radius: 8px;
-        font-weight: 600;
-        border: 1px solid #33C1FF;
-        color: #FFFFFF !important;
-        background-color: #262730 !important; /* Dark Button */
+        font-weight: 700;
+        border: 1px solid #00EEFF;
+        color: #00EEFF !important;
+        background-color: transparent !important;
+        transition: all 0.3s ease;
     }
     .stButton > button:hover {
-        background-color: #33C1FF !important;
+        background-color: #00EEFF !important;
         color: #000000 !important;
-        border-color: #33C1FF;
+        box-shadow: 0 0 15px rgba(0, 238, 255, 0.4);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -146,24 +124,9 @@ init_db()
 
 # Sidebar
 with st.sidebar:
-    # Try multiple logo variations from the new folder
-    logo_dir = "LOGOS " # Note the space
-    # Prioritize Aqua/White logos as requested
-    logo_candidates = ["ALPHAX-SIMBOLO-AGUA-M.png", "ALPHAX-TEXTO-BLANCO.png", "LOGO-ALPHAX1 BLUE212.png", "logo.png"]
+    st.image("/Users/macbook/Documents/alpha-x-web/assets/images/alphax_banner_logo.png", use_container_width=True)
     
-    current_logo = None
-    for logo in logo_candidates:
-        if os.path.exists(os.path.join(logo_dir, logo)):
-            current_logo = os.path.join(logo_dir, logo)
-            break
-        elif os.path.exists(logo): # Root fallback
-            current_logo = logo
-            break
-            
-    if current_logo:
-        st.image(current_logo, use_container_width=True)
-    
-    st.markdown("<h2 style='text-align: center; color: #33C1FF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
     page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración"])
@@ -268,7 +231,7 @@ if page == "Dashboard":
              try:
                 force_schema_update(engine)
                 st.success("✅ ¡Actualizado! Recargando...")
-                st.rerun()
+                session.close(); st.rerun()
              except Exception as e:
                 st.error(str(e))
     
@@ -669,7 +632,7 @@ if page == "Dashboard":
                 st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
                 import time
                 time.sleep(1)
-                st.rerun()
+                session.close(); st.rerun()
             except Exception as e_mig:
                 st.error(f"Error forzando actualización: {e_mig}")
         
@@ -707,7 +670,7 @@ elif page == "Socios":
                     session.add(m)
                     session.commit()
                     st.success(f"Atleta {new_name} creado exitosamente. Obligaciones inician en {new_start_month}.")
-                    st.rerun()
+                    session.close(); st.rerun()
 
     st.markdown("---")
     
@@ -778,7 +741,7 @@ elif page == "Socios":
             
             session.commit()
             st.success("Cambios actualizados correctamente.")
-            st.rerun()
+            session.close(); st.rerun()
             
     else:
         st.info("No se encontraron socios.")
@@ -932,7 +895,7 @@ elif page == "Novedades/Pagos":
                 st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
                 import time
                 time.sleep(1)
-                st.rerun()
+                session.close(); st.rerun()
             except Exception as e_mig:
                 st.error(f"Error forzando actualización: {e_mig}")
         recent_txs = []
@@ -958,7 +921,7 @@ elif page == "Novedades/Pagos":
                     session.delete(tx_to_del)
                     session.commit()
                     st.success(f"Pago {tx_id_to_delete} eliminado.")
-                    st.rerun()
+                    session.close(); st.rerun()
                 else:
                     st.error("No se encontró el pago.")
     else:
@@ -993,7 +956,7 @@ elif page == "Gastos":
             session.add(exp)
             session.commit()
             st.success("Gasto guardado.")
-            st.rerun()
+            session.close(); st.rerun()
             
     st.markdown("---")
     st.subheader("Historial de Gastos")
@@ -1017,7 +980,7 @@ elif page == "Gastos":
                     session.delete(exp_to_del)
                     session.commit()
                     st.success(f"Gasto {exp_id_to_delete} eliminado.")
-                    st.rerun()
+                    session.close(); st.rerun()
                 else:
                     st.error("No se encontró el gasto.")
     else:
@@ -1077,7 +1040,7 @@ elif page == "Configuración":
             st.success("✅ ¡Base de datos actualizada y REPARADA! (Columnas y tipos corregidos).")
             import time
             time.sleep(1)
-            st.rerun() # Auto-refresh to show fixes immediately
+            session.close(); st.rerun() # Auto-refresh to show fixes immediately
         except Exception as e:
             st.error(f"Error en migración: {e}")
 
