@@ -51,73 +51,27 @@ st.set_page_config(
 )
 
 # Estilos personalizados (CSS Hack para branding AlphaX)
-st.markdown("""
-    <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-    /* GLOBAL RESET: Dark Mode Standard */
-    html, body, [class*="css"], .stApp {
-        font-family: 'Nunito Sans', sans-serif !important;
-        background-color: #050505 !important;
-        color: #FFFFFF !important;
-    }
-
-    /* Make all grey text bright cyan */
-    p, label, span, .stMarkdown, h1, h2, h3, h4, h5, h6 {
-        color: #00EEFF !important;
-    }
-
-    /* Cards */
-    .metric-card {
-        background-color: #121212;
-        border: 1px solid #00EEFF;
-        padding: 20px;
-        border-radius: 10px;
-        color: #00EEFF;
-        box-shadow: 0 0 10px rgba(0, 238, 255, 0.1);
-    }
-
-    /* Sidebar and inputs to fit theme */
-    section[data-testid="stSidebar"] {
-        background-color: #0a0a0a !important;
-        border-right: 1px solid rgba(0, 238, 255, 0.2);
-    }
-    
-    .stDataFrame, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stNumberInput > div > div > input {
-        color: #FFFFFF !important;
-        caret-color: #00EEFF;
-    }
-    
-    div[data-baseweb="select"] > div {
-        background-color: #121212 !important;
-        border-color: #00EEFF !important;
-    }
-
-    div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {
-        background-color: #121212 !important;
-        color: #FFFFFF !important;
-    }
-    
-    div[role="option"]:hover, div[role="option"][aria-selected="true"] {
-        background-color: #00EEFF !important;
-        color: #000000 !important;
-    }
-
-    /* BUTTONS */
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 700;
-        border: 1px solid #00EEFF;
-        color: #00EEFF !important;
-        background-color: transparent !important;
-        transition: all 0.3s ease;
-    }
-    .stButton > button:hover {
-        background-color: #00EEFF !important;
-        color: #000000 !important;
-        box-shadow: 0 0 15px rgba(0, 238, 255, 0.4);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+css_styles = """
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* GLOBAL RESET: Dark Mode Standard */
+html, body, [class*="css"], .stApp { font-family: 'Nunito Sans', sans-serif !important; background-color: #050505 !important; color: #FFFFFF !important; }
+/* Make all grey text bright cyan */
+p, label, span, .stMarkdown, h1, h2, h3, h4, h5, h6 { color: #00EEFF !important; }
+/* Cards */
+.metric-card { background-color: #121212; border: 1px solid #00EEFF; padding: 20px; border-radius: 10px; color: #00EEFF; box-shadow: 0 0 10px rgba(0, 238, 255, 0.1); }
+/* Sidebar and inputs to fit theme */
+section[data-testid="stSidebar"] { background-color: #0a0a0a !important; border-right: 1px solid rgba(0, 238, 255, 0.2); }
+.stDataFrame, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stNumberInput > div > div > input { color: #FFFFFF !important; caret-color: #00EEFF; }
+div[data-baseweb="select"] > div { background-color: #121212 !important; border-color: #00EEFF !important; }
+div[data-baseweb="menu"], div[role="listbox"], div[role="option"] { background-color: #121212 !important; color: #FFFFFF !important; }
+div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-color: #00EEFF !important; color: #000000 !important; }
+/* BUTTONS */
+.stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #00EEFF; color: #00EEFF !important; background-color: transparent !important; transition: all 0.3s ease; }
+.stButton > button:hover { background-color: #00EEFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(0, 238, 255, 0.4); }
+</style>
+"""
+st.markdown(css_styles, unsafe_allow_html=True)
 
 # Inicializar DB
 init_db()
