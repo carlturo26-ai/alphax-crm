@@ -124,7 +124,11 @@ init_db()
 
 # Sidebar
 with st.sidebar:
-    st.image("/Users/macbook/Documents/alpha-x-web/assets/images/alphax_banner_logo.png", use_container_width=True)
+    # Use relative path so it resolves correctly on both local Mac and Streamlit Cloud
+    try:
+        st.image("assets/images/alphax_banner_logo.png", use_container_width=True)
+    except Exception as e:
+        st.error(f"Logo no encontrado: {e}")
     
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
