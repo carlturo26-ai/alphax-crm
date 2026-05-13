@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
-
+import plotly.express as px
 try:
     from database import SessionLocal, Member, SleepRecord
 except Exception as e:
@@ -74,14 +74,57 @@ st.title("Monitoreo de Recuperación")
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("AlphaX Training Team", icon="📋")
 
-with st.form("form_assq", clear_on_submit=True):
+# 1. Identificación
+st.subheader("👤 Identificación")
+atleta = st.selectbox("Selecciona tu nombre:", ["-- Selecciona tu nombre --"] + atletas_nombres)
+
+if atleta != "-- Selecciona tu nombre --":
+    # --- HISTORIAL PERSONAL ---
+    st.markdown("---")
+    st.subheader(f"📈 Tu Historial de Recuperación")
     
-    # 1. Identificación
-    st.subheader("👤 Identificación")
-    atleta = st.selectbox("Selecciona tu nombre:", ["-- Selecciona tu nombre --"] + atletas_nombres)
-    
-    # 2. Cuestionario Clínico
-    st.subheader("💤 Calidad del Descanso")
+    session = SessionLocal()
+    try:
+        m_obj = session.query(Member).filter(Member.name == atleta).first()
+        if m_obj:
+            records = session.query(SleepRecord).filter(SleepRecord.member_id == m_obj.id).order_by(SleepRecord.date).all()
+            if records:
+                df_history = pd.DataFrame([{
+                    "Fecha": r.date,
+                    "Score (SDS)": r.sds_score,
+                    "Categoría": r.clinical_category
+                } for r in records])
+                
+                # Crear gráfico
+                fig = px.line(
+                    df_history, x="Fecha", y="Score (SDS)", markers=True,
+                    title="Evolución de tu Calidad de Sueño (Menor puntaje es mejor)",
+                    color_discrete_sequence=["#00EEFF"]
+                )
+                fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", 
+                    plot_bgcolor="rgba(0,0,0,0)", 
+                    font_color="white",
+                    yaxis=dict(autorange="reversed") # Menor score es mejor (0-4 ninguna dificultad)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Pequeña leyenda explicativa
+                st.caption("Puntaje 0-4: Ninguna Dificultad | 5-7: Leve | 8-10: Moderada | >10: Severa")
+            else:
+                st.info("Aún no tienes registros de sueño. ¡Llena tu primer reporte abajo!")
+    except Exception as e:
+        st.error(f"Error cargando historial: {e}")
+    finally:
+        session.close()
+
+    # Formulario para nuevo reporte
+    st.markdown("---")
+    st.subheader("📝 Registrar Nuevo Reporte")
+    with st.form("form_assq", clear_on_submit=True):
+        
+        # 2. Cuestionario Clínico
+        st.subheader("💤 Calidad del Descanso")
     
     horas = st.radio("1. Durante la última semana, ¿cuántas horas de sueño real tuviste por noche?", 
                      options=list(puntajes_horas.keys()))
@@ -100,10 +143,7 @@ with st.form("form_assq", clear_on_submit=True):
 
 # --- PROCESAMIENTO DE DATOS ---
 if submitted:
-    if atleta == "-- Selecciona tu nombre --":
-        st.warning("⚠️ Por favor, selecciona tu nombre antes de enviar el formulario.")
-    else:
-        with st.spinner('Guardando tu reporte...'):
+    with st.spinner('Guardando tu reporte...'):
             # 1. Cálculo Automático del Score SDS
             sds_score = (
                 puntajes_horas[horas] + 
