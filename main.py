@@ -2,6 +2,12 @@
 from datetime import datetime
 import os
 import streamlit as st
+
+# --- TRUCO DE ENRUTAMIENTO (APP ATLETAS) ---
+if st.query_params.get("app") == "atletas":
+    import app_atletas
+    st.stop()
+
 import pandas as pd
 import requests
 import json
