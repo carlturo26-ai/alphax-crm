@@ -7,7 +7,7 @@ import requests
 import json
 
 try:
-    from database import init_db, SessionLocal, Member, Transaction, Expense, engine
+    from database import init_db, SessionLocal, Member, Transaction, Expense, SleepRecord, engine
     from logic import import_excel_data, get_summary_kpis, update_member_phones
 except Exception as e:
     st.error(f"💀 Error CRÍTICO de Importación: {e}")
@@ -1109,8 +1109,6 @@ elif page == "Configuración":
 
 # --- PAGE: ASSQ ---
 elif page == "ASSQ (Sueño)":
-    # --- VARIABLES DE CONFIGURACIÓN ---
-    N8N_WEBHOOK_URL = "TU_URL_DE_WEBHOOK_N8N_AQUI"
     
     session = SessionLocal()
     # Leer todos los deportistas activos de la base de datos
@@ -1202,31 +1200,58 @@ elif page == "ASSQ (Sueño)":
                 else:
                     categoria = "Dificultad Severa"
 
-                # 3. Construcción del Payload para el CRM (vía n8n)
-                payload = {
-                    "fecha_registro": datetime.now().isoformat(),
-                    "atleta": atleta,
-                    "score_sds": sds_score,
-                    "categoria_clinica": categoria,
-                    "respuestas_crudas": {
-                        "horas_sueno": horas,
-                        "calidad": calidad,
-                        "latencia": latencia,
-                        "despertares": despertares
-                    }
-                }
-                
-                # 4. Transmisión a n8n
+                # 3. Guardar en Base de Datos
                 try:
-                    if N8N_WEBHOOK_URL == "TU_URL_DE_WEBHOOK_N8N_AQUI":
-                        st.success(f"✅ ¡Gracias! El reporte de {atleta} ha sido procesado (Modo Prueba).")
-                        with st.expander("Ver data que llegará a tu webhook"):
-                            st.json(payload)
+                    session = SessionLocal()
+                    # Buscar al miembro seleccionado para obtener su ID
+                    m_obj = session.query(Member).filter(Member.name == atleta).first()
+                    
+                    if m_obj:
+                        nuevo_registro = SleepRecord(
+                            member_id=m_obj.id,
+                            sds_score=sds_score,
+                            clinical_category=categoria,
+                            raw_hours=horas,
+                            raw_quality=calidad,
+                            raw_latency=latencia,
+                            raw_awakenings=despertares
+                        )
+                        session.add(nuevo_registro)
+                        session.commit()
+                        st.success(f"✅ ¡Gracias! El reporte de {atleta} ha sido guardado exitosamente.")
                     else:
-                        response = requests.post(N8N_WEBHOOK_URL, json=payload)
-                        if response.status_code == 200:
-                            st.success("✅ ¡Reporte enviado exitosamente!")
-                        else:
-                            st.error(f"⚠️ Hubo un error de comunicación con el servidor. Código: {response.status_code}")
+                        st.error("⚠️ No se encontró el atleta en la base de datos.")
+                        
                 except Exception as e:
-                    st.error(f"Error técnico de conexión: {e}")
+                    session.rollback()
+                    st.error(f"Error técnico al guardar: {e}")
+                finally:
+                    session.close()
+
+    # --- HISTORIAL DE SUEÑO ---
+    st.markdown("---")
+    st.subheader("📊 Historial Reciente de Sueño")
+    
+    session = SessionLocal()
+    try:
+        records = session.query(SleepRecord).join(Member).order_by(SleepRecord.date.desc()).limit(50).all()
+        if records:
+            data = []
+            for r in records:
+                data.append({
+                    "Fecha": r.date.strftime("%Y-%m-%d") if r.date else "",
+                    "Atleta": r.member.name if r.member else "Desconocido",
+                    "Score (SDS)": r.sds_score,
+                    "Categoría": r.clinical_category,
+                    "Horas": r.raw_hours,
+                    "Calidad": r.raw_quality
+                })
+            df_sleep = pd.DataFrame(data)
+            st.dataframe(df_sleep, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aún no hay registros de sueño guardados.")
+    except Exception as e:
+        st.warning("⚠️ Debes recargar la aplicación para que se cree la tabla de historial de sueño en la base de datos.")
+    finally:
+        session.close()
+

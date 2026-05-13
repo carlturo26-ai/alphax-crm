@@ -85,6 +85,21 @@ class Expense(Base):
     paid_by = Column(String, nullable=True) # Carlos, Alejandro, AlphaX
     created_at = Column(Date, default=datetime.now)
 
+class SleepRecord(Base):
+    __tablename__ = "sleep_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"))
+    date = Column(Date, default=datetime.now)
+    sds_score = Column(Integer)
+    clinical_category = Column(String)
+    raw_hours = Column(String)
+    raw_quality = Column(String)
+    raw_latency = Column(String)
+    raw_awakenings = Column(String)
+    
+    member = relationship("Member")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     
