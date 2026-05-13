@@ -3,6 +3,8 @@ from datetime import datetime
 import os
 import streamlit as st
 import pandas as pd
+import requests
+import json
 
 try:
     from database import init_db, SessionLocal, Member, Transaction, Expense, engine
@@ -87,7 +89,7 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración"])
+    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)"])
 
 
     
@@ -1105,3 +1107,126 @@ elif page == "Configuración":
         except Exception as e:
             st.error(f"Error generando Excel: {e}")
 
+# --- PAGE: ASSQ ---
+elif page == "ASSQ (Sueño)":
+    # --- VARIABLES DE CONFIGURACIÓN ---
+    N8N_WEBHOOK_URL = "TU_URL_DE_WEBHOOK_N8N_AQUI"
+    
+    session = SessionLocal()
+    # Leer todos los deportistas activos de la base de datos
+    try:
+        active_members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
+        atletas_nombres = [m.name for m in active_members]
+    except Exception as e:
+        atletas_nombres = []
+        st.error(f"Error cargando socios: {e}")
+    finally:
+        session.close()
+
+    # --- LÓGICA DE PUNTUACIÓN CLÍNICA (ASSQ) ---
+    puntajes_horas = {
+        "Más de 8 horas": 0, 
+        "7 a 8 horas": 1, 
+        "5 a 6 horas": 2, 
+        "Menos de 5 horas": 3
+    }
+    puntajes_calidad = {
+        "Muy buena (Reparadora)": 0, 
+        "Buena": 1, 
+        "Regular (Fragmentada)": 2, 
+        "Mala (Agotadora)": 3
+    }
+    puntajes_latencia = {
+        "Me duermo casi de inmediato (< 15 min)": 0, 
+        "Tardo un poco (16-30 min)": 1, 
+        "Me cuesta dormir (31-60 min)": 2, 
+        "Doy muchas vueltas (> 60 min)": 3
+    }
+    puntajes_despertares = {
+        "No me despierto o vuelvo a dormir rápido": 0, 
+        "1-2 veces por semana me cuesta volver a dormir": 1, 
+        "3 o más veces por semana": 2
+    }
+
+    # --- INTERFAZ DE USUARIO ---
+    st.image("https://images.unsplash.com/photo-1554342872-034a06541bad?q=80&w=1200&auto=format&fit=crop", use_container_width=True)
+    st.title("Monitoreo de Recuperación")
+    st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
+    st.info("Coach: AlphaX Training Team", icon="📋")
+
+    with st.form("form_assq", clear_on_submit=True):
+        
+        # 1. Identificación
+        st.subheader("👤 Identificación")
+        atleta = st.selectbox("Selecciona al atleta:", ["-- Selecciona el nombre --"] + atletas_nombres)
+        
+        # 2. Cuestionario Clínico
+        st.subheader("💤 Calidad del Descanso")
+        
+        horas = st.radio("1. Durante la última semana, ¿cuántas horas de sueño real tuviste por noche?", 
+                         options=list(puntajes_horas.keys()))
+        
+        calidad = st.radio("2. ¿Cómo calificarías la calidad general de tu sueño?", 
+                           options=list(puntajes_calidad.keys()))
+        
+        latencia = st.radio("3. ¿Cuánto tiempo sueles tardar en quedarte dormido?", 
+                            options=list(puntajes_latencia.keys()))
+        
+        despertares = st.radio("4. ¿Con qué frecuencia te despiertas en medio de la noche y te cuesta volver a dormir?", 
+                               options=list(puntajes_despertares.keys()))
+        
+        st.markdown("---")
+        submitted = st.form_submit_button("Enviar Reporte", use_container_width=True)
+
+    # --- PROCESAMIENTO DE DATOS ---
+    if submitted:
+        if atleta == "-- Selecciona el nombre --":
+            st.warning("⚠️ Por favor, selecciona un nombre antes de enviar el formulario.")
+        else:
+            with st.spinner('Calculando métricas y enviando reporte...'):
+                # 1. Cálculo Automático del Score SDS
+                sds_score = (
+                    puntajes_horas[horas] + 
+                    puntajes_calidad[calidad] + 
+                    puntajes_latencia[latencia] + 
+                    puntajes_despertares[despertares]
+                )
+                
+                # 2. Estratificación Clínica
+                if sds_score <= 4:
+                    categoria = "Ninguna Dificultad"
+                elif sds_score <= 7:
+                    categoria = "Dificultad Leve"
+                elif sds_score <= 10:
+                    categoria = "Dificultad Moderada"
+                else:
+                    categoria = "Dificultad Severa"
+
+                # 3. Construcción del Payload para el CRM (vía n8n)
+                payload = {
+                    "fecha_registro": datetime.now().isoformat(),
+                    "atleta": atleta,
+                    "score_sds": sds_score,
+                    "categoria_clinica": categoria,
+                    "respuestas_crudas": {
+                        "horas_sueno": horas,
+                        "calidad": calidad,
+                        "latencia": latencia,
+                        "despertares": despertares
+                    }
+                }
+                
+                # 4. Transmisión a n8n
+                try:
+                    if N8N_WEBHOOK_URL == "TU_URL_DE_WEBHOOK_N8N_AQUI":
+                        st.success(f"✅ ¡Gracias! El reporte de {atleta} ha sido procesado (Modo Prueba).")
+                        with st.expander("Ver data que llegará a tu webhook"):
+                            st.json(payload)
+                    else:
+                        response = requests.post(N8N_WEBHOOK_URL, json=payload)
+                        if response.status_code == 200:
+                            st.success("✅ ¡Reporte enviado exitosamente!")
+                        else:
+                            st.error(f"⚠️ Hubo un error de comunicación con el servidor. Código: {response.status_code}")
+                except Exception as e:
+                    st.error(f"Error técnico de conexión: {e}")
