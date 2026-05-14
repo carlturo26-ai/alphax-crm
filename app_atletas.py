@@ -38,8 +38,8 @@ div[data-baseweb="input"] > div, div[data-baseweb="base-input"] { background-col
 div[data-baseweb="select"] > div { background-color: #121212 !important; border-color: #00EEFF !important; }
 div[data-baseweb="menu"], div[role="listbox"], div[role="option"] { background-color: #121212 !important; color: #FFFFFF !important; }
 div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-color: #00EEFF !important; color: #000000 !important; }
-.stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #00EEFF; color: #00EEFF !important; background-color: transparent !important; transition: all 0.3s ease; }
-.stButton > button:hover { background-color: #00EEFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(0, 238, 255, 0.4); }
+.stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #FFFFFF; color: #FFFFFF !important; background-color: transparent !important; transition: all 0.3s ease; }
+.stButton > button:hover { background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -215,7 +215,7 @@ else:
                                options=list(puntajes_medicamentos.keys()), index=None)
         
         st.markdown("---")
-        submitted = st.form_submit_button("Enviar Reporte", use_container_width=True)
+        submitted = st.form_submit_button("ENVIAR REPORTE", use_container_width=True)
 
 if submitted:
     if horas is None or calidad is None or latencia is None or despertares is None or medicamentos is None:
