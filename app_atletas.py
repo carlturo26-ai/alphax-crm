@@ -81,6 +81,8 @@ st.info("AlphaX Training Team", icon="📋")
 st.subheader("👤 Identificación")
 atleta = st.selectbox("Selecciona tu nombre:", ["-- Selecciona tu nombre --"] + atletas_nombres)
 
+submitted = False
+
 if atleta != "-- Selecciona tu nombre --":
     # --- HISTORIAL PERSONAL ---
     st.markdown("---")
