@@ -169,10 +169,10 @@ else:
                     paper_bgcolor="rgba(0,0,0,0)", 
                     plot_bgcolor="rgba(0,0,0,0)", 
                     font_color="white",
-                    yaxis=dict(range=[18, -1], title="Score (SDS)"),
-                    xaxis=dict(title="Fecha")
+                    yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True),
+                    xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d")
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.info("Aún no tienes registros de sueño. ¡Llena tu primer reporte abajo!")
     except Exception as e:
