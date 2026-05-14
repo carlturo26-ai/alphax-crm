@@ -67,7 +67,7 @@ def hash_password(password):
 
 # --- INTERFAZ DE USUARIO ---
 st.image("assq_banner.jpg", use_container_width=True)
-st.markdown("<h1 style='text-align: center; white-space: nowrap;'>MONITOREO DE RECUPERACIÓN</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; white-space: nowrap; font-size: clamp(1.2rem, 5vw, 2.5rem);'>MONITOREO DE RECUPERACIÓN</h1>", unsafe_allow_html=True)
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("ALPHAX TRAINING TEAM", icon="📋")
 
@@ -141,7 +141,7 @@ else:
             
     # --- HISTORIAL PERSONAL ---
     st.markdown("---")
-    st.markdown("<h2 style='text-align: center; white-space: nowrap;'>📈 HISTORIAL DE RECUPERACIÓN</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; white-space: nowrap; font-size: clamp(1.1rem, 4vw, 2rem);'>📈 HISTORIAL DE RECUPERACIÓN</h2>", unsafe_allow_html=True)
     
     session = SessionLocal()
     try:
@@ -189,7 +189,7 @@ else:
 
     # Formulario para nuevo reporte
     st.markdown("---")
-    st.markdown("<h2 style='text-align: center; white-space: nowrap;'>📝 REGISTRAR NUEVO REPORTE</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; white-space: nowrap; font-size: clamp(1.1rem, 4vw, 2rem);'>📝 REGISTRAR NUEVO REPORTE</h2>", unsafe_allow_html=True)
     with st.form("form_assq", clear_on_submit=True):
         
         # 2. Cuestionario Clínico
