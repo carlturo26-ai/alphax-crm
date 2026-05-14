@@ -5,7 +5,13 @@ import plotly.express as px
 import hashlib
 
 try:
-    from database import SessionLocal, Member, SleepRecord, AthleteUser
+    from database import SessionLocal, Member, SleepRecord, AthleteUser, engine
+    from sqlalchemy import text
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        try:
+            conn.execute(text("ALTER TABLE sleep_records ADD COLUMN raw_medications VARCHAR;"))
+        except:
+            pass
 except Exception as e:
     st.error(f"💀 Error de Importación de DB: {e}")
     st.stop()
