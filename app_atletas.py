@@ -40,6 +40,7 @@ div[data-baseweb="menu"], div[role="listbox"], div[role="option"] { background-c
 div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-color: #00EEFF !important; color: #000000 !important; }
 .stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #FFFFFF; color: #FFFFFF !important; background-color: transparent !important; transition: all 0.3s ease; }
 .stButton > button:hover { background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }
+.stPlotlyChart { background-color: white !important; border-radius: 15px; border: 3px solid #00EEFF; padding: 5px; box-shadow: 0 0 15px rgba(0, 238, 255, 0.3); }
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -66,7 +67,7 @@ def hash_password(password):
 
 # --- INTERFAZ DE USUARIO ---
 st.image("assq_banner.jpg", use_container_width=True)
-st.title("MONITOREO DE RECUPERACIÓN")
+st.markdown("<h1 style='text-align: center; white-space: nowrap;'>MONITOREO DE RECUPERACIÓN</h1>", unsafe_allow_html=True)
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("ALPHAX TRAINING TEAM", icon="📋")
 
@@ -140,7 +141,7 @@ else:
             
     # --- HISTORIAL PERSONAL ---
     st.markdown("---")
-    st.subheader(f"📈 Tu Historial de Recuperación")
+    st.markdown("<h2 style='text-align: center; white-space: nowrap;'>📈 HISTORIAL DE RECUPERACIÓN</h2>", unsafe_allow_html=True)
     
     session = SessionLocal()
     try:
@@ -157,9 +158,10 @@ else:
                 # Crear gráfico
                 fig = px.line(
                     df_history, x="Fecha", y="Score (SDS)", markers=True,
-                    title="Evolución de Calidad del Sueño",
+                    title="EVOLUCIÓN DE CALIDAD DEL SUEÑO",
                     color_discrete_sequence=["#FF3333"]
                 )
+                fig.update_layout(title=dict(x=0.5, xanchor='center'))
                 fig.update_traces(
                     line=dict(dash="dot", width=2),
                     marker=dict(symbol="square", size=8)
@@ -170,9 +172,10 @@ else:
                 fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="red", annotation_position="top left")
                 
                 fig.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)", 
-                    plot_bgcolor="rgba(0,0,0,0)", 
-                    font_color="white",
+                    paper_bgcolor="white", 
+                    plot_bgcolor="white", 
+                    font_color="black",
+                    margin=dict(l=10, r=10, t=50, b=10),
                     yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True),
                     xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d")
                 )
@@ -186,7 +189,7 @@ else:
 
     # Formulario para nuevo reporte
     st.markdown("---")
-    st.subheader("📝 REGISTRAR NUEVO REPORTE")
+    st.markdown("<h2 style='text-align: center; white-space: nowrap;'>📝 REGISTRAR NUEVO REPORTE</h2>", unsafe_allow_html=True)
     with st.form("form_assq", clear_on_submit=True):
         
         # 2. Cuestionario Clínico
