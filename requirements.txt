@@ -5,4 +5,4 @@ openpyxl
 plotly
 psycopg2-binary
 xlsxwriter
-extra-streamlit-components
+streamlit-cookies-controller
