@@ -2,8 +2,10 @@ import streamlit as st
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
+import hashlib
+
 try:
-    from database import SessionLocal, Member, SleepRecord
+    from database import SessionLocal, Member, SleepRecord, AthleteUser
 except Exception as e:
     st.error(f"💀 Error de Importación de DB: {e}")
     st.stop()
@@ -35,41 +37,22 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-
 """
 st.markdown(css_styles, unsafe_allow_html=True)
 
-session = SessionLocal()
-# Leer todos los deportistas activos de la base de datos
-try:
-    active_members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
-    atletas_nombres = [m.name for m in active_members]
-except Exception as e:
-    atletas_nombres = []
-    st.error(f"Error cargando socios: {e}")
-finally:
-    session.close()
-
 # --- LÓGICA DE PUNTUACIÓN CLÍNICA (ASSQ) ---
 puntajes_horas = {
-    "Más de 8 horas": 0, 
-    "7 a 8 horas": 1, 
-    "5 a 6 horas": 2, 
-    "Menos de 5 horas": 3
+    "Más de 8 horas": 0, "7 a 8 horas": 1, "5 a 6 horas": 2, "Menos de 5 horas": 3
 }
 puntajes_calidad = {
-    "Muy buena (Reparadora)": 0, 
-    "Buena": 1, 
-    "Regular (Fragmentada)": 2, 
-    "Mala (Agotadora)": 3
+    "Muy buena (Reparadora)": 0, "Buena": 1, "Regular (Fragmentada)": 2, "Mala (Agotadora)": 3
 }
 puntajes_latencia = {
-    "Me duermo casi de inmediato (< 15 min)": 0, 
-    "Tardo un poco (16-30 min)": 1, 
-    "Me cuesta dormir (31-60 min)": 2, 
-    "Doy muchas vueltas (> 60 min)": 3
+    "Me duermo casi de inmediato (< 15 min)": 0, "Tardo un poco (16-30 min)": 1, "Me cuesta dormir (31-60 min)": 2, "Doy muchas vueltas (> 60 min)": 3
 }
 puntajes_despertares = {
-    "No me despierto o vuelvo a dormir rápido": 0, 
-    "1-2 veces por semana me cuesta volver a dormir": 1, 
-    "3 o más veces por semana": 2
+    "No me despierto o vuelvo a dormir rápido": 0, "1-2 veces por semana me cuesta volver a dormir": 1, "3 o más veces por semana": 2
 }
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # --- INTERFAZ DE USUARIO ---
 st.image("https://images.unsplash.com/photo-1554342872-034a06541bad?q=80&w=1200&auto=format&fit=crop", use_container_width=True)
@@ -77,13 +60,69 @@ st.title("Monitoreo de Recuperación")
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("AlphaX Training Team", icon="📋")
 
-# 1. Identificación
-st.subheader("👤 Identificación")
-atleta = st.selectbox("Selecciona tu nombre:", ["-- Selecciona tu nombre --"] + atletas_nombres)
+if "athlete_user" not in st.session_state:
+    st.session_state["athlete_user"] = None
 
 submitted = False
 
-if atleta != "-- Selecciona tu nombre --":
+if not st.session_state["athlete_user"]:
+    # 1. Identificación y Login
+    st.subheader("👤 Identificación")
+    tab1, tab2 = st.tabs(["Iniciar Sesión", "Crear Cuenta"])
+    
+    with tab1:
+        st.markdown("Si ya tienes cuenta, ingresa aquí:")
+        login_email = st.text_input("Correo Electrónico", key="login_email")
+        login_pass = st.text_input("Contraseña", type="password", key="login_pass")
+        if st.button("Entrar", use_container_width=True, key="btn_login"):
+            session = SessionLocal()
+            user = session.query(AthleteUser).filter(AthleteUser.email == login_email.lower().strip()).first()
+            if user and user.password_hash == hash_password(login_pass):
+                st.session_state["athlete_user"] = user.athlete_name
+                st.rerun()
+            else:
+                st.error("Correo o contraseña incorrectos.")
+            session.close()
+            
+    with tab2:
+        st.markdown("¿Es tu primera vez? Crea tu cuenta para vincular tu progreso.")
+        reg_name = st.text_input("Tu Nombre Completo (tal como está en AlphaX)", key="reg_name")
+        reg_email = st.text_input("Tu Correo Electrónico", key="reg_email")
+        reg_pass = st.text_input("Crea una Contraseña", type="password", key="reg_pass")
+        if st.button("Registrarme", use_container_width=True, key="btn_reg"):
+            if not reg_name or not reg_email or not reg_pass:
+                st.warning("Por favor, llena todos los campos.")
+            else:
+                session = SessionLocal()
+                # Validar nombre de manera insensible a mayúsculas/minúsculas
+                m_obj = session.query(Member).filter(Member.name.ilike(reg_name.strip())).first()
+                if not m_obj:
+                    st.error("No encontramos tu nombre en la base de datos del club. Asegúrate de escribirlo sin errores y completo.")
+                else:
+                    existing_email = session.query(AthleteUser).filter(AthleteUser.email == reg_email.lower().strip()).first()
+                    if existing_email:
+                        st.error("Este correo ya está registrado.")
+                    else:
+                        new_user = AthleteUser(
+                            email=reg_email.lower().strip(),
+                            password_hash=hash_password(reg_pass),
+                            athlete_name=m_obj.name
+                        )
+                        session.add(new_user)
+                        session.commit()
+                        st.success("✅ Cuenta creada exitosamente. Ahora ve a la pestaña 'Iniciar Sesión'.")
+                session.close()
+
+else:
+    atleta = st.session_state["athlete_user"]
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown(f"**👤 Atleta:** {atleta}")
+    with col2:
+        if st.button("Salir", key="logout_btn"):
+            st.session_state["athlete_user"] = None
+            st.rerun()
+            
     # --- HISTORIAL PERSONAL ---
     st.markdown("---")
     st.subheader(f"📈 Tu Historial de Recuperación")
@@ -185,7 +224,12 @@ if submitted:
                     session.add(nuevo_registro)
                     session.commit()
                     st.success(f"✅ ¡Gracias {atleta}! Tu reporte ha sido enviado a tu entrenador.")
+                    st.info(f"📊 **Tu Score SDS:** {sds_score}/12 ({categoria})")
                     st.balloons()
+                    
+                    import time
+                    time.sleep(3)
+                    st.rerun()
                 else:
                     st.error("⚠️ No se encontró tu nombre en la base de datos del club.")
                     

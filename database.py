@@ -100,6 +100,15 @@ class SleepRecord(Base):
     
     member = relationship("Member")
 
+class AthleteUser(Base):
+    __tablename__ = "athlete_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    athlete_name = Column(String) # Link logically to Member.name
+    created_at = Column(Date, default=datetime.now)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     
