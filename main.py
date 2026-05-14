@@ -1187,6 +1187,62 @@ elif page == "ASSQ (Sueño)":
     st.title("Monitoreo de Recuperación (ASSQ)")
     st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
 
+    st.markdown("---")
+    st.subheader("📈 Análisis Individual de Atleta")
+    selected_athlete = st.selectbox("Selecciona un deportista para ver su gráfico", ["-- Seleccionar --"] + atletas_nombres)
+
+    if selected_athlete != "-- Seleccionar --":
+        session = SessionLocal()
+        m_obj = session.query(Member).filter(Member.name == selected_athlete).first()
+        if m_obj:
+            records = session.query(SleepRecord).filter(SleepRecord.member_id == m_obj.id).order_by(SleepRecord.date).all()
+            if records:
+                meses_es = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC"}
+                def format_date_es(d):
+                    if isinstance(d, str):
+                        try: d = datetime.strptime(d.split()[0], "%Y-%m-%d")
+                        except: pass
+                    if hasattr(d, "month"): return f"{d.day} {meses_es[d.month]}"
+                    return str(d)
+
+                df_history = pd.DataFrame([{
+                    "Fecha": format_date_es(r.date),
+                    "Score (SDS)": r.sds_score,
+                    "Categoría": r.clinical_category
+                } for r in records])
+                
+                # Crear gráfico adaptado al CRM (Dark Mode)
+                fig = px.line(
+                    df_history, x="Fecha", y="Score (SDS)", markers=True,
+                    color_discrete_sequence=["#00EEFF"] # Cyan alphaX color
+                )
+                fig.update_layout(title=dict(text=f"EVOLUCIÓN DE SUEÑO: {selected_athlete}", x=0.5, xanchor='center', font=dict(size=18, color="#00EEFF", weight="bold")))
+                fig.update_traces(
+                    line=dict(width=3),
+                    marker=dict(symbol="circle", size=10, line=dict(width=2, color="#121212"))
+                )
+                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#00FF00", annotation_position="inside left")
+                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#33C1FF", annotation_position="inside left")
+                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#FFB347", annotation_position="inside left")
+                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#FF4B4B", annotation_position="inside left")
+                
+                fig.update_layout(
+                    paper_bgcolor="#121212", 
+                    plot_bgcolor="#121212", 
+                    font_color="#FFFFFF",
+                    margin=dict(l=5, r=5, t=60, b=5),
+                    yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#333333", tickfont=dict(color="#FFFFFF"), ticks=""),
+                    xaxis=dict(title=dict(text="FECHA", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="#FFFFFF"), type="category", ticks="")
+                )
+                
+                # Card styling for the chart
+                st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.info(f"El atleta {selected_athlete} aún no tiene registros de sueño guardados.")
+        session.close()
+
     # --- HISTORIAL DE SUEÑO ---
     st.markdown("---")
     st.subheader("📊 Historial Reciente de Sueño")
