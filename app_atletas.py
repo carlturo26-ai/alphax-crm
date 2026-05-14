@@ -160,8 +160,16 @@ else:
         if m_obj:
             records = session.query(SleepRecord).filter(SleepRecord.member_id == m_obj.id).order_by(SleepRecord.date).all()
             if records:
+                meses_es = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC"}
+                def format_date_es(d):
+                    if isinstance(d, str):
+                        try: d = datetime.strptime(d.split()[0], "%Y-%m-%d")
+                        except: pass
+                    if hasattr(d, "month"): return f"{d.day} {meses_es[d.month]}"
+                    return str(d)
+
                 df_history = pd.DataFrame([{
-                    "Fecha": r.date,
+                    "Fecha": format_date_es(r.date),
                     "Score (SDS)": r.sds_score,
                     "Categoría": r.clinical_category
                 } for r in records])
@@ -188,7 +196,7 @@ else:
                     font_color="#121212",
                     margin=dict(l=10, r=10, t=60, b=10),
                     yaxis=dict(range=[18, -1], title=dict(text="Score (SDS)", font=dict(color="black")), fixedrange=True, showgrid=True, gridcolor="#E0E0E0", tickfont=dict(color="black")),
-                    xaxis=dict(title=dict(text="Fecha", font=dict(color="black")), fixedrange=True, tickformat="%Y-%m-%d", showgrid=False, tickfont=dict(color="black"))
+                    xaxis=dict(title=dict(text="Fecha", font=dict(color="black")), fixedrange=True, showgrid=False, tickfont=dict(color="black"), type="category")
                 )
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
