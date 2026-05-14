@@ -3,9 +3,47 @@ from datetime import datetime
 import os
 import streamlit as st
 
+# Configuración de página principal
+st.set_page_config(
+    page_title="AlphaX CRM",
+    page_icon="🏆",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # --- TRUCO DE ENRUTAMIENTO (APP ATLETAS) ---
 if st.query_params.get("app") == "atletas":
     import app_atletas
+    st.stop()
+
+# --- SEGURIDAD: CONTRASEÑA DEL CRM ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        # Contraseña quemada para mayor simplicidad
+        if st.session_state["password"] == "AlphaX2026!":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
+        st.text_input(
+            "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
+        st.text_input(
+            "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
+        )
+        st.error("Contraseña incorrecta 🛑")
+        return False
+    else:
+        return True
+
+if not check_password():
     st.stop()
 
 import pandas as pd
@@ -50,13 +88,6 @@ def force_schema_update(db_engine):
             conn.rollback()
             pass
 
-# Configuración de página
-st.set_page_config(
-    page_title="AlphaX CRM",
-    page_icon="🏆",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Estilos personalizados (CSS Hack para branding AlphaX)
 css_styles = """
