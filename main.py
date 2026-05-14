@@ -72,7 +72,8 @@ def force_schema_update(db_engine):
         "ALTER TABLE expenses ADD COLUMN paid_by VARCHAR;",
         "ALTER TABLE members ADD COLUMN phone VARCHAR;",
         "ALTER TABLE transactions ADD COLUMN received_by VARCHAR;",
-        "ALTER TABLE members ADD COLUMN start_month VARCHAR DEFAULT 'ENERO';"
+        "ALTER TABLE members ADD COLUMN start_month VARCHAR DEFAULT 'ENERO';",
+        "ALTER TABLE sleep_records ADD COLUMN raw_medications VARCHAR;"
     ]
     with db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for q in queries:

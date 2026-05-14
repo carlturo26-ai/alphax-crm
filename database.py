@@ -97,6 +97,7 @@ class SleepRecord(Base):
     raw_quality = Column(String)
     raw_latency = Column(String)
     raw_awakenings = Column(String)
+    raw_medications = Column(String)
     
     member = relationship("Member")
 

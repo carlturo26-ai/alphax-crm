@@ -39,16 +39,19 @@ st.markdown(css_styles, unsafe_allow_html=True)
 
 # --- LÓGICA DE PUNTUACIÓN CLÍNICA (ASSQ) ---
 puntajes_horas = {
-    "Más de 8 horas": 0, "7 a 8 horas": 1, "5 a 6 horas": 2, "Menos de 5 horas": 3
+    "Más de 9 horas": 0, "8 a 9 horas": 1, "7 a 8 horas": 2, "6 a 7 horas": 3, "5 a 6 horas": 4
 }
 puntajes_calidad = {
-    "Muy buena (Reparadora)": 0, "Buena": 1, "Regular (Fragmentada)": 2, "Mala (Agotadora)": 3
+    "Muy satisfecho": 0, "Algo satisfecho": 1, "Ni satisfecho ni insatisfecho": 2, "Algo insatisfecho": 3, "Muy insatisfecho": 4
 }
 puntajes_latencia = {
-    "Me duermo casi de inmediato (< 15 min)": 0, "Tardo un poco (16-30 min)": 1, "Me cuesta dormir (31-60 min)": 2, "Doy muchas vueltas (> 60 min)": 3
+    "15 minutos o menos": 0, "16 a 30 minutos": 1, "31 a 60 minutos": 2, "Más de 60 minutos": 3
 }
 puntajes_despertares = {
-    "No me despierto o vuelvo a dormir rápido": 0, "1-2 veces por semana me cuesta volver a dormir": 1, "3 o más veces por semana": 2
+    "Ninguna": 0, "Una o dos veces por semana": 1, "Tres o cuatro veces por semana": 2, "Cinco a siete días por semana": 3
+}
+puntajes_medicamentos = {
+    "Ninguna": 0, "Una o dos veces por semana": 1, "Tres o cuatro veces por semana": 2, "Cinco a siete veces por semana": 3
 }
 
 def hash_password(password):
@@ -170,17 +173,20 @@ else:
         # 2. Cuestionario Clínico
         st.subheader("💤 Calidad del Descanso")
     
-        horas = st.radio("1. Durante la última semana, ¿cuántas horas de sueño real tuviste por noche?", 
+        horas = st.radio("1. En los ultimos 7 dias, ¿cuántas horas de sueño real tuviste por la noche? (Es diferente del número de horas que pasaste en la cama)", 
                          options=list(puntajes_horas.keys()))
         
-        calidad = st.radio("2. ¿Cómo calificarías la calidad general de tu sueño?", 
+        calidad = st.radio("2. ¿Qué tan satisfecho/insatisfecho estás con la calidad de tu sueño?", 
                            options=list(puntajes_calidad.keys()))
         
-        latencia = st.radio("3. ¿Cuánto tiempo sueles tardar en quedarte dormido?", 
+        latencia = st.radio("3. En los ultimos 7 dias, ¿cuánto tiempo te toma habitualmente quedarte dormido cada noche?", 
                             options=list(puntajes_latencia.keys()))
         
-        despertares = st.radio("4. ¿Con qué frecuencia te despiertas en medio de la noche y te cuesta volver a dormir?", 
+        despertares = st.radio("4. ¿Con qué frecuencia tienes problemas para mantenerte dormido?", 
                                options=list(puntajes_despertares.keys()))
+                               
+        medicamentos = st.radio("5. En los ultimos 7 dias, ¿con qué frecuencia has tomado medicamentos (recetados o de venta libre) para ayudarte a dormir?", 
+                               options=list(puntajes_medicamentos.keys()))
         
         st.markdown("---")
         submitted = st.form_submit_button("Enviar Reporte", use_container_width=True)
@@ -188,23 +194,23 @@ else:
 # --- PROCESAMIENTO DE DATOS ---
 if submitted:
     with st.spinner('Guardando tu reporte...'):
-            # 1. Cálculo Automático del Score SDS
             sds_score = (
                 puntajes_horas[horas] + 
                 puntajes_calidad[calidad] + 
                 puntajes_latencia[latencia] + 
-                puntajes_despertares[despertares]
+                puntajes_despertares[despertares] +
+                puntajes_medicamentos[medicamentos]
             )
             
             # 2. Estratificación Clínica
             if sds_score <= 4:
-                categoria = "Ninguna Dificultad"
+                categoria = "Sin problema clínico"
             elif sds_score <= 7:
-                categoria = "Dificultad Leve"
+                categoria = "Problema leve"
             elif sds_score <= 10:
-                categoria = "Dificultad Moderada"
+                categoria = "Problema moderado"
             else:
-                categoria = "Dificultad Severa"
+                categoria = "Problema grave"
 
             # 3. Guardar en Base de Datos
             try:
@@ -219,7 +225,8 @@ if submitted:
                         raw_hours=horas,
                         raw_quality=calidad,
                         raw_latency=latencia,
-                        raw_awakenings=despertares
+                        raw_awakenings=despertares,
+                        raw_medications=medicamentos
                     )
                     session.add(nuevo_registro)
                     session.commit()
