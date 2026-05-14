@@ -13,6 +13,9 @@ st.set_page_config(
 
 # --- TRUCO DE ENRUTAMIENTO (APP ATLETAS) ---
 if st.query_params.get("app") == "atletas":
+    import sys
+    if "app_atletas" in sys.modules:
+        del sys.modules["app_atletas"]
     import app_atletas
     st.stop()
 
