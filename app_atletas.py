@@ -9,12 +9,15 @@ except Exception as e:
     st.stop()
 
 # --- CONFIGURACIÓN DE LA PÁGINA (Optimizada para móvil) ---
-st.set_page_config(
-    page_title="ASSQ | Alphax Training",
-    page_icon="💤",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+try:
+    st.set_page_config(
+        page_title="ASSQ | Alphax Training",
+        page_icon="💤",
+        layout="centered",
+        initial_sidebar_state="collapsed"
+    )
+except Exception:
+    pass
 
 # Estilos personalizados para la app pública (tema oscuro AlphaX)
 css_styles = """
