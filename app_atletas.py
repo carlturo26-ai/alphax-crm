@@ -40,7 +40,7 @@ div[data-baseweb="menu"], div[role="listbox"], div[role="option"] { background-c
 div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-color: #00EEFF !important; color: #000000 !important; }
 .stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #FFFFFF; color: #FFFFFF !important; background-color: transparent !important; transition: all 0.3s ease; }
 .stButton > button:hover { background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }
-.stPlotlyChart { background-color: white !important; border-radius: 15px; border: 3px solid #00EEFF; padding: 5px; box-shadow: 0 0 15px rgba(0, 238, 255, 0.3); }
+.stPlotlyChart { background-color: white !important; border-radius: 20px; border: 2px solid #00EEFF; padding: 0px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 238, 255, 0.4); }
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -159,25 +159,25 @@ else:
                 fig = px.line(
                     df_history, x="Fecha", y="Score (SDS)", markers=True,
                     title="EVOLUCIÓN DE CALIDAD DEL SUEÑO",
-                    color_discrete_sequence=["#FF3333"]
+                    color_discrete_sequence=["#0066FF"]
                 )
-                fig.update_layout(title=dict(x=0.5, xanchor='center'))
+                fig.update_layout(title=dict(x=0.5, xanchor='center', font=dict(size=18, color="#121212", weight="bold")))
                 fig.update_traces(
-                    line=dict(dash="dot", width=2),
-                    marker=dict(symbol="square", size=8)
+                    line=dict(width=3),
+                    marker=dict(symbol="circle", size=10, line=dict(width=2, color="white"))
                 )
-                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="lightgreen", annotation_position="top left")
-                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="lightblue", annotation_position="top left")
-                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="orange", annotation_position="top left")
-                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="red", annotation_position="top left")
+                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#008000", annotation_position="top left")
+                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#00509E", annotation_position="top left")
+                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#CC6600", annotation_position="top left")
+                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#B30000", annotation_position="top left")
                 
                 fig.update_layout(
                     paper_bgcolor="white", 
                     plot_bgcolor="white", 
-                    font_color="black",
-                    margin=dict(l=10, r=10, t=50, b=10),
-                    yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True),
-                    xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d")
+                    font_color="#121212",
+                    margin=dict(l=0, r=0, t=60, b=0),
+                    yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True, showgrid=True, gridcolor="#E0E0E0"),
+                    xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d", showgrid=False)
                 )
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
