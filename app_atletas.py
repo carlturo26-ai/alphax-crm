@@ -177,18 +177,18 @@ else:
                     line=dict(width=3),
                     marker=dict(symbol="circle", size=10, line=dict(width=2, color="white"))
                 )
-                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#008000", annotation_position="top left")
-                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#00509E", annotation_position="top left")
-                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#CC6600", annotation_position="top left")
-                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#B30000", annotation_position="top left")
+                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#008000", annotation_position="inside left")
+                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#00509E", annotation_position="inside left")
+                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#CC6600", annotation_position="inside left")
+                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#B30000", annotation_position="inside left")
                 
                 fig.update_layout(
                     paper_bgcolor="white", 
                     plot_bgcolor="white", 
                     font_color="#121212",
-                    margin=dict(l=0, r=0, t=60, b=0),
-                    yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True, showgrid=True, gridcolor="#E0E0E0"),
-                    xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d", showgrid=False)
+                    margin=dict(l=10, r=10, t=60, b=10),
+                    yaxis=dict(range=[18, -1], title="Score (SDS)", fixedrange=True, showgrid=True, gridcolor="#E0E0E0", titlefont=dict(color="black"), tickfont=dict(color="black")),
+                    xaxis=dict(title="Fecha", fixedrange=True, tickformat="%Y-%m-%d", showgrid=False, titlefont=dict(color="black"), tickfont=dict(color="black"))
                 )
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
