@@ -194,9 +194,9 @@ else:
                     paper_bgcolor="white", 
                     plot_bgcolor="white", 
                     font_color="#121212",
-                    margin=dict(l=10, r=10, t=60, b=10),
-                    yaxis=dict(range=[18, -1], title=dict(text="Score (SDS)", font=dict(color="black")), fixedrange=True, showgrid=True, gridcolor="#E0E0E0", tickfont=dict(color="black")),
-                    xaxis=dict(title=dict(text="Fecha", font=dict(color="black")), fixedrange=True, showgrid=False, tickfont=dict(color="black"), type="category")
+                    margin=dict(l=5, r=5, t=60, b=5),
+                    yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#E0E0E0", tickfont=dict(color="black"), ticks=""),
+                    xaxis=dict(title=dict(text="FECHA", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="black"), type="category", ticks="")
                 )
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
