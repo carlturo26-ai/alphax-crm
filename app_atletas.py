@@ -284,8 +284,9 @@ else:
         moon_animation = """
         <style>
         @keyframes floatUp {
-            0% { transform: translateY(100vh) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(-100vh) rotate(360deg); opacity: 1; }
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateY(-150vh) rotate(360deg); opacity: 0; display: none; }
         }
         .moon {
             position: fixed;
