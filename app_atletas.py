@@ -72,6 +72,10 @@ st.info("ALPHAX TRAINING TEAM", icon="📋")
 
 if "athlete_user" not in st.session_state:
     st.session_state["athlete_user"] = None
+if "last_score" not in st.session_state:
+    st.session_state["last_score"] = None
+if "show_toast" not in st.session_state:
+    st.session_state["show_toast"] = False
 
 submitted = False
 
@@ -180,6 +184,13 @@ else:
     finally:
         session.close()
 
+        if st.session_state.get("show_toast"):
+            st.toast("🌙 🌙 🌙 ¡Registro guardado! Que tengas dulces sueños. 🌙 🌙 🌙")
+            st.session_state["show_toast"] = False
+            
+        if st.session_state.get("last_score"):
+            st.success(st.session_state["last_score"])
+            
     # Formulario para nuevo reporte
     st.markdown("---")
     st.subheader("📝 REGISTRAR NUEVO REPORTE")
@@ -247,12 +258,9 @@ if submitted:
                     )
                     session.add(nuevo_registro)
                     session.commit()
-                    st.success(f"✅ ¡Gracias {atleta}! Tu reporte ha sido enviado a tu entrenador.")
-                    st.info(f"📊 **Tu Score SDS:** {sds_score}/12 ({categoria})")
-                    st.balloons()
                     
-                    import time
-                    time.sleep(3)
+                    st.session_state["last_score"] = f"✅ Reporte enviado a tu coach. 📊 **Tu último Score SDS:** {sds_score}/17 ({categoria})"
+                    st.session_state["show_toast"] = True
                     st.rerun()
                 else:
                     st.error("⚠️ No se encontró tu nombre en la base de datos del club.")
