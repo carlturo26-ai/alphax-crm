@@ -129,20 +129,20 @@ if atleta != "-- Selecciona tu nombre --":
         # 2. Cuestionario Clínico
         st.subheader("💤 Calidad del Descanso")
     
-    horas = st.radio("1. Durante la última semana, ¿cuántas horas de sueño real tuviste por noche?", 
-                     options=list(puntajes_horas.keys()))
-    
-    calidad = st.radio("2. ¿Cómo calificarías la calidad general de tu sueño?", 
-                       options=list(puntajes_calidad.keys()))
-    
-    latencia = st.radio("3. ¿Cuánto tiempo sueles tardar en quedarte dormido?", 
-                        options=list(puntajes_latencia.keys()))
-    
-    despertares = st.radio("4. ¿Con qué frecuencia te despiertas en medio de la noche y te cuesta volver a dormir?", 
-                           options=list(puntajes_despertares.keys()))
-    
-    st.markdown("---")
-    submitted = st.form_submit_button("Enviar Reporte", use_container_width=True)
+        horas = st.radio("1. Durante la última semana, ¿cuántas horas de sueño real tuviste por noche?", 
+                         options=list(puntajes_horas.keys()))
+        
+        calidad = st.radio("2. ¿Cómo calificarías la calidad general de tu sueño?", 
+                           options=list(puntajes_calidad.keys()))
+        
+        latencia = st.radio("3. ¿Cuánto tiempo sueles tardar en quedarte dormido?", 
+                            options=list(puntajes_latencia.keys()))
+        
+        despertares = st.radio("4. ¿Con qué frecuencia te despiertas en medio de la noche y te cuesta volver a dormir?", 
+                               options=list(puntajes_despertares.keys()))
+        
+        st.markdown("---")
+        submitted = st.form_submit_button("Enviar Reporte", use_container_width=True)
 
 # --- PROCESAMIENTO DE DATOS ---
 if submitted:
