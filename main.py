@@ -744,6 +744,28 @@ elif page == "Socios":
             st.success("Cambios actualizados correctamente.")
             session.close(); st.rerun()
             
+        st.markdown("---")
+        st.subheader("🔑 Restablecer Acceso de Atleta")
+        st.markdown("Si un atleta olvidó su contraseña o correo, puedes eliminar su acceso actual. Esto le permitirá registrarse nuevamente con sus nuevos datos.")
+        
+        try:
+            from database import AthleteUser
+            registered_users = session.query(AthleteUser).all()
+            if registered_users:
+                user_names = [u.athlete_name for u in registered_users]
+                selected_reset = st.selectbox("Selecciona al atleta para restablecer", ["-- Seleccionar --"] + user_names)
+                if selected_reset != "-- Seleccionar --":
+                    if st.button("Eliminar Acceso (Restablecer)", type="primary"):
+                        user_to_delete = session.query(AthleteUser).filter(AthleteUser.athlete_name == selected_reset).first()
+                        if user_to_delete:
+                            session.delete(user_to_delete)
+                            session.commit()
+                            st.success(f"Acceso de {selected_reset} eliminado. Ahora puede ir a la app y 'Crear Cuenta' de nuevo.")
+            else:
+                st.info("No hay atletas registrados en la aplicación de recuperación todavía.")
+        except Exception as e:
+            st.error(f"Error cargando usuarios: {e}")
+            
     else:
         st.info("No se encontraron socios.")
         

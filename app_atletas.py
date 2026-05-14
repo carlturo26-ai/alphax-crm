@@ -93,6 +93,7 @@ if not st.session_state["athlete_user"]:
             else:
                 st.error("Correo o contraseña incorrectos.")
             session.close()
+        st.caption("¿Olvidaste tu contraseña? Comunícate con tu entrenador para que restablezca tu acceso.")
             
     with tab2:
         st.markdown("¿Es tu primera vez? Crea tu cuenta para vincular tu progreso.")
