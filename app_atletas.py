@@ -1,8 +1,9 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
 import hashlib
+import extra_streamlit_components as stx
 
 try:
     from database import SessionLocal, Member, SleepRecord, AthleteUser, engine
@@ -71,12 +72,19 @@ st.markdown("<h1 style='text-align: center; white-space: nowrap; font-size: clam
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("ALPHAX TRAINING TEAM", icon="📋")
 
+cookie_manager = stx.CookieManager()
+
 if "athlete_user" not in st.session_state:
     st.session_state["athlete_user"] = None
 if "last_score" not in st.session_state:
     st.session_state["last_score"] = None
 if "show_toast" not in st.session_state:
     st.session_state["show_toast"] = False
+
+# Try to get the user from cookies if not in session
+athlete_cookie = cookie_manager.get(cookie="athlete_user_cookie")
+if athlete_cookie and st.session_state["athlete_user"] is None:
+    st.session_state["athlete_user"] = athlete_cookie
 
 submitted = False
 
@@ -94,6 +102,8 @@ if not st.session_state["athlete_user"]:
             user = session.query(AthleteUser).filter(AthleteUser.email == login_email.lower().strip()).first()
             if user and user.password_hash == hash_password(login_pass):
                 st.session_state["athlete_user"] = user.athlete_name
+                # Guardar cookie que expira en 30 días
+                cookie_manager.set("athlete_user_cookie", user.athlete_name, expires_at=datetime.now() + timedelta(days=30))
                 st.rerun()
             else:
                 st.error("Correo o contraseña incorrectos.")
@@ -137,6 +147,7 @@ else:
     with col2:
         if st.button("Salir", key="logout_btn"):
             st.session_state["athlete_user"] = None
+            cookie_manager.delete("athlete_user_cookie")
             st.rerun()
             
     # --- HISTORIAL PERSONAL ---
