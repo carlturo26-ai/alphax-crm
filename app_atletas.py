@@ -33,7 +33,8 @@ css_styles = """
 <style>
 html, body, [class*="css"], .stApp { font-family: 'Nunito Sans', sans-serif !important; background-color: #050505 !important; color: #FFFFFF !important; }
 p, label, span, .stMarkdown, h1, h2, h3, h4, h5, h6 { color: #00EEFF !important; }
-.stDataFrame, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stNumberInput > div > div > input { color: #FFFFFF !important; caret-color: #00EEFF; }
+.stDataFrame, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stNumberInput > div > div > input { color: #FFFFFF !important; caret-color: #00EEFF; background-color: #121212 !important; }
+div[data-baseweb="input"] > div, div[data-baseweb="base-input"] { background-color: #121212 !important; }
 div[data-baseweb="select"] > div { background-color: #121212 !important; border-color: #00EEFF !important; }
 div[data-baseweb="menu"], div[role="listbox"], div[role="option"] { background-color: #121212 !important; color: #FFFFFF !important; }
 div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-color: #00EEFF !important; color: #000000 !important; }
@@ -64,7 +65,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # --- INTERFAZ DE USUARIO ---
-st.image("https://images.unsplash.com/photo-1554342872-034a06541bad?q=80&w=1200&auto=format&fit=crop", use_container_width=True)
+st.image("assq_banner.jpg", use_container_width=True)
 st.title("Monitoreo de Recuperación")
 st.markdown("**Athlete Sleep Screening Questionnaire (ASSQ)**")
 st.info("AlphaX Training Team", icon="📋")
@@ -152,18 +153,25 @@ else:
                 fig = px.line(
                     df_history, x="Fecha", y="Score (SDS)", markers=True,
                     title="Evolución de tu Calidad de Sueño (Menor puntaje es mejor)",
-                    color_discrete_sequence=["#00EEFF"]
+                    color_discrete_sequence=["#FF3333"]
                 )
+                fig.update_traces(
+                    line=dict(dash="dot", width=2),
+                    marker=dict(symbol="square", size=8)
+                )
+                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="lightgreen", annotation_position="top left")
+                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="lightblue", annotation_position="top left")
+                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="orange", annotation_position="top left")
+                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="red", annotation_position="top left")
+                
                 fig.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", 
                     plot_bgcolor="rgba(0,0,0,0)", 
                     font_color="white",
-                    yaxis=dict(autorange="reversed") # Menor score es mejor (0-4 ninguna dificultad)
+                    yaxis=dict(range=[18, -1], title="Score (SDS)"),
+                    xaxis=dict(title="Fecha")
                 )
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # Pequeña leyenda explicativa
-                st.caption("Puntaje 0-4: Ninguna Dificultad | 5-7: Leve | 8-10: Moderada | >10: Severa")
             else:
                 st.info("Aún no tienes registros de sueño. ¡Llena tu primer reporte abajo!")
     except Exception as e:
