@@ -184,13 +184,6 @@ else:
     finally:
         session.close()
 
-        if st.session_state.get("show_toast"):
-            st.toast("🌙 🌙 🌙 ¡Registro guardado! Que tengas dulces sueños. 🌙 🌙 🌙")
-            st.session_state["show_toast"] = False
-            
-        if st.session_state.get("last_score"):
-            st.success(st.session_state["last_score"])
-            
     # Formulario para nuevo reporte
     st.markdown("---")
     st.subheader("📝 REGISTRAR NUEVO REPORTE")
@@ -216,6 +209,41 @@ else:
         
         st.markdown("---")
         submitted = st.form_submit_button("ENVIAR REPORTE", use_container_width=True)
+
+    if st.session_state.get("last_score"):
+        st.success(st.session_state["last_score"])
+        
+    if st.session_state.get("show_toast"):
+        moon_animation = """
+        <style>
+        @keyframes floatUp {
+            0% { transform: translateY(100vh) rotate(0deg); opacity: 1; font-size: 3rem; }
+            100% { transform: translateY(-100vh) rotate(360deg); opacity: 0; font-size: 4rem; }
+        }
+        .moon {
+            position: fixed;
+            bottom: -100px;
+            animation: floatUp 5s linear forwards;
+            z-index: 999999;
+        }
+        .m1 { left: 10%; animation-duration: 4s; animation-delay: 0s; }
+        .m2 { left: 30%; animation-duration: 5s; animation-delay: 0.5s; }
+        .m3 { left: 50%; animation-duration: 4.5s; animation-delay: 0.2s; }
+        .m4 { left: 70%; animation-duration: 5.5s; animation-delay: 0.8s; }
+        .m5 { left: 90%; animation-duration: 6s; animation-delay: 0.1s; }
+        .m6 { left: 20%; animation-duration: 6.5s; animation-delay: 0.3s; }
+        .m7 { left: 80%; animation-duration: 4.2s; animation-delay: 0.6s; }
+        </style>
+        <div class="moon m1">🌙</div>
+        <div class="moon m2">🌙</div>
+        <div class="moon m3">🌙</div>
+        <div class="moon m4">🌙</div>
+        <div class="moon m5">🌙</div>
+        <div class="moon m6">🌙</div>
+        <div class="moon m7">🌙</div>
+        """
+        st.markdown(moon_animation, unsafe_allow_html=True)
+        st.session_state["show_toast"] = False
 
 if submitted:
     if horas is None or calidad is None or latencia is None or despertares is None or medicamentos is None:
