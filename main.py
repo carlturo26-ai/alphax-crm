@@ -1187,11 +1187,12 @@ elif page == "ASSQ (Sueño)":
     st.title("Monitoreo de Recuperación (ASSQ)")
     
     # --- ALERTAS CRÍTICAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+    from sqlalchemy.orm import joinedload
     session = SessionLocal()
     alert_records = []
     try:
         seven_days_ago = datetime.now().date() - timedelta(days=7)
-        alert_records = session.query(SleepRecord).join(Member).filter(
+        alert_records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).filter(
             Member.active == True,
             SleepRecord.date >= seven_days_ago,
             SleepRecord.sds_score >= 8
@@ -1298,7 +1299,7 @@ elif page == "ASSQ (Sueño)":
     
     session = SessionLocal()
     try:
-        records = session.query(SleepRecord).join(Member).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).limit(50).all()
+        records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).limit(50).all()
         if records:
             data = []
             for r in records:
