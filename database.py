@@ -8,21 +8,29 @@ import streamlit as st
 # Database setup
 # Check for Streamlit Secrets (Cloud) or Environment Variable
 try:
-    if "DATABASE_URL" in st.secrets:
-        DB_PATH = st.secrets["DATABASE_URL"]
-        # Fix for some Postgres providers using 'postgres://' instead of 'postgresql://'
-        if DB_PATH.startswith("postgres://"):
-            DB_PATH = DB_PATH.replace("postgres://", "postgresql://", 1)
-    elif "DATABASE_URL" in os.environ:
-        DB_PATH = os.environ["DATABASE_URL"]
-    else:
-        raise KeyError
-except (FileNotFoundError, KeyError):
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+DB_PATH = os.environ.get("DATABASE_URL")
+
+if not DB_PATH:
+    try:
+        if "DATABASE_URL" in st.secrets:
+            DB_PATH = st.secrets["DATABASE_URL"]
+    except Exception:
+        pass
+
+if not DB_PATH:
     # Local fallback
     DB_FOLDER = os.path.join(os.path.dirname(__file__), "data")
     if not os.path.exists(DB_FOLDER):
         os.makedirs(DB_FOLDER)
     DB_PATH = f"sqlite:///{os.path.join(DB_FOLDER, 'club_crm.db')}"
+
+if DB_PATH.startswith("postgres://"):
+    DB_PATH = DB_PATH.replace("postgres://", "postgresql://", 1)
 
 @st.cache_resource(show_spinner=False)
 def get_engine(db_url):

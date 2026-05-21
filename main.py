@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import streamlit as st
 
@@ -1185,6 +1185,54 @@ elif page == "ASSQ (Sueño)":
         session.close()
 
     st.title("Monitoreo de Recuperación (ASSQ)")
+    
+    # --- ALERTAS CRÍTICAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+    session = SessionLocal()
+    alert_records = []
+    try:
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        alert_records = session.query(SleepRecord).join(Member).filter(
+            SleepRecord.date >= seven_days_ago,
+            SleepRecord.sds_score >= 8
+        ).order_by(SleepRecord.date.desc()).all()
+    except Exception as e:
+        print(f"Error querying sleep alerts: {e}")
+    finally:
+        session.close()
+        
+    # --- DESPLEGABLE DE ALERTAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+    if alert_records:
+        with st.expander("🚨 ALERTA: Deportistas con Recuperación Crítica (Últimos 7 días)", expanded=True):
+            st.markdown(
+                """
+                <div style="background: rgba(255, 75, 75, 0.08); padding: 10px; border-radius: 8px; margin-bottom: 12px;">
+                    <p style="color: #FFFFFF; font-size: 0.95rem; margin-bottom: 0px;">
+                        Los siguientes deportistas activos han registrado problemas de descanso moderados o graves recientemente (Score ≥ 8):
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            for r in alert_records:
+                badge_color = "#ff4b4b" if r.sds_score > 10 else "#ffa500"
+                st.markdown(
+                    f"""
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; border-left: 4px solid {badge_color}; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: #00EEFF; font-size: 0.95rem;">{r.member.name}</strong><br>
+                            <span style="font-size: 0.8rem; color: #aaaaaa;">Fecha: {r.date.strftime('%Y-%m-%d')} | Puntuación SDS: {r.sds_score}/17</span>
+                        </div>
+                        <span style="background: {badge_color}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">
+                            {r.clinical_category}
+                        </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+    else:
+        with st.expander("🚨 Alertas de Sueño Activas (Últimos 7 días)", expanded=False):
+            st.success("✅ No hay alertas de descanso críticas activas en los últimos 7 días. ¡Excelente recuperación general! 👍")
+
     st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
 
     st.markdown("---")
@@ -1249,7 +1297,7 @@ elif page == "ASSQ (Sueño)":
     
     session = SessionLocal()
     try:
-        records = session.query(SleepRecord).join(Member).order_by(SleepRecord.date.desc()).limit(50).all()
+        records = session.query(SleepRecord).join(Member).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).limit(50).all()
         if records:
             data = []
             for r in records:
