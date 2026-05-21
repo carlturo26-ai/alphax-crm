@@ -1190,11 +1190,12 @@ elif page == "ASSQ (Sueño)":
     session = SessionLocal()
     alert_records = []
     try:
-        seven_days_ago = datetime.now() - timedelta(days=7)
+        seven_days_ago = datetime.now().date() - timedelta(days=7)
         alert_records = session.query(SleepRecord).join(Member).filter(
+            Member.active == True,
             SleepRecord.date >= seven_days_ago,
             SleepRecord.sds_score >= 8
-        ).order_by(SleepRecord.date.desc()).all()
+        ).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).all()
     except Exception as e:
         print(f"Error querying sleep alerts: {e}")
     finally:
