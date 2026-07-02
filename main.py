@@ -579,11 +579,22 @@ if page == "Dashboard":
         pozo_aprendizaje = income_aprendizaje
         gastos_a_cubrir = total_expenses_liq
         balance_aprendizaje = pozo_aprendizaje - gastos_a_cubrir
-        mitad_balance = balance_aprendizaje / 2.0 
+        
+        # Determine if we are in July 2026 or later
+        is_after_june_2026 = (liq_year > 2026) or (liq_year == 2026 and liq_month_idx >= 7)
+        
+        if is_after_june_2026:
+            # Alejandro no asume gastos ni recibe del pozo de aprendizaje
+            mitad_balance_alejandro = 0.0
+            mitad_balance_carlos = balance_aprendizaje
+        else:
+            # Antes de Julio 2026, se dividía 50/50
+            mitad_balance_alejandro = balance_aprendizaje / 2.0
+            mitad_balance_carlos = balance_aprendizaje / 2.0
         
         # Honorarios Totales (Lo que cada uno DEBE tener al final)
-        honorarios_alejandro_base = alejandro_share_alejandro + mitad_balance
-        honorarios_carlos_base = income_carlos + carlos_share_alejandro + mitad_balance
+        honorarios_alejandro_base = alejandro_share_alejandro + mitad_balance_alejandro
+        honorarios_carlos_base = income_carlos + carlos_share_alejandro + mitad_balance_carlos
         
         total_alejandro = honorarios_alejandro_base + expenses_paid_by_alejandro
         total_carlos = honorarios_carlos_base + expenses_paid_by_carlos
@@ -612,10 +623,13 @@ if page == "Dashboard":
             st.info("🐺 **ALEJANDRO**")
             st.markdown(f"**Revisión de Honorarios (Gané):**")
             st.markdown(f"- 80% Grupo Alejandro: `+${alejandro_share_alejandro:,.0f}`")
-            if balance_aprendizaje < 0:
-                st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance):,.0f}`")
+            if is_after_june_2026:
+                st.markdown(f"- 0% Gastos / Aprendizaje: `$0`")
             else:
-                st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance:,.0f}`")
+                if balance_aprendizaje < 0:
+                    st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance_alejandro):,.0f}`")
+                else:
+                    st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance_alejandro:,.0f}`")
             if expenses_paid_by_alejandro > 0:
                 st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_alejandro:,.0f}`")
             
@@ -627,10 +641,16 @@ if page == "Dashboard":
             st.markdown(f"**Revisión de Honorarios (Gané):**")
             st.markdown(f"- 100% Grupo Carlos: `+${income_carlos:,.0f}`")
             st.markdown(f"- 20% Grupo Alejandro: `+${carlos_share_alejandro:,.0f}`")
-            if balance_aprendizaje < 0:
-                st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance):,.0f}`")
+            if is_after_june_2026:
+                if balance_aprendizaje < 0:
+                    st.markdown(f"- 100% Déficit Gastos: `-${abs(mitad_balance_carlos):,.0f}`")
+                else:
+                    st.markdown(f"- 100% Sobrante Aprend.: `+${mitad_balance_carlos:,.0f}`")
             else:
-                st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance:,.0f}`")
+                if balance_aprendizaje < 0:
+                    st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance_carlos):,.0f}`")
+                else:
+                    st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance_carlos:,.0f}`")
             if expenses_paid_by_carlos > 0:
                 st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_carlos:,.0f}`")
             
@@ -642,9 +662,15 @@ if page == "Dashboard":
             st.write(f"2. **Total de Gastos Realizados en el Mes:** `${gastos_a_cubrir:,.0f}`")
             
             if balance_aprendizaje >= 0:
-                st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (Se divide entre 2)")
+                if is_after_june_2026:
+                    st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (100% para Carlos)")
+                else:
+                    st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (Se divide entre 2)")
             else:
-                st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (Se divide entre 2 para que lo asuman)")
+                if is_after_june_2026:
+                    st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (100% asume Carlos)")
+                else:
+                    st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (Se divide entre 2 para que lo asuman)")
 
     except Exception as e:
         session.rollback()
