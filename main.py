@@ -19,15 +19,38 @@ if st.query_params.get("app") == "atletas":
     import app_atletas
     st.stop()
 
+from streamlit_cookies_controller import CookieController
+
+# Initialize cookie controller
+cookie_controller = CookieController()
+
 # --- SEGURIDAD: CONTRASEÑA DEL CRM ---
 def check_password():
-    """Returns `True` if the user had the correct password."""
+    """Returns `True` if the user had the correct password or has a valid cookie."""
+    # 1. Check session state first
+    if st.session_state.get("password_correct"):
+        return True
+
+    # 2. Check cookie if session state doesn't have it
+    try:
+        auth_cookie = cookie_controller.get("crm_admin_auth")
+        if auth_cookie == "authorized_alphax_2026":
+            st.session_state["password_correct"] = True
+            return True
+    except Exception:
+        pass
+
     def password_entered():
         if "password" not in st.session_state:
             return
         # Contraseña quemada para mayor simplicidad
         if st.session_state["password"] == "AlphaX2026!":
             st.session_state["password_correct"] = True
+            try:
+                # Set cookie for 30 days
+                cookie_controller.set("crm_admin_auth", "authorized_alphax_2026", max_age=30 * 86400)
+            except Exception:
+                pass
             del st.session_state["password"]  # don't store password
         else:
             st.session_state["password_correct"] = False
