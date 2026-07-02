@@ -23,6 +23,8 @@ if st.query_params.get("app") == "atletas":
 def check_password():
     """Returns `True` if the user had the correct password."""
     def password_entered():
+        if "password" not in st.session_state:
+            return
         # Contraseña quemada para mayor simplicidad
         if st.session_state["password"] == "AlphaX2026!":
             st.session_state["password_correct"] = True
@@ -849,7 +851,7 @@ elif page == "Novedades/Pagos":
         status = st.selectbox("Estado", ["PAID", "PENDING"])
     with c6:
         # Bank Account routing
-        received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos", "Alejandro", "Efectivo/Caja"])
+        received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos"])
         
     if st.button("Registrar Transacción", type="primary"):
         if final_member_name and start_month:
@@ -968,7 +970,7 @@ elif page == "Gastos":
         cat = c3.selectbox("Categoría", ["Operativo", "Honorarios", "Alquiler", "Mantenimiento", "Otros"])
         
         # New Field: Paid By
-        payer = c4.selectbox("Pagado Por", ["AlphaX (Caja)", "Carlos", "Alejandro"])
+        payer = c4.selectbox("Pagado Por", ["Carlos"])
         
         date_exp = st.date_input("Fecha", value=datetime.today())
         
