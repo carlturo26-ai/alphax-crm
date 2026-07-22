@@ -1532,16 +1532,20 @@ elif page == "Análisis de Lactato":
                                     tickfont=dict(color="#FFFFFF")
                                 ),
                                 yaxis=dict(
-                                    title="Lactato (mmol/L)", 
+                                    title=dict(
+                                        text="Lactato (mmol/L)",
+                                        font=dict(color="#00EEFF")
+                                    ),
                                     gridcolor="#333333", 
                                     showgrid=True,
-                                    titlefont=dict(color="#00EEFF"),
                                     tickfont=dict(color="#00EEFF")
                                 ),
                                 yaxis2=dict(
-                                    title="Pulso (bpm)", 
+                                    title=dict(
+                                        text="Pulso (bpm)",
+                                        font=dict(color="#FF3366")
+                                    ),
                                     showgrid=False,
-                                    titlefont=dict(color="#FF3366"),
                                     tickfont=dict(color="#FF3366"),
                                     overlaying="y",
                                     side="right"
