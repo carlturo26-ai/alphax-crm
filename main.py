@@ -137,6 +137,15 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-
 /* BUTTONS */
 .stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #00EEFF; color: #00EEFF !important; background-color: transparent !important; transition: all 0.3s ease; }
 .stButton > button:hover { background-color: #00EEFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(0, 238, 255, 0.4); }
+
+/* CUSTOM GLIDE DATA GRID FONT SIZE AND WEIGHT */
+div[data-testid="stDataEditor"] button, 
+div[data-testid="stDataEditor"] div, 
+div[data-testid="stDataEditor"] span { 
+    font-size: 1.1rem !important; 
+    font-weight: 800 !important; 
+    color: #FFFFFF !important;
+}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -1687,6 +1696,14 @@ elif page == "Análisis de Lactato":
                     st.markdown("### 📊 Escalones del Test")
                     st.info("Puedes modificar los valores directamente en la tabla si hay errores de lectura.")
                     
+                    # Convert duration from seconds to minutes for display in editor
+                    for s in parsed_steps:
+                        if s.get("duration") is not None:
+                            try:
+                                s["duration"] = round(float(s["duration"]) / 60.0, 2)
+                            except:
+                                pass
+
                     # Convert parsed steps list of dicts to DataFrame for st.data_editor
                     df_steps_input = pd.DataFrame(parsed_steps)
                     
@@ -1696,12 +1713,37 @@ elif page == "Análisis de Lactato":
                         if col not in df_steps_input.columns:
                             df_steps_input[col] = None
                     df_steps_input = df_steps_input[columns_order]
+
+                    # Rename columns to uppercase Spanish names for a premium look
+                    rename_dict = {
+                        "step_number": "NÚMERO DE PASO",
+                        "pot_rel": "POTENCIA RELATIVA (W/KG)",
+                        "lactate": "LACTATO (MMOL)",
+                        "watts": "POTENCIA (WATTS)",
+                        "heart_rate": "FRECUENCIA CARDÍACA (BPM)",
+                        "duration": "DURACIÓN (MINUTOS)",
+                        "rpe": "RPE (ESFUERZO)"
+                    }
+                    df_steps_input.rename(columns=rename_dict, inplace=True)
                     
                     # Show interactive data editor
                     edited_df = st.data_editor(df_steps_input, use_container_width=True, num_rows="dynamic")
                     
+                    # Map Spanish column names back to standard database keys for logic & storage
+                    reverse_rename_dict = {v: k for k, v in rename_dict.items()}
+                    edited_df_renamed = edited_df.rename(columns=reverse_rename_dict)
+                    
                     # Recalculate thresholds based on edited table data
-                    edited_steps_list = edited_df.to_dict("records")
+                    edited_steps_list = edited_df_renamed.to_dict("records")
+                    
+                    # Convert duration from minutes back to seconds for DB storage
+                    for s in edited_steps_list:
+                        if s.get("duration") is not None:
+                            try:
+                                s["duration"] = int(float(s["duration"]) * 60)
+                            except:
+                                s["duration"] = None
+                                
                     # Filter out rows with all None
                     edited_steps_list = [s for s in edited_steps_list if s.get("step_number")]
                     
