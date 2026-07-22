@@ -79,7 +79,7 @@ import requests
 import json
 
 try:
-    from database import init_db, SessionLocal, Member, Transaction, Expense, SleepRecord, engine
+    from database import init_db, SessionLocal, Member, Transaction, Expense, SleepRecord, LactateTest, LactateTestStep, engine
     from logic import import_excel_data, get_summary_kpis, update_member_phones
 except Exception as e:
     st.error(f"💀 Error CRÍTICO de Importación: {e}")
@@ -155,7 +155,7 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)"])
+    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato"])
 
 
     
@@ -1370,4 +1370,445 @@ elif page == "ASSQ (Sueño)":
         st.warning("⚠️ Debes recargar la aplicación para que se cree la tabla de historial de sueño en la base de datos.")
     finally:
         session.close()
+
+# --- PAGE: ANÁLISIS DE LACTATO ---
+elif page == "Análisis de Lactato":
+    import lactate_parser
+    from plotly.subplots import make_subplots
+    import plotly.graph_objects as go
+    from sqlalchemy.orm import joinedload
+    
+    st.title("🧪 Análisis de Lactato")
+    
+    session = SessionLocal()
+    try:
+        active_members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
+        atletas_nombres = [m.name for m in active_members]
+    except Exception as e:
+        atletas_nombres = []
+        st.error(f"Error cargando socios: {e}")
+    finally:
+        session.close()
+        
+    st.markdown("---")
+    
+    col_sel, col_empty = st.columns([1, 1])
+    with col_sel:
+        selected_athlete = st.selectbox("Selecciona un deportista:", ["-- Seleccionar --"] + atletas_nombres)
+        
+    if selected_athlete != "-- Seleccionar --":
+        # Fetch athlete object
+        session = SessionLocal()
+        member_obj = session.query(Member).filter(Member.name == selected_athlete).first()
+        session.close()
+        
+        if not member_obj:
+            st.error("Atleta no encontrado en el sistema.")
+        else:
+            # Create tabs
+            tab_history, tab_new = st.tabs(["📊 Historial y Comparación", "📥 Registrar Nueva Prueba"])
+            
+            # --- TAB: HISTORIAL Y COMPARACIÓN ---
+            with tab_history:
+                st.subheader(f"Evolución de {selected_athlete}")
+                
+                session = SessionLocal()
+                try:
+                    tests = session.query(LactateTest).filter(LactateTest.member_id == member_obj.id).order_by(LactateTest.date.desc()).all()
+                except Exception as e:
+                    tests = []
+                    st.error(f"Error cargando pruebas: {e}")
+                finally:
+                    session.close()
+                    
+                if tests:
+                    # 1. Show history table
+                    st.markdown("### Pruebas Registradas")
+                    history_data = []
+                    for t in tests:
+                        history_data.append({
+                            "id": t.id,
+                            "Fecha": t.date.strftime("%Y-%m-%d"),
+                            "Deporte": t.sport,
+                            "Peso (kg)": t.weight or "",
+                            "FTP/CP": t.ftp or "",
+                            "LT1 Potencia": f"{t.lt1_power:.0f} W" if t.lt1_power else "",
+                            "LT1 Pulso": f"{t.lt1_hr} lpm" if t.lt1_hr else "",
+                            "LT2 Potencia": f"{t.lt2_power:.0f} W" if t.lt2_power else "",
+                            "LT2 Pulso": f"{t.lt2_hr} lpm" if t.lt2_hr else "",
+                            "CTL/ATL/TSB": f"{t.ctl or 0:.0f}/{t.atl or 0:.0f}/{t.tsb or 0:.0f}"
+                        })
+                    df_history = pd.DataFrame(history_data)
+                    
+                    # Show dataframe
+                    st.dataframe(df_history.drop(columns=["id"]), use_container_width=True, hide_index=True)
+                    
+                    st.markdown("---")
+                    st.markdown("### 📈 Superponer y Comparar Curvas")
+                    st.info("Selecciona una o más pruebas del historial para visualizar y superponer sus curvas de rendimiento.")
+                    
+                    # Selectbox/multiselect for comparison
+                    test_options = {f"{t.date.strftime('%Y-%m-%d')} - {t.sport}": t.id for t in tests}
+                    selected_tests = st.multiselect("Selecciona pruebas a comparar:", list(test_options.keys()), default=[list(test_options.keys())[0]])
+                    
+                    if selected_tests:
+                        selected_ids = [test_options[name] for name in selected_tests]
+                        
+                        fig = make_subplots(specs=[[{"secondary_y": True}]])
+                        colors = ["#00EEFF", "#FF3366", "#33FF99", "#FF9933", "#CC33FF"]
+                        
+                        session = SessionLocal()
+                        try:
+                            for idx, t_id in enumerate(selected_ids):
+                                t = session.query(LactateTest).filter(LactateTest.id == t_id).first()
+                                steps = session.query(LactateTestStep).filter(LactateTestStep.test_id == t_id).order_by(LactateTestStep.id).all()
+                                
+                                df_steps = pd.DataFrame([{
+                                    "step_number": s.step_number,
+                                    "pot_rel": s.pot_rel or 0.0,
+                                    "lactate": s.lactate,
+                                    "watts": s.watts or 0.0,
+                                    "heart_rate": s.heart_rate
+                                } for s in steps])
+                                
+                                # Filter None for plotting
+                                df_plot = df_steps.dropna(subset=["lactate"])
+                                df_hr_plot = df_steps.dropna(subset=["heart_rate"])
+                                
+                                color = colors[idx % len(colors)]
+                                date_str = t.date.strftime("%Y-%m-%d")
+                                sport_str = t.sport
+                                
+                                # Add Lactate curve
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=df_plot["watts"], 
+                                        y=df_plot["lactate"], 
+                                        mode='lines+markers',
+                                        name=f"Lactato {date_str} ({sport_str})",
+                                        line=dict(color=color, width=3),
+                                        marker=dict(size=8)
+                                    ),
+                                    secondary_y=False
+                                )
+                                
+                                # Add Heart Rate curve
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=df_hr_plot["watts"], 
+                                        y=df_hr_plot["heart_rate"], 
+                                        mode='lines+markers',
+                                        name=f"Pulso {date_str}",
+                                        line=dict(color=color, width=2, dash='dash'),
+                                        marker=dict(size=6, symbol='triangle-up')
+                                    ),
+                                    secondary_y=True
+                                )
+                                
+                                # Add threshold lines if only 1 test is selected
+                                if len(selected_ids) == 1:
+                                    if t.lt1_power:
+                                        fig.add_vline(x=t.lt1_power, line_width=1.5, line_dash="dot", line_color="#FFD700", annotation_text=f"LT1: {t.lt1_power:.0f}W", annotation_position="top left")
+                                    if t.lt2_power:
+                                        fig.add_vline(x=t.lt2_power, line_width=1.5, line_dash="dot", line_color="#FF3333", annotation_text=f"LT2: {t.lt2_power:.0f}W", annotation_position="top left")
+                                        
+                            fig.update_layout(
+                                paper_bgcolor="#121212",
+                                plot_bgcolor="#121212",
+                                font_color="#FFFFFF",
+                                xaxis=dict(
+                                    title="Potencia (watts) / Velocidad", 
+                                    gridcolor="#333333", 
+                                    showgrid=True,
+                                    tickfont=dict(color="#FFFFFF")
+                                ),
+                                yaxis=dict(
+                                    title="Lactato (mmol/L)", 
+                                    gridcolor="#333333", 
+                                    showgrid=True,
+                                    titlefont=dict(color="#00EEFF"),
+                                    tickfont=dict(color="#00EEFF")
+                                ),
+                                yaxis2=dict(
+                                    title="Pulso (bpm)", 
+                                    showgrid=False,
+                                    titlefont=dict(color="#FF3366"),
+                                    tickfont=dict(color="#FF3366"),
+                                    overlaying="y",
+                                    side="right"
+                                ),
+                                legend=dict(
+                                    bgcolor="rgba(0,0,0,0.5)",
+                                    bordercolor="#00EEFF",
+                                    borderwidth=1
+                                ),
+                                margin=dict(l=10, r=10, t=50, b=10)
+                            )
+                            
+                            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                            st.plotly_chart(fig, use_container_width=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"Error cargando gráficos: {e}")
+                        finally:
+                            session.close()
+                    else:
+                        st.info("Selecciona al menos una prueba para graficar.")
+                        
+                    # 2. Show threshold evolution over time
+                    st.markdown("---")
+                    st.markdown("### 📈 Evolución de Umbrales (LT1 y LT2)")
+                    
+                    # Sort tests by date ascending for evolution line chart
+                    tests_asc = sorted(tests, key=lambda x: x.date)
+                    dates_evolution = [t.date.strftime("%Y-%m-%d") for t in tests_asc]
+                    lt1_p_evolution = [t.lt1_power for t in tests_asc]
+                    lt2_p_evolution = [t.lt2_power for t in tests_asc]
+                    lt1_hr_evolution = [t.lt1_hr for t in tests_asc]
+                    lt2_hr_evolution = [t.lt2_hr for t in tests_asc]
+                    
+                    df_evo = pd.DataFrame({
+                        "Fecha": dates_evolution,
+                        "LT1 Potencia (W)": lt1_p_evolution,
+                        "LT2 Potencia (W)": lt2_p_evolution,
+                        "LT1 Pulso (bpm)": lt1_hr_evolution,
+                        "LT2 Pulso (bpm)": lt2_hr_evolution
+                    })
+                    
+                    # Plotly lines for power evolution
+                    fig_evo_p = px.line(df_evo, x="Fecha", y=["LT1 Potencia (W)", "LT2 Potencia (W)"], markers=True,
+                                        color_discrete_map={"LT1 Potencia (W)": "#FFD700", "LT2 Potencia (W)": "#FF3333"})
+                    fig_evo_p.update_layout(
+                        title="Evolución de Potencia de Umbral (W)",
+                        paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
+                        xaxis=dict(gridcolor="#333333"), yaxis=dict(gridcolor="#333333")
+                    )
+                    
+                    fig_evo_hr = px.line(df_evo, x="Fecha", y=["LT1 Pulso (bpm)", "LT2 Pulso (bpm)"], markers=True,
+                                         color_discrete_map={"LT1 Pulso (bpm)": "#FFD700", "LT2 Pulso (bpm)": "#FF3333"})
+                    fig_evo_hr.update_layout(
+                        title="Evolución de Pulso de Umbral (bpm)",
+                        paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
+                        xaxis=dict(gridcolor="#333333"), yaxis=dict(gridcolor="#333333")
+                    )
+                    
+                    col_evo1, col_evo2 = st.columns(2)
+                    with col_evo1:
+                        st.plotly_chart(fig_evo_p, use_container_width=True)
+                    with col_evo2:
+                        st.plotly_chart(fig_evo_hr, use_container_width=True)
+                else:
+                    st.info("Este atleta aún no tiene pruebas de lactato registradas. Ve a la pestaña 'Registrar Nueva Prueba' para cargar una.")
+                    
+            # --- TAB: REGISTRAR NUEVA PRUEBA ---
+            with tab_new:
+                st.subheader("Cargar Datos de Test de Lactato")
+                
+                # Form values inputs
+                col_in1, col_in2 = st.columns(2)
+                with col_in1:
+                    test_sport = st.selectbox("Deporte:", ["Ciclismo", "Running"])
+                    input_method = st.radio("Método de entrada de datos:", ["Copiar y Pegar Celdas (TSV)", "Subir Archivo Excel (.xlsx)"], horizontal=True)
+                with col_in2:
+                    test_date = st.date_input("Fecha de la prueba:", datetime.now().date())
+                    
+                parsed_header = {}
+                parsed_steps = []
+                
+                if input_method == "Copiar y Pegar Celdas (TSV)":
+                    tsv_data = st.text_area("Pega las celdas aquí (Copia directamente el bloque de celdas desde Google Sheets o Excel):", height=200, placeholder="ESCALON\tPOT/REL\tLACTATO\tPOWER\t...\nReposo\t0\t1.2\t0\t...\n1\t2.03\t1.4\t138\t...")
+                    if tsv_data:
+                        try:
+                            parsed_header, parsed_steps = lactate_parser.parse_tsv_text(tsv_data)
+                        except Exception as parse_err:
+                            st.error(f"Error procesando el texto pegado: {parse_err}")
+                else:
+                    uploaded_xlsx = st.file_uploader("Sube el archivo Excel de la prueba (.xlsx):", type=["xlsx"])
+                    if uploaded_xlsx:
+                        try:
+                            # Write temporarily
+                            temp_xlsx = f"temp_lactate_{uploaded_xlsx.name}"
+                            with open(temp_xlsx, "wb") as f:
+                                f.write(uploaded_xlsx.getbuffer())
+                                
+                            parsed_header, parsed_steps = lactate_parser.parse_excel_file(temp_xlsx)
+                            
+                            # Clean up temp
+                            try: os.remove(temp_xlsx)
+                            except: pass
+                        except Exception as parse_err:
+                            st.error(f"Error procesando el archivo Excel: {parse_err}")
+                            
+                if parsed_steps:
+                    st.success("✅ ¡Datos leídos exitosamente! Revisa los detalles abajo antes de guardar.")
+                    
+                    # Merge parsed values with default inputs
+                    st.markdown("### 📋 Cabecera / Metadatos del Test")
+                    
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        weight_val = parsed_header.get("weight") or 0.0
+                        test_weight = st.number_input("Peso (kg):", value=float(weight_val), step=0.1)
+                        
+                        ftp_val = parsed_header.get("ftp") or 0.0
+                        test_ftp = st.number_input("FTP o Umbral CP previo (W):", value=float(ftp_val), step=5.0)
+                        
+                        temp_val = parsed_header.get("temperature") or 18.0
+                        test_temperature = st.number_input("Temperatura (°C):", value=float(temp_val), step=1.0)
+                        
+                    with col_m2:
+                        ctl_val = parsed_header.get("ctl") or 0.0
+                        test_ctl = st.number_input("CTL (Fitness):", value=float(ctl_val), step=1.0)
+                        
+                        atl_val = parsed_header.get("atl") or 0.0
+                        test_atl = st.number_input("ATL (Fatiga):", value=float(atl_val), step=1.0)
+                        
+                        tsb_val = parsed_header.get("tsb") or 0.0
+                        test_tsb = st.number_input("TSB (Forma):", value=float(tsb_val), step=1.0)
+                        
+                    with col_m3:
+                        test_simulator = st.text_input("Simulador / Rodillo:", value=parsed_header.get("simulator") or "")
+                        test_lactate_meter = st.text_input("Medidor de Lactato:", value=parsed_header.get("lactate_meter") or "")
+                        test_bike_or_shoes = st.text_input("Bicicleta / Zapatillas:", value=parsed_header.get("bike_or_shoes") or "")
+                        test_power_source = st.text_input("Fuente de Potencia:", value=parsed_header.get("power_source") or "")
+                        
+                    col_m4, col_m5 = st.columns(2)
+                    with col_m4:
+                        test_breakfast = st.text_area("Desayuno / Nutrición previa:", value=parsed_header.get("breakfast") or "", height=80)
+                    with col_m5:
+                        test_last_training = st.text_input("Último entrenamiento realizado:", value=parsed_header.get("last_training") or "")
+                        col_m5_1, col_m5_2 = st.columns(2)
+                        with col_m5_1:
+                            test_duration = st.text_input("Duración de la sesión:", value=parsed_header.get("duration") or "")
+                        with col_m5_2:
+                            test_intensity = st.text_input("Intensidad percibida global:", value=parsed_header.get("intensity") or "")
+
+                    # Table editor for step data
+                    st.markdown("### 📊 Escalones del Test")
+                    st.info("Puedes modificar los valores directamente en la tabla si hay errores de lectura.")
+                    
+                    # Convert parsed steps list of dicts to DataFrame for st.data_editor
+                    df_steps_input = pd.DataFrame(parsed_steps)
+                    
+                    # Columns formatting
+                    columns_order = ["step_number", "pot_rel", "lactate", "watts", "heart_rate", "duration", "rpe"]
+                    for col in columns_order:
+                        if col not in df_steps_input.columns:
+                            df_steps_input[col] = None
+                    df_steps_input = df_steps_input[columns_order]
+                    
+                    # Show interactive data editor
+                    edited_df = st.data_editor(df_steps_input, use_container_width=True, num_rows="dynamic")
+                    
+                    # Recalculate thresholds based on edited table data
+                    edited_steps_list = edited_df.to_dict("records")
+                    # Filter out rows with all None
+                    edited_steps_list = [s for s in edited_steps_list if s.get("step_number")]
+                    
+                    if edited_steps_list:
+                        # Suggested thresholds from logic
+                        sug_lt1, sug_lt2 = lactate_parser.estimate_thresholds(edited_steps_list)
+                        
+                        st.markdown("---")
+                        st.markdown("### 🎯 Definición de Umbrales (LT1 y LT2)")
+                        
+                        # Dropdowns of step options
+                        step_labels = [s.get("step_number") for s in edited_steps_list]
+                        
+                        sug_lt1_idx = step_labels.index(sug_lt1.get("step_number")) if sug_lt1 and sug_lt1.get("step_number") in step_labels else 0
+                        sug_lt2_idx = step_labels.index(sug_lt2.get("step_number")) if sug_lt2 and sug_lt2.get("step_number") in step_labels else len(step_labels)-1
+                        
+                        col_t1, col_t2 = st.columns(2)
+                        
+                        with col_t1:
+                            st.markdown("<h4 style='color: #FFD700;'>LT1 (Umbral Aeróbico)</h4>", unsafe_allow_html=True)
+                            selected_lt1_step = st.selectbox("Seleccionar Escalón LT1:", step_labels, index=sug_lt1_idx, key="sel_lt1")
+                            
+                            # Fetch values from selected step
+                            lt1_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt1_step), {})
+                            
+                            lt1_power = st.number_input("Potencia/Velocidad LT1:", value=float(lt1_step_data.get("watts") or 0.0), key="lt1_pow_input")
+                            lt1_hr = st.number_input("Pulso LT1 (bpm):", value=int(lt1_step_data.get("heart_rate") or 0), key="lt1_hr_input")
+                            lt1_lactate = st.number_input("Lactato LT1 (mmol/L):", value=float(lt1_step_data.get("lactate") or 0.0), step=0.1, key="lt1_lac_input")
+                            
+                        with col_t2:
+                            st.markdown("<h4 style='color: #FF3333;'>LT2 (Umbral Anaeróbico / FTP)</h4>", unsafe_allow_html=True)
+                            selected_lt2_step = st.selectbox("Seleccionar Escalón LT2:", step_labels, index=sug_lt2_idx, key="sel_lt2")
+                            
+                            # Fetch values from selected step
+                            lt2_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt2_step), {})
+                            
+                            lt2_power = st.number_input("Potencia/Velocidad LT2:", value=float(lt2_step_data.get("watts") or 0.0), key="lt2_pow_input")
+                            lt2_hr = st.number_input("Pulso LT2 (bpm):", value=int(lt2_step_data.get("heart_rate") or 0), key="lt2_hr_input")
+                            lt2_lactate = st.number_input("Lactato LT2 (mmol/L):", value=float(lt2_step_data.get("lactate") or 0.0), step=0.1, key="lt2_lac_input")
+                            
+                        st.markdown("---")
+                        
+                        if st.button("💾 Guardar Prueba de Lactato", type="primary"):
+                            session = SessionLocal()
+                            try:
+                                # Verify member still exists
+                                m = session.query(Member).filter(Member.name == selected_athlete).first()
+                                if not m:
+                                    st.error("El deportista seleccionado no existe.")
+                                    session.close()
+                                    st.stop()
+                                    
+                                new_test = LactateTest(
+                                    member_id=m.id,
+                                    date=test_date,
+                                    sport=test_sport,
+                                    simulator=test_simulator,
+                                    lactate_meter=test_lactate_meter,
+                                    bike_or_shoes=test_bike_or_shoes,
+                                    power_source=test_power_source,
+                                    weight=test_weight,
+                                    ftp=test_ftp,
+                                    temperature=test_temperature,
+                                    ctl=test_ctl,
+                                    atl=test_atl,
+                                    tsb=test_tsb,
+                                    breakfast=test_breakfast,
+                                    duration=test_duration,
+                                    intensity=test_intensity,
+                                    last_training=test_last_training,
+                                    
+                                    lt1_power=lt1_power,
+                                    lt1_hr=lt1_hr,
+                                    lt1_lactate=lt1_lactate,
+                                    lt2_power=lt2_power,
+                                    lt2_hr=lt2_hr,
+                                    lt2_lactate=lt2_lactate
+                                )
+                                session.add(new_test)
+                                session.flush() # Populate new_test.id
+                                
+                                # Add steps
+                                for s in edited_steps_list:
+                                    new_step = LactateTestStep(
+                                        test_id=new_test.id,
+                                        step_number=s.get("step_number"),
+                                        pot_rel=lactate_parser.parse_float(s.get("pot_rel")),
+                                        lactate=lactate_parser.parse_float(s.get("lactate")),
+                                        watts=lactate_parser.parse_float(s.get("watts")),
+                                        heart_rate=lactate_parser.parse_int(s.get("heart_rate")),
+                                        duration=lactate_parser.parse_int(s.get("duration")),
+                                        rpe=lactate_parser.parse_float(s.get("rpe"))
+                                    )
+                                    session.add(new_step)
+                                    
+                                session.commit()
+                                st.success(f"🎉 ¡La prueba del {test_date} para {selected_athlete} fue guardada exitosamente!")
+                                st.balloons()
+                                session.close()
+                                # Rerun to refresh list
+                                st.rerun()
+                            except Exception as save_err:
+                                session.rollback()
+                                st.error(f"Error al guardar la prueba de lactato: {save_err}")
+                            finally:
+                                session.close()
+                else:
+                    st.info("Pega datos tabulados o sube un archivo Excel para previsualizar los resultados del test.")
+
 

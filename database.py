@@ -118,6 +118,56 @@ class AthleteUser(Base):
     athlete_name = Column(String) # Link logically to Member.name
     created_at = Column(Date, default=datetime.now)
 
+class LactateTest(Base):
+    __tablename__ = "lactate_tests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"))
+    date = Column(Date, default=datetime.now)
+    sport = Column(String)  # Ciclismo, Running
+    simulator = Column(String, nullable=True)
+    lactate_meter = Column(String, nullable=True)
+    bike_or_shoes = Column(String, nullable=True)
+    power_source = Column(String, nullable=True)
+    weight = Column(Float, nullable=True)
+    ftp = Column(Float, nullable=True)
+    temperature = Column(Float, nullable=True)
+    ctl = Column(Float, nullable=True)
+    atl = Column(Float, nullable=True)
+    tsb = Column(Float, nullable=True)
+    breakfast = Column(String, nullable=True)
+    duration = Column(String, nullable=True)
+    intensity = Column(String, nullable=True)
+    last_training = Column(String, nullable=True)
+    
+    # Thresholds
+    lt1_power = Column(Float, nullable=True)
+    lt1_hr = Column(Integer, nullable=True)
+    lt1_lactate = Column(Float, nullable=True)
+    lt2_power = Column(Float, nullable=True)
+    lt2_hr = Column(Integer, nullable=True)
+    lt2_lactate = Column(Float, nullable=True)
+    
+    created_at = Column(Date, default=datetime.now)
+    
+    member = relationship("Member")
+    steps = relationship("LactateTestStep", back_populates="test", cascade="all, delete-orphan")
+
+class LactateTestStep(Base):
+    __tablename__ = "lactate_test_steps"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    test_id = Column(Integer, ForeignKey("lactate_tests.id"))
+    step_number = Column(String)  # Reposo, 1, 2, 3, etc.
+    pot_rel = Column(Float, nullable=True)  # w/kg
+    lactate = Column(Float, nullable=True)  # mmol/L
+    watts = Column(Float, nullable=True)  # watts or km/h or pace depending on sport
+    heart_rate = Column(Integer, nullable=True)  # bpm
+    duration = Column(Integer, nullable=True)  # seconds
+    rpe = Column(Float, nullable=True)  # borg scale
+    
+    test = relationship("LactateTest", back_populates="steps")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     
@@ -127,3 +177,4 @@ def get_db():
         yield db
     finally:
         db.close()
+
