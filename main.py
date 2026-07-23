@@ -1520,12 +1520,99 @@ elif page == "Análisis de Lactato":
                                     secondary_y=True
                                 )
                                 
-                                # Add threshold lines if only 1 test is selected
+                                # Add threshold lines & annotations if only 1 test is selected
                                 if len(selected_ids) == 1:
                                     if t.lt1_power:
-                                        fig.add_vline(x=t.lt1_power, line_width=1.5, line_dash="dot", line_color="#FFD700", annotation_text=f"LT1: {t.lt1_power:.0f}W", annotation_position="top left")
+                                        # Vertical line
+                                        fig.add_vline(
+                                            x=t.lt1_power, 
+                                            line_width=1.5, 
+                                            line_dash="dot", 
+                                            line_color="#FFD700", 
+                                            annotation_text=f"LT1: {t.lt1_power:.0f} W", 
+                                            annotation_position="top left",
+                                            annotation_font=dict(color="#FFD700", size=11, weight="bold")
+                                        )
+                                        # Lactate point annotation
+                                        if t.lt1_lactate is not None:
+                                            fig.add_annotation(
+                                                x=t.lt1_power,
+                                                y=t.lt1_lactate,
+                                                text=f"{t.lt1_lactate:.1f} mmol",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=-35,
+                                                font=dict(color="#00EEFF", size=11, weight="bold"),
+                                                bordercolor="#FFD700",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                secondary_y=False
+                                            )
+                                        # Heart rate point annotation
+                                        if t.lt1_hr is not None:
+                                            fig.add_annotation(
+                                                x=t.lt1_power,
+                                                y=t.lt1_hr,
+                                                text=f"{t.lt1_hr} lpm",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=35,
+                                                font=dict(color="#FF3366", size=11, weight="bold"),
+                                                bordercolor="#FFD700",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                secondary_y=True
+                                            )
+                                            
                                     if t.lt2_power:
-                                        fig.add_vline(x=t.lt2_power, line_width=1.5, line_dash="dot", line_color="#FF3333", annotation_text=f"LT2: {t.lt2_power:.0f}W", annotation_position="top left")
+                                        # Vertical line
+                                        fig.add_vline(
+                                            x=t.lt2_power, 
+                                            line_width=1.5, 
+                                            line_dash="dot", 
+                                            line_color="#FF3333", 
+                                            annotation_text=f"LT2: {t.lt2_power:.0f} W", 
+                                            annotation_position="top left",
+                                            annotation_font=dict(color="#FF3333", size=11, weight="bold")
+                                        )
+                                        # Lactate point annotation
+                                        if t.lt2_lactate is not None:
+                                            fig.add_annotation(
+                                                x=t.lt2_power,
+                                                y=t.lt2_lactate,
+                                                text=f"{t.lt2_lactate:.1f} mmol",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=-35,
+                                                font=dict(color="#00EEFF", size=11, weight="bold"),
+                                                bordercolor="#FF3333",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                secondary_y=False
+                                            )
+                                        # Heart rate point annotation
+                                        if t.lt2_hr is not None:
+                                            fig.add_annotation(
+                                                x=t.lt2_power,
+                                                y=t.lt2_hr,
+                                                text=f"{t.lt2_hr} lpm",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=35,
+                                                font=dict(color="#FF3366", size=11, weight="bold"),
+                                                bordercolor="#FF3333",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                secondary_y=True
+                                            )
                                         
                             # Define title text with date and sport when only one test is selected
                             title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
