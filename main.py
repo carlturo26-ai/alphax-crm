@@ -1464,7 +1464,8 @@ elif page == "Análisis de Lactato":
                         selected_ids = [test_options[name] for name in selected_tests]
                         
                         fig = make_subplots(specs=[[{"secondary_y": True}]])
-                        colors = ["#00EEFF", "#FF3366", "#33FF99", "#FF9933", "#CC33FF"]
+                        lac_colors = ["#00EEFF", "#3B82F6", "#1D4ED8", "#60A5FA", "#2563EB"]
+                        hr_colors = ["#FF3333", "#F87171", "#DC2626", "#FCA5A5", "#EF4444"]
                         
                         session = SessionLocal()
                         try:
@@ -1484,7 +1485,8 @@ elif page == "Análisis de Lactato":
                                 df_plot = df_steps.dropna(subset=["lactate"])
                                 df_hr_plot = df_steps.dropna(subset=["heart_rate"])
                                 
-                                color = colors[idx % len(colors)]
+                                lac_color = lac_colors[idx % len(lac_colors)]
+                                hr_color = hr_colors[idx % len(hr_colors)]
                                 date_str = t.date.strftime("%Y-%m-%d")
                                 sport_str = t.sport
                                 
@@ -1495,7 +1497,7 @@ elif page == "Análisis de Lactato":
                                         y=df_plot["lactate"], 
                                         mode='lines+markers',
                                         name=f"Lactato {date_str} ({sport_str})",
-                                        line=dict(color=color, width=3),
+                                        line=dict(color=lac_color, width=3),
                                         marker=dict(size=8)
                                     ),
                                     secondary_y=False
@@ -1508,7 +1510,7 @@ elif page == "Análisis de Lactato":
                                         y=df_hr_plot["heart_rate"], 
                                         mode='lines+markers',
                                         name=f"Pulso {date_str}",
-                                        line=dict(color=color, width=2, dash='dash'),
+                                        line=dict(color=hr_color, width=2, dash='dash'),
                                         marker=dict(size=6, symbol='triangle-up')
                                     ),
                                     secondary_y=True
