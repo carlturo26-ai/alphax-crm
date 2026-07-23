@@ -1490,15 +1490,19 @@ elif page == "Análisis de Lactato":
                                 date_str = t.date.strftime("%Y-%m-%d")
                                 sport_str = t.sport
                                 
+                                # Define clean legend names based on comparison count
+                                lac_name = "Lactato" if len(selected_ids) == 1 else f"Lactato ({date_str})"
+                                hr_name = "Pulso" if len(selected_ids) == 1 else f"Pulso ({date_str})"
+                                
                                 # Add Lactate curve
                                 fig.add_trace(
                                     go.Scatter(
                                         x=df_plot["watts"], 
                                         y=df_plot["lactate"], 
                                         mode='lines+markers',
-                                        name=f"Lactato {date_str} ({sport_str})",
+                                        name=lac_name,
                                         line=dict(color=lac_color, width=3),
-                                        marker=dict(size=8)
+                                        marker=dict(size=10, symbol='circle')
                                     ),
                                     secondary_y=False
                                 )
@@ -1509,9 +1513,9 @@ elif page == "Análisis de Lactato":
                                         x=df_hr_plot["watts"], 
                                         y=df_hr_plot["heart_rate"], 
                                         mode='lines+markers',
-                                        name=f"Pulso {date_str}",
+                                        name=hr_name,
                                         line=dict(color=hr_color, width=2, dash='dash'),
-                                        marker=dict(size=6, symbol='triangle-up')
+                                        marker=dict(size=14, symbol='triangle-up') # Larger red triangle markers
                                     ),
                                     secondary_y=True
                                 )
@@ -1523,7 +1527,15 @@ elif page == "Análisis de Lactato":
                                     if t.lt2_power:
                                         fig.add_vline(x=t.lt2_power, line_width=1.5, line_dash="dot", line_color="#FF3333", annotation_text=f"LT2: {t.lt2_power:.0f}W", annotation_position="top left")
                                         
+                            # Define title text with date and sport when only one test is selected
+                            title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
                             fig.update_layout(
+                                title=dict(
+                                    text=title_text,
+                                    x=0.5,
+                                    xanchor='center',
+                                    font=dict(color="#00EEFF", size=18, weight="bold")
+                                ),
                                 paper_bgcolor="#121212",
                                 plot_bgcolor="#121212",
                                 font_color="#FFFFFF",
