@@ -1548,7 +1548,8 @@ elif page == "Análisis de Lactato":
                                                 borderwidth=1,
                                                 borderpad=4,
                                                 bgcolor="#121212",
-                                                secondary_y=False
+                                                xref="x",
+                                                yref="y"
                                             )
                                         # Heart rate point annotation
                                         if t.lt1_hr is not None:
@@ -1565,7 +1566,8 @@ elif page == "Análisis de Lactato":
                                                 borderwidth=1,
                                                 borderpad=4,
                                                 bgcolor="#121212",
-                                                secondary_y=True
+                                                xref="x",
+                                                yref="y2"
                                             )
                                             
                                     if t.lt2_power:
@@ -1594,7 +1596,8 @@ elif page == "Análisis de Lactato":
                                                 borderwidth=1,
                                                 borderpad=4,
                                                 bgcolor="#121212",
-                                                secondary_y=False
+                                                xref="x",
+                                                yref="y"
                                             )
                                         # Heart rate point annotation
                                         if t.lt2_hr is not None:
@@ -1611,7 +1614,8 @@ elif page == "Análisis de Lactato":
                                                 borderwidth=1,
                                                 borderpad=4,
                                                 bgcolor="#121212",
-                                                secondary_y=True
+                                                xref="x",
+                                                yref="y2"
                                             )
                                         
                             # Define title text with date and sport when only one test is selected
