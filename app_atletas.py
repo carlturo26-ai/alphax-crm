@@ -336,7 +336,10 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
             pass
 
     # 2. Login por Cookies
-    athlete_cookie = cookie_controller.get("athlete_user_cookie")
+    try:
+        athlete_cookie = cookie_controller.get("athlete_user_cookie")
+    except Exception:
+        athlete_cookie = None
     if athlete_cookie and st.session_state["athlete_user"] is None:
         st.session_state["athlete_user"] = athlete_cookie
         try:
