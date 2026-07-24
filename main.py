@@ -1297,6 +1297,49 @@ elif page == "ASSQ (Sueño)":
 
     st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
 
+    # --- GENERADOR DE ENLACES DE ACCESO RÁPIDO ---
+    with st.expander("🔗 Generador de Enlaces de Acceso Rápido para Atletas", expanded=True):
+        st.markdown("Genera un enlace personalizado para enviar a un deportista para que ingrese a registrar su sueño sin contraseña:")
+        selected_coach_athlete = st.selectbox("Selecciona un deportista para generar su enlace:", ["-- Seleccionar --"] + atletas_nombres, key="coach_athlete_sel")
+        if selected_coach_athlete != "-- Seleccionar --":
+            try:
+                host = st.context.headers.get("host", "localhost:8502")
+                proto = st.context.headers.get("x-forwarded-proto", "http")
+                base_url = f"{proto}://{host}"
+                import urllib.parse
+                athlete_direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(selected_coach_athlete)}"
+                
+                st.code(athlete_direct_link, language="text")
+                
+                # WhatsApp message pre-filled
+                wa_msg = f"¡Hola! Por favor registra tu reporte de sueño ASSQ aquí 💤: {athlete_direct_link}"
+                wa_url = f"https://wa.me/?text={urllib.parse.quote(wa_msg)}"
+                
+                st.markdown(
+                    f"""
+                    <a href="{wa_url}" target="_blank" style="text-decoration: none;">
+                        <button style="
+                            background-color: #25D366; 
+                            color: white; 
+                            border: none; 
+                            padding: 10px 20px; 
+                            border-radius: 8px; 
+                            font-weight: bold; 
+                            cursor: pointer; 
+                            display: flex; 
+                            align-items: center; 
+                            gap: 8px;
+                            transition: background-color 0.3s;
+                        " onmouseover="this.style.backgroundColor='#128C7E'" onmouseout="this.style.backgroundColor='#25D366'">
+                            📲 Enviar por WhatsApp
+                        </button>
+                    </a>
+                    """,
+                    unsafe_allow_html=True
+                )
+            except Exception as e:
+                st.error(f"Error generando enlace: {e}")
+
     st.markdown("---")
     st.subheader("📈 Análisis Individual de Atleta")
     selected_athlete = st.selectbox("Selecciona un deportista para ver su gráfico", ["-- Seleccionar --"] + atletas_nombres)

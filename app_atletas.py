@@ -15,6 +15,10 @@ try:
             conn.execute(text("ALTER TABLE sleep_records ADD COLUMN raw_medications VARCHAR;"))
         except:
             pass
+        try:
+            conn.execute(text("ALTER TABLE athlete_users ADD COLUMN last_ip VARCHAR;"))
+        except:
+            pass
 except Exception as e:
     st.error(f"💀 Error de Importación de DB: {e}")
     st.stop()
@@ -80,6 +84,65 @@ def clean_and_normalize(name):
     n = "".join(c if c.isalnum() or c.isspace() else "" for c in n)
     # Collapse multiple spaces and trim
     return " ".join(n.split())
+
+def get_best_matches(query, active_members):
+    input_clean = clean_and_normalize(query)
+    if not input_clean:
+        return []
+        
+    input_words = input_clean.split()
+    matches = []
+    
+    for m in active_members:
+        member_clean = clean_and_normalize(m.name)
+        member_words = member_clean.split()
+        
+        # Calculate matching score
+        score = 0
+        
+        # Exact match bonus
+        if member_clean == input_clean:
+            score += 20
+            
+        # Word overlap
+        for iw in input_words:
+            # Exact word match
+            if iw in member_words:
+                score += 5
+            # Substring match (e.g. "alej" matches "alejandro")
+            elif any(iw in mw for mw in member_words):
+                score += 2
+                
+        if score > 0:
+            # Add small similarity ratio to resolve ties
+            from difflib import SequenceMatcher
+            similarity = SequenceMatcher(None, input_clean, member_clean).ratio()
+            score += similarity * 2
+            
+            matches.append((m, score))
+            
+    # Sort matches by score descending
+    matches.sort(key=lambda x: x[1], reverse=True)
+    return [m[0] for m in matches]
+
+def get_client_ip():
+    try:
+        headers = st.context.headers
+        for header_name in ["x-forwarded-for", "x-real-ip", "forwarded"]:
+            val = headers.get(header_name)
+            if val:
+                if header_name == "x-forwarded-for":
+                    return val.split(",")[0].strip()
+                elif header_name == "forwarded":
+                    for part in val.split(";"):
+                        if part.strip().startswith("for="):
+                            return part.split("=")[1].strip().strip('"')
+                return val.strip()
+    except Exception:
+        pass
+    return None
+
+
 
 def obtener_recomendaciones(score):
     if score <= 4:
@@ -223,18 +286,85 @@ if "last_recommendations" not in st.session_state:
 if "show_toast" not in st.session_state:
     st.session_state["show_toast"] = False
 
-# Try to get the user from cookies if not in session
-athlete_cookie = cookie_controller.get("athlete_user_cookie")
-if athlete_cookie and st.session_state["athlete_user"] is None:
-    st.session_state["athlete_user"] = athlete_cookie
-    # Fetch and cache the member_id once upon cookie login
-    try:
-        with SessionLocal() as session:
-            m_obj = session.query(Member).filter(Member.name == athlete_cookie).first()
-            if m_obj:
-                st.session_state["athlete_member_id"] = m_obj.id
-    except Exception:
-        pass
+# --- LOGOUT E INITIAL STATE ---
+if "logged_out" not in st.session_state:
+    st.session_state["logged_out"] = False
+
+# Rerun inicial único para garantizar que las cookies de Streamlit se lean del navegador
+if "cookie_checked" not in st.session_state:
+    st.session_state["cookie_checked"] = False
+
+if not st.session_state["cookie_checked"]:
+    st.session_state["cookie_checked"] = True
+    st.rerun()
+
+# Iniciar login automático multicapa si el usuario no ha cerrado sesión manualmente
+if not st.session_state["logged_out"] and st.session_state["athlete_user"] is None:
+    # 1. Login por parámetros de consulta URL (Query Parameters)
+    query_athlete = st.query_params.get("athlete")
+    query_email = st.query_params.get("email")
+    
+    if query_athlete or query_email:
+        try:
+            with SessionLocal() as session:
+                user = None
+                if query_email:
+                    user = session.query(AthleteUser).filter(AthleteUser.email == query_email.lower().strip()).first()
+                elif query_athlete:
+                    user = session.query(AthleteUser).filter(AthleteUser.athlete_name == query_athlete).first()
+                    if not user:
+                        # Buscar si el miembro existe y ver si tiene cuenta
+                        m_obj = session.query(Member).filter(Member.name == query_athlete).first()
+                        if m_obj:
+                            user = session.query(AthleteUser).filter(AthleteUser.athlete_name == m_obj.name).first()
+                
+                if user:
+                    st.session_state["athlete_user"] = user.athlete_name
+                    m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
+                    if m_obj:
+                        st.session_state["athlete_member_id"] = m_obj.id
+                    # Actualizar IP al iniciar por enlace
+                    client_ip = get_client_ip()
+                    if client_ip:
+                        user.last_ip = client_ip
+                        session.commit()
+                    # Guardar cookie
+                    cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                    st.query_params.clear()
+                    st.rerun()
+        except Exception:
+            pass
+
+    # 2. Login por Cookies
+    athlete_cookie = cookie_controller.get("athlete_user_cookie")
+    if athlete_cookie and st.session_state["athlete_user"] is None:
+        st.session_state["athlete_user"] = athlete_cookie
+        try:
+            with SessionLocal() as session:
+                m_obj = session.query(Member).filter(Member.name == athlete_cookie).first()
+                if m_obj:
+                    st.session_state["athlete_member_id"] = m_obj.id
+        except Exception:
+            pass
+        st.rerun()
+
+    # 3. Login por IP del Dispositivo
+    if st.session_state["athlete_user"] is None:
+        client_ip = get_client_ip()
+        if client_ip and client_ip not in ["127.0.0.1", "localhost", "::1", ""]:
+            try:
+                with SessionLocal() as session:
+                    user = session.query(AthleteUser).filter(AthleteUser.last_ip == client_ip).first()
+                    if user:
+                        st.session_state["athlete_user"] = user.athlete_name
+                        m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
+                        if m_obj:
+                            st.session_state["athlete_member_id"] = m_obj.id
+                        # Guardar cookie por si acaso
+                        cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                        st.rerun()
+            except Exception:
+                pass
 
 submitted = False
 
@@ -253,10 +383,16 @@ if not st.session_state["athlete_user"]:
                     user = session.query(AthleteUser).filter(AthleteUser.email == login_email.lower().strip()).first()
                     if user and user.password_hash == hash_password(login_pass):
                         st.session_state["athlete_user"] = user.athlete_name
+                        st.session_state["logged_out"] = False
                         # Fetch and cache the member_id immediately
                         m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
                         if m_obj:
                             st.session_state["athlete_member_id"] = m_obj.id
+                        # Registrar la dirección IP del dispositivo
+                        client_ip = get_client_ip()
+                        if client_ip:
+                            user.last_ip = client_ip
+                            session.commit()
                         # Guardar cookie que expira en 30 días
                         cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
                         st.rerun()
@@ -268,54 +404,55 @@ if not st.session_state["athlete_user"]:
             
     with tab2:
         st.markdown("¿Es tu primera vez? Crea tu cuenta para vincular tu progreso.")
-        reg_name = st.text_input("Tu Nombre Completo (tal como está en AlphaX)", key="reg_name")
+        reg_name_query = st.text_input("Busca tu Nombre o Apellido (oficial de AlphaX):", key="reg_name_query")
+        
+        # Búsqueda dinámica y selección de Member
+        m_obj = None
+        if reg_name_query.strip():
+            try:
+                with SessionLocal() as session:
+                    active_members = session.query(Member).filter(Member.active == True).all()
+                    matches = get_best_matches(reg_name_query, active_members)
+                    if matches:
+                        options = {m.name: m for m in matches}
+                        selected_name = st.selectbox(
+                            "Selecciona tu nombre oficial en AlphaX:", 
+                            options=list(options.keys()), 
+                            key="reg_selected_name"
+                        )
+                        m_obj = options[selected_name]
+                    else:
+                        st.error("❌ No encontramos coincidencias en la base de datos. Intenta con otra variación o apellido.")
+            except Exception as e:
+                st.error(f"Error buscando deportistas: {e}")
+        else:
+            st.info("Escribe tu nombre o apellido arriba para buscar tu perfil en la base de datos de AlphaX.")
+            
         reg_email = st.text_input("Tu Correo Electrónico", key="reg_email")
         reg_pass = st.text_input("Crea una Contraseña", type="password", key="reg_pass")
+        
         if st.button("Registrarme", use_container_width=True, key="btn_reg"):
-            if not reg_name or not reg_email or not reg_pass:
+            if not reg_name_query.strip() or not m_obj:
+                st.error("Debes buscar y seleccionar tu nombre oficial de la lista.")
+            elif not reg_email or not reg_pass:
                 st.warning("Por favor, llena todos los campos.")
             else:
                 try:
                     with SessionLocal() as session:
-                        # Obtener todos los socios activos para coincidencia flexible
-                        active_members = session.query(Member).filter(Member.active == True).all()
-                        
-                        input_cleaned = clean_and_normalize(reg_name)
-                        input_words = input_cleaned.split()
-                        
-                        m_obj = None
-                        
-                        # 1. Coincidencia exacta (normalizada)
-                        for m in active_members:
-                            if clean_and_normalize(m.name) == input_cleaned:
-                                m_obj = m
-                                break
-                        
-                        # 2. Coincidencia por palabras (si la entrada tiene al menos 2 palabras)
-                        if not m_obj and len(input_words) >= 2:
-                            potential_matches = []
-                            for m in active_members:
-                                db_cleaned = clean_and_normalize(m.name)
-                                if all(word in db_cleaned for word in input_words):
-                                    potential_matches.append(m)
-                            if len(potential_matches) == 1:
-                                m_obj = potential_matches[0]
-                                
-                        if not m_obj:
-                            st.error("No encontramos tu nombre en la base de datos del club. Asegúrate de escribirlo sin errores y completo.")
+                        existing_email = session.query(AthleteUser).filter(AthleteUser.email == reg_email.lower().strip()).first()
+                        if existing_email:
+                            st.error("Este correo ya está registrado.")
                         else:
-                            existing_email = session.query(AthleteUser).filter(AthleteUser.email == reg_email.lower().strip()).first()
-                            if existing_email:
-                                st.error("Este correo ya está registrado.")
-                            else:
-                                new_user = AthleteUser(
-                                    email=reg_email.lower().strip(),
-                                    password_hash=hash_password(reg_pass),
-                                    athlete_name=m_obj.name
-                                )
-                                session.add(new_user)
-                                session.commit()
-                                st.success(f"✅ Cuenta creada exitosamente vinculada a **{m_obj.name}**. Ahora ve a la pestaña 'Iniciar Sesión'.")
+                            # Guardar usuario con last_ip
+                            new_user = AthleteUser(
+                                email=reg_email.lower().strip(),
+                                password_hash=hash_password(reg_pass),
+                                athlete_name=m_obj.name,
+                                last_ip=get_client_ip()
+                            )
+                            session.add(new_user)
+                            session.commit()
+                            st.success(f"✅ Cuenta creada exitosamente vinculada a **{m_obj.name}**. Ahora puedes ir a la pestaña 'Iniciar Sesión'.")
                 except Exception as e:
                     st.error(f"Error al registrar la cuenta: {e}")
 
@@ -328,8 +465,30 @@ else:
         if st.button("Salir", key="logout_btn"):
             st.session_state["athlete_user"] = None
             st.session_state["athlete_member_id"] = None
+            st.session_state["logged_out"] = True
             cookie_controller.remove("athlete_user_cookie")
             st.rerun()
+            
+    # Mostrar enlace de acceso rápido personalizado
+    try:
+        host = st.context.headers.get("host", "localhost:8502")
+        proto = st.context.headers.get("x-forwarded-proto", "http")
+        base_url = f"{proto}://{host}"
+        import urllib.parse
+        direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(atleta)}"
+        
+        st.markdown(
+            f"""
+            <div style="background: rgba(0, 238, 255, 0.05); border: 1px dashed #00EEFF; border-radius: 8px; padding: 12px; margin-top: 10px; margin-bottom: 15px;">
+                <span style="font-size: 0.9rem; color: #00EEFF; font-weight: bold;">🔗 Enlace de Acceso Rápido:</span><br>
+                <span style="font-size: 0.8rem; color: #bbbbbb;">Guarda este enlace en tus favoritos o WhatsApp para ingresar directamente sin contraseña:</span><br>
+                <code style="word-break: break-all; color: #00EEFF; font-size: 0.85rem;">{direct_link}</code>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except Exception:
+        pass
             
     if st.session_state.get("last_score"):
         st.success(st.session_state["last_score"])

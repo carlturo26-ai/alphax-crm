@@ -116,6 +116,7 @@ class AthleteUser(Base):
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
     athlete_name = Column(String) # Link logically to Member.name
+    last_ip = Column(String, nullable=True)
     created_at = Column(Date, default=datetime.now)
 
 class LactateTest(Base):
