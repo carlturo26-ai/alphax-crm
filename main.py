@@ -2373,11 +2373,62 @@ elif page == "🩸 Marcadores Clínicos":
             with tab_new:
                 st.subheader("📥 Registrar Hemograma")
                 
-                with st.form("form_bloodwork", clear_on_submit=True):
+                # ── Extracción Automática por PDF/Imagen ───────────
+                with st.expander("🤖 Extracción Automática (PDF / Imagen)", expanded=True):
+                    st.info("Sube el PDF o foto del hemograma para pre-llenar los campos automáticamente. Si el PDF tiene clave, ingrésala abajo.")
+                    col_u1, col_u2 = st.columns([2, 1])
+                    with col_u1:
+                        auto_file = st.file_uploader("Adjuntar archivo del hemograma (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
+                    with col_u2:
+                        auto_pwd = st.text_input("Clave del PDF (si requiere):", type="password", key="auto_bw_pwd")
+                    
+                    if auto_file is not None:
+                        if st.button("⚡ Extraer Datos Automáticamente", use_container_width=True, type="secondary"):
+                            with st.spinner("Leyendo y procesando documento..."):
+                                try:
+                                    from hemograma_parser import process_file
+                                    parsed_info = process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
+                                    raw_text = parsed_info.get("raw_text", "")
+                                    if raw_text.startswith("[ERROR]"):
+                                        st.error(f"⚠️ Error al leer archivo: {raw_text}")
+                                    else:
+                                        st.session_state["parsed_bw_data"] = parsed_info
+                                        st.session_state["parsed_bw_filename"] = auto_file.name
+                                        st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
+                                        st.rerun()
+                                except Exception as parse_err:
+                                    st.error(f"Error procesando el archivo: {parse_err}")
+
+                parsed_data = st.session_state.get("parsed_bw_data", {})
+                
+                if parsed_data:
+                    st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos antes de guardar.")
+                    if st.button("🗑️ Limpiar autocompletado"):
+                        st.session_state.pop("parsed_bw_data", None)
+                        st.session_state.pop("parsed_bw_filename", None)
+                        st.rerun()
+
+                # Determine default values
+                init_date = datetime.now().date()
+                if parsed_data.get("date"):
+                    try:
+                        init_date = datetime.strptime(parsed_data["date"], "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                
+                val_hb = float(parsed_data["hemoglobin"]) if parsed_data.get("hemoglobin") is not None else None
+                val_vcm = float(parsed_data["vcm"]) if parsed_data.get("vcm") is not None else None
+                val_chcm = float(parsed_data["chcm"]) if parsed_data.get("chcm") is not None else None
+                val_rbc = float(parsed_data["rbc"]) if parsed_data.get("rbc") is not None else None
+                val_hto = float(parsed_data["hematocrit"]) if parsed_data.get("hematocrit") is not None else None
+                val_fer = float(parsed_data["ferritin"]) if parsed_data.get("ferritin") is not None else None
+
+                with st.form("form_bloodwork", clear_on_submit=False):
                     col_d1, col_d2 = st.columns(2)
                     with col_d1:
-                        bw_date = st.date_input("Fecha del hemograma:", datetime.now().date(), key="bw_date")
+                        bw_date = st.date_input("Fecha del hemograma:", value=init_date, key="bw_date")
                     with col_d2:
+                        attached_name = st.session_state.get("parsed_bw_filename")
                         bw_pdf = st.file_uploader("Adjuntar PDF del hemograma (opcional):", type=["pdf"], key="bw_pdf")
                     
                     st.markdown("### 🔬 Valores del Hemograma")
@@ -2388,36 +2439,36 @@ elif page == "🩸 Marcadores Clínicos":
                     with col_m1:
                         bw_hb = st.number_input(
                             "🔴 Hemoglobina (g/dL)", 
-                            min_value=0.0, max_value=25.0, value=None, step=0.1,
+                            min_value=0.0, max_value=25.0, value=val_hb, step=0.1,
                             help="Óptimo: 15.0–17.5 g/dL", key="bw_hb"
                         )
                         bw_vcm = st.number_input(
                             "🟠 VCM — Vol. Corp. Medio (fL)", 
-                            min_value=0.0, max_value=150.0, value=None, step=0.1,
+                            min_value=0.0, max_value=150.0, value=val_vcm, step=0.1,
                             help="Óptimo: 82–95 fL", key="bw_vcm"
                         )
                     
                     with col_m2:
                         bw_chcm = st.number_input(
                             "🟡 CHCM — Conc. Hb Corp. (g/dL)", 
-                            min_value=0.0, max_value=45.0, value=None, step=0.1,
+                            min_value=0.0, max_value=45.0, value=val_chcm, step=0.1,
                             help="Óptimo: 33–36 g/dL", key="bw_chcm"
                         )
                         bw_rbc = st.number_input(
                             "🩸 RBC — Conteo GR (×10⁶/μL)", 
-                            min_value=0.0, max_value=10.0, value=None, step=0.01,
+                            min_value=0.0, max_value=10.0, value=val_rbc, step=0.01,
                             help="Óptimo: 5.0–5.8 ×10⁶/μL", key="bw_rbc"
                         )
                     
                     with col_m3:
                         bw_hto = st.number_input(
                             "💧 Hematocrito (%)", 
-                            min_value=0.0, max_value=70.0, value=None, step=0.1,
+                            min_value=0.0, max_value=70.0, value=val_hto, step=0.1,
                             help="Óptimo: 40–50%", key="bw_hto"
                         )
                         bw_fer = st.number_input(
                             "⚡ Ferritina (ng/mL)", 
-                            min_value=0.0, max_value=1000.0, value=None, step=1.0,
+                            min_value=0.0, max_value=1000.0, value=val_fer, step=1.0,
                             help="Óptimo: 50–150 ng/mL", key="bw_fer"
                         )
                     
@@ -2430,9 +2481,7 @@ elif page == "🩸 Marcadores Clínicos":
                     if all(v is None for v in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer]):
                         st.error("⚠️ Debes ingresar al menos un valor del hemograma.")
                     else:
-                        pdf_filename = None
-                        if bw_pdf is not None:
-                            pdf_filename = bw_pdf.name
+                        pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
                         
                         session = SessionLocal()
                         try:
@@ -2450,6 +2499,8 @@ elif page == "🩸 Marcadores Clínicos":
                             )
                             session.add(new_bw)
                             session.commit()
+                            st.session_state.pop("parsed_bw_data", None)
+                            st.session_state.pop("parsed_bw_filename", None)
                             st.success(f"🎉 ¡Hemograma del {bw_date} para {selected_athlete} guardado exitosamente!")
                             st.balloons()
                             st.rerun()

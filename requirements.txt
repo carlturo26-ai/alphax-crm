@@ -6,3 +6,8 @@ plotly
 psycopg2-binary
 xlsxwriter
 streamlit-cookies-controller
+pdfplumber
+PyMuPDF
+pytesseract
+Pillow
+
