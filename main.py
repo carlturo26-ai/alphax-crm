@@ -2407,6 +2407,8 @@ elif page == "🩸 Marcadores Clínicos":
                         st.session_state.pop("parsed_bw_data", None)
                         st.session_state.pop("parsed_bw_filename", None)
                         st.rerun()
+                    with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
+                        st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
 
                 # Determine default values
                 init_date = datetime.now().date()
