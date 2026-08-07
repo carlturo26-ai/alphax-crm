@@ -169,6 +169,28 @@ class LactateTestStep(Base):
     
     test = relationship("LactateTest", back_populates="steps")
 
+class BloodworkRecord(Base):
+    __tablename__ = "bloodwork_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"))
+    date = Column(Date, default=datetime.now)
+    
+    # 6 marcadores clínicos para deportistas de resistencia
+    hemoglobin = Column(Float, nullable=True)       # g/dL
+    vcm = Column(Float, nullable=True)              # fL (Volumen Corpuscular Medio)
+    chcm = Column(Float, nullable=True)             # g/dL (Concentración Hb Corpuscular Media)
+    rbc = Column(Float, nullable=True)              # x10⁶/μL (Recuento Glóbulos Rojos)
+    hematocrit = Column(Float, nullable=True)       # %
+    ferritin = Column(Float, nullable=True)          # ng/mL
+    
+    pdf_filename = Column(String, nullable=True)    # Nombre del archivo PDF de referencia
+    notes = Column(String, nullable=True)
+    
+    created_at = Column(Date, default=datetime.now)
+    
+    member = relationship("Member")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     

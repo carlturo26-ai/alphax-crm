@@ -8,7 +8,7 @@ from streamlit_cookies_controller import CookieController
 from background_base64 import BACKGROUND_IMAGE_BASE64
 
 try:
-    from database import SessionLocal, Member, SleepRecord, AthleteUser, engine
+    from database import SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, BloodworkRecord, engine
     from sqlalchemy import text
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
@@ -572,6 +572,84 @@ else:
             st.error(f"Error cargando historial: {e}")
     else:
         st.info("No se encontró tu perfil de atleta en la base de datos.")
+
+    # ── MI ESTADO INTEGRAL: Hemograma + Lactato ──────────────────────
+    if member_id:
+        st.markdown("---")
+        st.markdown("<h2 style='text-align: center; white-space: nowrap; font-size: clamp(1.1rem, 4vw, 2rem);'>📊 MI ESTADO INTEGRAL</h2>", unsafe_allow_html=True)
+        
+        _BW_RANGES_ATH = {
+            "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hemoglobina"},
+            "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "VCM"},
+            "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "CHCM"},
+            "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "RBC"},
+            "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito"},
+            "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina"},
+        }
+        def _classify_ath(key, val):
+            if val is None: return "—", "#999"
+            r = _BW_RANGES_ATH[key]
+            if val < r["low"]: return "🔴", "#dc3545"
+            elif val <= r["opt_hi"]: return "🟢", "#28a745"
+            elif val <= r["high"]: return "🟡", "#ffc107"
+            else: return "🔴", "#dc3545"
+        
+        try:
+            with SessionLocal() as session:
+                col_bw_ath, col_lac_ath = st.columns(2)
+                
+                with col_bw_ath:
+                    st.markdown("**🩸 Último Hemograma**")
+                    last_bw = session.query(BloodworkRecord).filter(
+                        BloodworkRecord.member_id == member_id
+                    ).order_by(BloodworkRecord.date.desc()).first()
+                    
+                    if last_bw:
+                        bw_date = last_bw.date.strftime("%d/%m/%Y") if last_bw.date else "—"
+                        card_html = f'<div style="background:white; border:2px solid #00EEFF; border-radius:12px; padding:14px; font-size:0.9rem; color:#333; box-shadow: 0 0 10px rgba(0,238,255,0.15);">'
+                        card_html += f'<div style="color:#00EEFF; font-weight:bold; margin-bottom:8px;">📅 {bw_date}</div>'
+                        
+                        for key in ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin"]:
+                            val = getattr(last_bw, key)
+                            icon, _ = _classify_ath(key, val)
+                            val_str = f"{val:.1f}" if val is not None else "—"
+                            card_html += f'{icon} <strong>{_BW_RANGES_ATH[key]["name"]}:</strong> {val_str} <span style="color:#888;">{_BW_RANGES_ATH[key]["unit"]}</span><br>'
+                        
+                        card_html += '</div>'
+                        st.markdown(card_html, unsafe_allow_html=True)
+                    else:
+                        st.caption("Aún no tienes hemogramas registrados.")
+                
+                with col_lac_ath:
+                    st.markdown("**🧪 Última Prueba de Lactato**")
+                    last_lac = session.query(LactateTest).filter(
+                        LactateTest.member_id == member_id
+                    ).order_by(LactateTest.date.desc()).first()
+                    
+                    if last_lac:
+                        lac_date = last_lac.date.strftime("%d/%m/%Y") if last_lac.date else "—"
+                        card_html = f'<div style="background:white; border:2px solid #00EEFF; border-radius:12px; padding:14px; font-size:0.9rem; color:#333; box-shadow: 0 0 10px rgba(0,238,255,0.15);">'
+                        card_html += f'<div style="color:#00EEFF; font-weight:bold; margin-bottom:8px;">📅 {lac_date} — {last_lac.sport or ""}</div>'
+                        
+                        if last_lac.lt1_power:
+                            card_html += f'<span style="color:#B8860B; font-weight:bold;">LT1:</span> {last_lac.lt1_power:.0f} W'
+                            if last_lac.lt1_hr: card_html += f' · {last_lac.lt1_hr} lpm'
+                            if last_lac.lt1_lactate: card_html += f' · {last_lac.lt1_lactate:.1f} mmol/L'
+                            card_html += '<br>'
+                        if last_lac.lt2_power:
+                            card_html += f'<span style="color:#dc3545; font-weight:bold;">LT2:</span> {last_lac.lt2_power:.0f} W'
+                            if last_lac.lt2_hr: card_html += f' · {last_lac.lt2_hr} lpm'
+                            if last_lac.lt2_lactate: card_html += f' · {last_lac.lt2_lactate:.1f} mmol/L'
+                            card_html += '<br>'
+                        if last_lac.weight:
+                            card_html += f'<span style="color:#888;">Peso:</span> {last_lac.weight:.1f} kg<br>'
+                        
+                        card_html += '</div>'
+                        st.markdown(card_html, unsafe_allow_html=True)
+                    else:
+                        st.caption("Aún no tienes pruebas de lactato registradas.")
+        except Exception as e:
+            st.caption(f"Datos no disponibles.")
 
     # Formulario para nuevo reporte
     st.markdown("---")
