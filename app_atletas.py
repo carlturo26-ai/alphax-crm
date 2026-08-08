@@ -619,6 +619,44 @@ else:
                         st.markdown(card_html, unsafe_allow_html=True)
                     else:
                         st.caption("Aún no tienes hemogramas registrados.")
+
+                    with st.expander("📥 Cargar Examen (PDF/Foto)", expanded=False):
+                        ath_file = st.file_uploader("Subir PDF o Foto del examen:", type=["pdf", "png", "jpg", "jpeg"], key="ath_bw_file")
+                        ath_pwd = st.text_input("Clave del PDF (si aplica):", type="password", key="ath_bw_pwd")
+                        if ath_file is not None:
+                            if st.button("⚡ Procesar Examen", key="btn_proc_ath"):
+                                try:
+                                    import importlib
+                                    import hemograma_parser
+                                    importlib.reload(hemograma_parser)
+                                    parsed = hemograma_parser.process_file(ath_file.getvalue(), ath_file.name, password=ath_pwd if ath_pwd else None)
+                                    if parsed.get("raw_text", "").startswith("[ERROR]"):
+                                        st.error(f"Error al leer: {parsed.get('raw_text')}")
+                                    else:
+                                        rec_date = datetime.now().date()
+                                        if parsed.get("date"):
+                                            try:
+                                                rec_date = datetime.strptime(parsed["date"], "%Y-%m-%d").date()
+                                            except Exception:
+                                                pass
+                                        new_rec = BloodworkRecord(
+                                            member_id=member_id,
+                                            date=rec_date,
+                                            hemoglobin=parsed.get("hemoglobin"),
+                                            vcm=parsed.get("vcm"),
+                                            chcm=parsed.get("chcm"),
+                                            rbc=parsed.get("rbc"),
+                                            hematocrit=parsed.get("hematocrit"),
+                                            ferritin=parsed.get("ferritin"),
+                                            pdf_filename=ath_file.name
+                                        )
+                                        session.add(new_rec)
+                                        session.commit()
+                                        st.success(f"🎉 Examen guardado exitosamente ({parsed.get('markers_found', 0)} marcadores extraídos).")
+                                        st.rerun()
+                                except Exception as err:
+                                    st.error(f"Error procesando examen: {err}")
+
                 
                 with col_lac_ath:
                     st.markdown("**🧪 Última Prueba de Lactato**")

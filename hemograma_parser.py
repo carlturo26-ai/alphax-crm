@@ -1,39 +1,63 @@
 """
-hemograma_parser.py — Extrae marcadores clínicos de PDFs e imágenes de hemogramas.
+hemograma_parser.py — Extrae marcadores clínicos de PDFs e imágenes de hemogramas / exámenes de laboratorio.
 
 Soporta:
-  - PDFs con texto (pdfplumber)
+  - PDFs con texto digital (PyMuPDF / fitz, pdfplumber)
   - PDFs protegidos con contraseña
-  - PDFs escaneados / imágenes (PyMuPDF render + pytesseract OCR)
+  - PDFs escaneados e imágenes (PNG, JPG) usando OCR con pytesseract (fallback)
 
-Marcadores extraídos:
-  hemoglobin, vcm, chcm, rbc, hematocrit, ferritin
+Marcadores extraídos (deportistas de resistencia):
+  1. hemoglobin (g/dL)
+  2. vcm (fL)
+  3. chcm (g/dL)
+  4. rbc (x10⁶/μL)
+  5. hematocrit (%)
+  6. ferritin (ng/mL)
 """
 
 import re
 import io
 from datetime import datetime
 
+SPANISH_MONTHS = {
+    "ene": "01", "enero": "01",
+    "feb": "02", "febrero": "02",
+    "mar": "03", "marzo": "03",
+    "abr": "04", "abril": "04",
+    "may": "05", "mayo": "05",
+    "jun": "06", "junio": "06",
+    "jul": "07", "julio": "07",
+    "ago": "08", "agosto": "08",
+    "sep": "09", "sept": "09", "septiembre": "09", "setiembre": "09",
+    "oct": "10", "octubre": "10",
+    "nov": "11", "noviembre": "11",
+    "dic": "12", "diciembre": "12"
+}
+
 
 # ═══════════════════════════════════════════════════════════════════
-#  TEXT EXTRACTION
+#  EXTRACCIÓN DE TEXTO (PDF / IMÁGENES)
 # ═══════════════════════════════════════════════════════════════════
 
 def extract_text_from_pdf(file_bytes: bytes, password: str = None) -> str:
     """
-    Extrae texto de un PDF.  Intenta pdfplumber primero (más preciso para
-    PDFs con texto), y si el texto está vacío recurre a OCR vía PyMuPDF.
+    Extrae texto de un PDF probando PyMuPDF (fitz) con ordenamiento visual y pdfplumber.
+    Si no hay texto reconocible, intenta OCR si pytesseract está disponible.
     """
-    text = _extract_with_pdfplumber(file_bytes, password)
-    if text and len(text.strip()) > 30:
-        return text
+    text_fitz = _extract_with_fitz(file_bytes, password)
+    if text_fitz and len(text_fitz.strip()) > 30:
+        return text_fitz
 
-    # Fallback: render a imagen y OCR
-    return _extract_with_ocr(file_bytes, password)
+    text_plumber = _extract_with_pdfplumber(file_bytes, password)
+    if text_plumber and len(text_plumber.strip()) > 30:
+        return text_plumber
+
+    # Fallback: OCR para PDF escaneado
+    return _extract_with_ocr_pdf(file_bytes, password)
 
 
 def extract_text_from_image(file_bytes: bytes) -> str:
-    """Extrae texto de una imagen (PNG, JPG) usando pytesseract."""
+    """Extrae texto de una imagen (PNG, JPG, TIFF, BMP, WEBP) usando pytesseract."""
     try:
         from PIL import Image
         import pytesseract
@@ -47,9 +71,32 @@ def extract_text_from_image(file_bytes: bytes) -> str:
         return f"[ERROR] OCR falló: {e}"
 
 
-# ── Helpers internos ─────────────────────────────────────────────
+def _extract_with_fitz(file_bytes: bytes, password: str = None) -> str:
+    """Extrae texto ordenado visualmente línea por línea con PyMuPDF (fitz)."""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        if doc.is_encrypted:
+            if password:
+                auth_res = doc.authenticate(password)
+                if not auth_res:
+                    return "[ERROR] Contraseña incorrecta para el PDF."
+            else:
+                return "[ERROR] PDF protegido con contraseña. Ingresa la clave."
+
+        pages_text = []
+        for page in doc:
+            t = page.get_text("text", sort=True)
+            if t and t.strip():
+                pages_text.append(t)
+        doc.close()
+        return "\n\n".join(pages_text)
+    except Exception:
+        return ""
+
 
 def _extract_with_pdfplumber(file_bytes: bytes, password: str = None) -> str:
+    """Extrae texto con pdfplumber usando layout visual."""
     try:
         import pdfplumber
         kwargs = {}
@@ -58,25 +105,27 @@ def _extract_with_pdfplumber(file_bytes: bytes, password: str = None) -> str:
         with pdfplumber.open(io.BytesIO(file_bytes), **kwargs) as pdf:
             pages_text = []
             for page in pdf.pages:
-                t = page.extract_text()
-                if t:
+                t = page.extract_text(layout=True)
+                if t and t.strip():
                     pages_text.append(t)
             return "\n\n".join(pages_text)
-    except Exception as e:
-        return f"[ERROR] pdfplumber: {e}"
+    except Exception:
+        return ""
 
 
-def _extract_with_ocr(file_bytes: bytes, password: str = None) -> str:
-    """Renderiza cada página del PDF a imagen y aplica OCR."""
+def _extract_with_ocr_pdf(file_bytes: bytes, password: str = None) -> str:
+    """Renderiza páginas de PDF a imágenes y aplica OCR."""
     try:
-        import fitz  # PyMuPDF
+        import fitz
         import pytesseract
         from PIL import Image
 
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         if doc.is_encrypted:
             if password:
-                doc.authenticate(password)
+                auth_res = doc.authenticate(password)
+                if not auth_res:
+                    return "[ERROR] Contraseña incorrecta para el PDF."
             else:
                 return "[ERROR] PDF protegido con contraseña. Ingresa la clave."
 
@@ -89,108 +138,161 @@ def _extract_with_ocr(file_bytes: bytes, password: str = None) -> str:
                 all_text.append(text)
         doc.close()
         return "\n\n".join(all_text)
-    except ImportError:
-        return "[ERROR] PyMuPDF o pytesseract no están instalados."
     except Exception as e:
-        return f"[ERROR] OCR-PDF falló: {e}"
+        return f"[ERROR] El documento escaneado requiere OCR (tesseract): {e}"
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  MARKER PARSING
+#  PARSER CLÍNICO DE HEMOGRAMA Y FERRITINA
 # ═══════════════════════════════════════════════════════════════════
 
-# Cada entrada: (clave_destino, [patrones regex], factor_conversión)
-# Los patrones buscan: NOMBRE ... VALOR numérico
-# factor_conversión se usa si la unidad requiere escalar (normalmente 1.0)
+def _parse_number(s: str) -> float:
+    """Convierte cadenas numéricas como '14,7' o '14.7' a float."""
+    clean_s = s.replace(",", ".").strip()
+    return float(clean_s)
+
+
+def _extract_date(text: str) -> str:
+    """
+    Busca la fecha del examen (muestra / solicitud / informe / recepción / validación).
+    Excluye estrictamente la fecha de nacimiento (años < 2010 o etiquetas de Nacimiento).
+    """
+    if not text:
+        return None
+
+    # Prioridad 1: Buscar etiquetas prioritarias de toma de muestra / solicitud / informe
+    label_patterns = [
+        r"(?:fecha\s+(?:de\s+)?(?:toma(?:\s+de\s+muestra)?|muestra|solicitud|recepcion|recepción|ingreso|procesamiento|informe|emision|emisión|validacion|validación|resultado)|f\.?\s*(?:toma|muestra|solicitud|recep|ingreso|informe))[\s\S]{0,120}?(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})",
+        r"(?:fecha\s+(?:de\s+)?(?:toma(?:\s+de\s+muestra)?|muestra|solicitud|recepcion|recepción|ingreso|procesamiento|informe|emision|emisión|validacion|validación|resultado)|f\.?\s*(?:toma|muestra|solicitud|recep|ingreso|informe))[\s\S]{0,120}?(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})",
+    ]
+    for pat in label_patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE)
+        if m:
+            g1, g2, g3 = m.group(1), m.group(2), m.group(3)
+            try:
+                if len(g1) == 4:
+                    y, m_num, d = g1, int(g2), int(g3)
+                else:
+                    y = g3 if len(g3) == 4 else f"20{g3}"
+                    m_num, d = int(g2), int(g1)
+                if int(y) >= 2010 and 1 <= m_num <= 12 and 1 <= d <= 31:
+                    return f"{y}-{m_num:02d}-{d:02d}"
+            except Exception:
+                pass
+
+    # Prioridad 2: Filtrar líneas de Nacimiento o fechas sueltas directamente bajo Nacimiento
+    lines = text.split("\n")
+    filtered_lines = []
+    skip_next = False
+    for line in lines:
+        if re.search(r"(nacimiento|f\.?\s*nac|fecha\s+nac|born|dob)", line, re.IGNORECASE):
+            skip_next = True
+            continue
+        if skip_next:
+            skip_next = False
+            if re.match(r"^\s*\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\s*$", line):
+                continue
+        filtered_lines.append(line)
+    text_no_dob = "\n".join(filtered_lines)
+
+    # Buscar fecha textual en español: ej. "06 de Mayo de 2026"
+    m_text = re.search(r"(\d{1,2})\s+(?:de\s+)?([a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s+(?:de\s+)?(\d{4})", text_no_dob, re.IGNORECASE)
+    if m_text:
+        d_str, mon_str, y_str = m_text.group(1), m_text.group(2).lower(), m_text.group(3)
+        if mon_str in SPANISH_MONTHS and int(y_str) >= 2010:
+            return f"{y_str}-{SPANISH_MONTHS[mon_str]}-{int(d_str):02d}"
+
+    # Prioridad 3: Fechas numéricas genéricas en texto filtrado (excluyendo años < 2010)
+    for m in re.finditer(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b", text_no_dob):
+        g1, g2, g3 = m.group(1), m.group(2), m.group(3)
+        try:
+            if len(g1) == 4:
+                y, m_num, d = g1, int(g2), int(g3)
+            else:
+                y = g3 if len(g3) == 4 else f"20{g3}"
+                m_num, d = int(g2), int(g1)
+            if int(y) >= 2010 and 1 <= m_num <= 12 and 1 <= d <= 31:
+                return f"{y}-{m_num:02d}-{d:02d}"
+        except Exception:
+            pass
+
+    return None
+
+
+def _extract_patient_name(text: str) -> str:
+    """Extrae el nombre del paciente si se encuentra explícitamente."""
+    if not text:
+        return None
+
+    name_patterns = [
+        r"(?:PACIENTE|Paciente|USUARIO|Usuario|NOMBRE(?:\s+DEL\s+PACIENTE)?|Nombre(?:\s+del\s+paciente)?)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ\s]{4,50}?)(?=\n|\r|\s{2,}|Empresa|EMPRESA|Identificación|IDENTIFICACIÓN|ID|CC|Documento|Edad|EDAD|Sexo|SEXO|FECHA|Fecha|$)",
+    ]
+
+    for pat in name_patterns:
+        m = re.search(pat, text)
+        if m:
+            candidate = m.group(1).strip()
+            if len(candidate) > 4 and not re.search(r"hemograma|examen|laboratorio|resultado", candidate, re.I):
+                return candidate.upper()
+    return None
+
 
 _MARKER_PATTERNS = [
     (
         "hemoglobin",
         [
-            r"[Hh]emoglobina\s*(?:[Tt]otal)?\s*(?:\([Hh][Bb]|[Hh][Gg][Bb]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"(?:HGB|Hb|HB)\b[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Hh]emoglobina\s+(\d+[\.,]\d+)",
+            r"(?:hemoglobina(?:\s+total)?|hb\s+total|hgb|hb)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:hgb|hb)\b[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
         ],
-        1.0,
+        "g_dl"
     ),
     (
         "vcm",
         [
-            r"[Vv]olumen\s+[Cc]orpuscular\s+[Mm]edio\s*(?:\([Vv][Cc][Mm]|[Mm][Cc][Vv]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"Promedio\s+[Vv]olumen\s+[Cc]orpuscular\s*(?:\([Vv][Cc][Mm]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Vv]ol\.\s*[Cc]orp\.\s*[Mm]edio[\s::\-\.]+(\d+[\.,]\d+)",
-            r"(?:VCM|MCV|V\.C\.M\.|M\.C\.V\.)\b[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Vv]olumen\s+[Cc]orpuscular\s+(\d+[\.,]\d+)",
+            r"(?:volumen\s+corpuscular\s+medio|vol\.\s*corp\.\s*medio|vcm|mcv|v\.?c\.?m\.?|m\.?c\.?v\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:v\.?c\.?m\.?|m\.?c\.?v\.?)[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"promedio\s+volumen\s+corpuscular[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
         ],
-        1.0,
+        "fl"
     ),
     (
         "chcm",
         [
-            r"[Cc]oncentraci[oó]n\s+(?:[Dd]e\s+)?[Hh]emoglobina\s+[Cc]orpuscular\s+(?:[Mm]edia\s+)?(?:\([Cc][Hh][Cc][Mm]|[Mm][Cc][Hh][Cc]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Cc]oncentraci[oó]n\s+[Cc]orpuscular\s+[Mm]edia(?:\s+de\s+[Hh]emoglobina)?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Cc]onc\.\s*(?:[Dd]e\s*)?[Hh]b\.\s*[Cc]orp\.\s*(?:[Mm]edia)?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"Promedio\s+[Cc]oncentraci[oó]n\s*(?:\([Mm][Cc][Hh][Cc]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"Promedio\s+[Cc]oncentraci[oó]n\s+[Hh]emoglobina[\s::\-\.]+(\d+[\.,]\d+)",
-            r"(?:CHCM|MCHC|CCMH|C\.H\.C\.M\.|M\.C\.H\.C\.)\b[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Cc]oncentraci[oó]n\s+[Hh]emoglobina\s+[Cc]orpuscular[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Cc]oncentraci[oó]n\s+[Mm]edia\s+de\s+[Hh]emoglobina\s+[Cc]orpuscular[\s::\-\.]+(\d+[\.,]\d+)",
+            r"(?:concentraci[oó]n\s+media\s+de\s+(?:hemoglobina|hb\.?)\s+corpuscular|concentraci[oó]n\s+(?:de\s+)?(?:hemoglobina|hb\.?)\s+corpuscular\s+media|conc\.\s*(?:media\s*)?(?:de\s*)?hb\.?\s*corp\.?(?:uscular)?(?:\s*media)?|chcm|mchc|ccmh)(?:\s*\([^)]*\))?[\s:;\-\.\n]+(\d+(?:[\.,]\d+)?)",
+            r"concentraci[oó]n\s+media\s+de\s+hb[\s\S]{0,30}?(\d{2}[\.,]\d{1,2})",
         ],
-        1.0,
+        "g_dl"
     ),
     (
         "rbc",
         [
-            r"[Rr]ecuento\s+de\s+[Ee]ritrocitos[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Rr]ecuento\s+de\s+[Gg]l[oó]bulos\s+[Rr]ojos[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Gg]l[oó]bulos\s+[Rr]ojos[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Ee]ritrocitos\s+(?:[Tt]otales?|Recuento)?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"(?:RBC|R\.B\.C\.)\b[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Hh]emat[ií]es[\s::\-\.]+(\d+[\.,]\d+)",
+            r"(?:recuento|conteo)\s+(?:de\s+)?(?:eritrocitos|gl[oó]bulos\s+rojos|hemat[ií]es)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:gl[oó]bulos\s+rojos|eritrocitos|hemat[ií]es|rbc|conteo\s+g\.r\.|g\.r\.)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
         ],
-        1.0,
+        "million_ul"
     ),
     (
         "hematocrit",
         [
-            r"[Hh]ematocrito\s*(?:\([Hh][Cc][Tt]|[Hh][Tt][Oo]\))?[\s::\-\.]+(\d+[\.,]\d+)",
-            r"(?:HCT|Hto|HTO|H\.C\.T\.|H\.T\.O\.)\b[\s::\-\.]+(\d+[\.,]\d+)",
-            r"[Hh]ematocrito[\s::\-\.]+(\d+[\.,]\d+)",
+            r"(?:hematocrito|hto|hct|h\.?t\.?o\.?|h\.?c\.?t\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"volumen\s+hematocrito[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
         ],
-        1.0,
+        "percent"
     ),
     (
         "ferritin",
         [
-            r"[Ff]erritina\s*(?:[Ss][eé]rica|[Ee]n\s+[Ss]uero)?[\s::\-\.]+(\d+[\.,]\d+|\d+)",
-            r"[Ff]erritin\b[\s::\-\.]+(\d+[\.,]\d+|\d+)",
+            r"(?:ferritina(?:\s+s[eé]rica|\s+plasm[aá]tica)?|ferritin)\b[\s\S]{0,800}?(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/ml|ug/l|mcg/l|microg/l)",
+            r"ferritina\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
         ],
-        1.0,
+        "ng_ml"
     ),
 ]
 
 
-def _parse_number(s: str) -> float:
-    """Convierte '14,7' o '14.7' a float."""
-    return float(s.replace(",", "."))
-
-
 def parse_hemograma(text: str) -> dict:
     """
-    Busca los 6 marcadores clínicos en el texto extraído.
-
-    Retorna:
-        {
-            "hemoglobin": 14.7,
-            "vcm": 94.2,
-            ...
-            "ferritin": None,  # si no se encontró
-            "date": "2020-12-10",  # fecha detectada o None
-            "patient_name": "CARLOS ARTURO ZULUAGA GOMEZ",
-            "raw_text": "...",
-            "markers_found": 5,
-            "markers_total": 6,
-        }
+    Analiza el texto extraído del documento y extrae los marcadores sanguíneos.
     """
     result = {
         "hemoglobin": None,
@@ -201,7 +303,7 @@ def parse_hemograma(text: str) -> dict:
         "ferritin": None,
         "date": None,
         "patient_name": None,
-        "raw_text": text,
+        "raw_text": text or "",
         "markers_found": 0,
         "markers_total": 6,
     }
@@ -209,64 +311,53 @@ def parse_hemograma(text: str) -> dict:
     if not text or text.startswith("[ERROR]"):
         return result
 
-    # ── Extraer fecha ────────────────────────────────────────────
-    # Formatos comunes: dd/mm/yyyy, yyyy-mm-dd
-    date_patterns = [
-        (r"[Ff]echa\s+(?:de\s+)?[Ii]ngreso[:\s]+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", "dmy"),
-        (r"[Ff]echa[:\s]+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", "dmy"),
-        (r"(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})", "ymd"),
-        (r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", "dmy"),
-    ]
-    for pat, fmt in date_patterns:
-        m = re.search(pat, text)
-        if m:
-            try:
-                if fmt == "dmy":
-                    result["date"] = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-                else:
-                    result["date"] = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-                break
-            except Exception:
-                pass
+    # ── Fecha y Paciente ─────────────────────────────────────────
+    result["date"] = _extract_date(text)
+    result["patient_name"] = _extract_patient_name(text)
 
-    # ── Extraer nombre del paciente ──────────────────────────────
-    name_match = re.search(r"[Pp]aciente[:\s]+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]+?)(?:\s{2,}|Empresa|Identificación|$)", text)
-    if name_match:
-        result["patient_name"] = name_match.group(1).strip()
-
-    # ── Extraer marcadores ───────────────────────────────────────
+    # ── Limpieza previa para regularizar espacios y saltos ───────
+    cleaned_text = re.sub(r"[Pp][áa]ginas?\s*\d+(?:\s*(?:/|de)\s*\d+)?", "", text)
+    cleaned_text = re.sub(r"Tel[ée]fonos?[:\s\d\.\-,]+", "", cleaned_text)
+    
+    # ── Extracción de marcadores ─────────────────────────────────
     found = 0
-    for key, patterns, factor in _MARKER_PATTERNS:
+    for key, patterns, unit_type in _MARKER_PATTERNS:
         for pat in patterns:
-            m = re.search(pat, text)
+            m = re.search(pat, cleaned_text, flags=re.IGNORECASE)
             if m:
                 try:
-                    val = _parse_number(m.group(1)) * factor
+                    val = _parse_number(m.group(1))
+
+                    # Normalización específica por unidad
+                    if key == "hemoglobin" and val > 30.0:
+                        val = val / 10.0  # de g/L a g/dL (ej. 154 -> 15.4)
+
+                    if key == "rbc" and val > 20.0:
+                        val = val / 100.0 # ej. 512 x10^4 -> 5.12
+
                     result[key] = round(val, 2)
                     found += 1
                     break
                 except (ValueError, IndexError):
                     continue
 
+    # Fallback global para Ferritina si está en otra página / sección desalineada
+    if result["ferritin"] is None and re.search(r"\bferritin", text, re.IGNORECASE):
+        m_fer = re.search(r"(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/mL|ng/ml|ug/L|ug/l|mcg/L|microg/L)", text, re.IGNORECASE)
+        if m_fer:
+            try:
+                result["ferritin"] = round(_parse_number(m_fer.group(1)), 2)
+                found += 1
+            except Exception:
+                pass
+
     result["markers_found"] = found
     return result
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  CONVENIENCE: Process any uploaded file
-# ═══════════════════════════════════════════════════════════════════
-
 def process_file(file_bytes: bytes, filename: str, password: str = None) -> dict:
     """
-    Punto de entrada principal.  Detecta tipo de archivo y extrae marcadores.
-
-    Args:
-        file_bytes: contenido del archivo en bytes
-        filename: nombre del archivo (para detectar extensión)
-        password: contraseña del PDF (opcional)
-
-    Returns:
-        dict con marcadores y metadata (ver parse_hemograma)
+    Punto de entrada principal para procesar cualquier archivo subido (PDF o Imagen).
     """
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
 

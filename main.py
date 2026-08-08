@@ -2386,8 +2386,10 @@ elif page == "🩸 Marcadores Clínicos":
                         if st.button("⚡ Extraer Datos Automáticamente", use_container_width=True, type="secondary"):
                             with st.spinner("Leyendo y procesando documento..."):
                                 try:
-                                    from hemograma_parser import process_file
-                                    parsed_info = process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
+                                    import importlib
+                                    import hemograma_parser
+                                    importlib.reload(hemograma_parser)
+                                    parsed_info = hemograma_parser.process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
                                     raw_text = parsed_info.get("raw_text", "")
                                     if raw_text.startswith("[ERROR]"):
                                         st.error(f"⚠️ Error al leer archivo: {raw_text}")
