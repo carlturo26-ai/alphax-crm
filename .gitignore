@@ -1,17 +1,55 @@
-# Local DB
-*.db
-data/
-*.sqlite3
-
-# Python
+# Byte-compiled / Python cache
 __pycache__/
 *.py[cod]
 *$py.class
-venv/
-.env
+*.so
+.pytest_cache/
+.mypy_cache/
 
-# Streamlit
+# Virtual Environments
+venv/
+.venv/
+venv_bot/
+env/
+ENV/
+env.bak/
+venv.bak/
+*.venv/
+
+# Environment variables & Secrets
+.env
+.env.*
 .streamlit/secrets.toml
 
-# OS
+# Database & Local Data
+*.db
+*.sqlite3
+data/
+
+# Excel, Local Data Exports & Backups
+*.xlsx
+*.xls
+*.csv
+PyWhatKit_DB.txt
+alphax_backup_*.xlsx
+temp_*
+
+# Temporary Scratch / Local experiments
+scratch/
+*.log
+
+# Operating System files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
