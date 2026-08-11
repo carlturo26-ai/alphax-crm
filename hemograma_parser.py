@@ -241,24 +241,23 @@ _MARKER_PATTERNS = [
     (
         "hemoglobin",
         [
-            r"(?:hemoglobina(?:\s+total)?|hb\s+total|hgb|hb)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
-            r"(?:hgb|hb)\b[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:hemoglobina(?:\s+total)?|hb\s+total|hgb|hb)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
+            r"(?:hgb|hb)\b[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
         ],
         "g_dl"
     ),
     (
         "vcm",
         [
-            r"(?:volumen\s+corpuscular\s+medio|vol\.\s*corp\.\s*medio|vcm|mcv|v\.?c\.?m\.?|m\.?c\.?v\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
-            r"(?:v\.?c\.?m\.?|m\.?c\.?v\.?)[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
-            r"promedio\s+volumen\s+corpuscular[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:promedio\s+volumen\s+corpuscular|volumen\s+corpuscular(?:\s+medio|\s+media)?|vol\.\s*corp\.\s*(?:medio|media)?|vcm|mcv|v\.?c\.?m\.?|m\.?c\.?v\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
+            r"(?:v\.?c\.?m\.?|m\.?c\.?v\.?)[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
         ],
         "fl"
     ),
     (
         "chcm",
         [
-            r"(?:concentraci[oó]n\s+media\s+de\s+(?:hemoglobina|hb\.?)\s+corpuscular|concentraci[oó]n\s+(?:de\s+)?(?:hemoglobina|hb\.?)\s+corpuscular\s+media|conc\.\s*(?:media\s*)?(?:de\s*)?hb\.?\s*corp\.?(?:uscular)?(?:\s*media)?|chcm|mchc|ccmh)(?:\s*\([^)]*\))?[\s:;\-\.\n]+(\d+(?:[\.,]\d+)?)",
+            r"(?:promedio\s+concentraci[oó]n(?:\s+(?:de\s+)?hb\.?|\s+(?:de\s+)?hemoglobina)?(?:\s+corpuscular)?(?:\s+media)?|concentraci[oó]n\s+(?:media\s+de\s+|de\s+)?(?:hemoglobina|hb\.?)\s+corpuscular(?:\s+media)?|concentraci[oó]n\s+corpuscular\s+(?:de\s+)?(?:hemoglobina|hb\.?)(?:\s+media)?|conc\.\s*(?:media\s*)?(?:de\s*)?hb\.?\s*corp\.?(?:uscular)?(?:\s*media)?|chcm|mchc|ccmh|c\.?h\.?c\.?m\.?|m\.?c\.?h\.?c\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
             r"concentraci[oó]n\s+media\s+de\s+hb[\s\S]{0,30}?(\d{2}[\.,]\d{1,2})",
         ],
         "g_dl"
@@ -266,16 +265,16 @@ _MARKER_PATTERNS = [
     (
         "rbc",
         [
-            r"(?:recuento|conteo)\s+(?:de\s+)?(?:eritrocitos|gl[oó]bulos\s+rojos|hemat[ií]es)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
-            r"(?:gl[oó]bulos\s+rojos|eritrocitos|hemat[ií]es|rbc|conteo\s+g\.r\.|g\.r\.)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:recuento|conteo)\s+(?:de\s+)?(?:eritrocitos|gl[oó]bulos\s+rojos|hemat[ií]es)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
+            r"(?:gl[oó]bulos\s+rojos|eritrocitos|hemat[ií]es|rbc|conteo\s+g\.r\.|g\.r\.)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
         ],
         "million_ul"
     ),
     (
         "hematocrit",
         [
-            r"(?:hematocrito|hto|hct|h\.?t\.?o\.?|h\.?c\.?t\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
-            r"volumen\s+hematocrito[\s:;\-\.]+(\d+(?:[\.,]\d+)?)",
+            r"(?:hematocrito|hto|hct|h\.?t\.?o\.?|h\.?c\.?t\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
+            r"volumen\s+hematocrito[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
         ],
         "percent"
     ),
