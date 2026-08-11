@@ -160,10 +160,9 @@ def _extract_date(text: str) -> str:
     if not text:
         return None
 
-    # Prioridad 1: Buscar etiquetas prioritarias de toma de muestra / solicitud / informe
+    # Prioridad 1: Buscar etiquetas prioritarias de toma de muestra / solicitud / informe / cargo / res
     label_patterns = [
-        r"(?:fecha\s+(?:de\s+)?(?:toma(?:\s+de\s+muestra)?|muestra|solicitud|recepcion|recepción|ingreso|procesamiento|informe|emision|emisión|validacion|validación|resultado)|f\.?\s*(?:toma|muestra|solicitud|recep|ingreso|informe))[\s\S]{0,120}?(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})",
-        r"(?:fecha\s+(?:de\s+)?(?:toma(?:\s+de\s+muestra)?|muestra|solicitud|recepcion|recepción|ingreso|procesamiento|informe|emision|emisión|validacion|validación|resultado)|f\.?\s*(?:toma|muestra|solicitud|recep|ingreso|informe))[\s\S]{0,120}?(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})",
+        r"(?:fecha\s+(?:de\s+)?(?:toma(?:\s+de\s+muestra)?|muestra|solicitud|recepcion|recepción|ingreso|procesamiento|informe|emision|emisión|validacion|validación|resultado|cargo|res|reserva|examen|proceso|atencion|atención)|f\.?\s*(?:toma|muestra|solicitud|recep|ingreso|informe|cargo|res)|fecha\s*:)[\s\S]{0,120}?(\d{1,4})[/\-\.](\d{1,2})[/\-\.](\d{1,4})",
     ]
     for pat in label_patterns:
         m = re.search(pat, text, flags=re.IGNORECASE)
@@ -172,10 +171,12 @@ def _extract_date(text: str) -> str:
             try:
                 if len(g1) == 4:
                     y, m_num, d = g1, int(g2), int(g3)
+                elif len(g3) == 4:
+                    y, m_num, d = g3, int(g2), int(g1)
                 else:
-                    y = g3 if len(g3) == 4 else f"20{g3}"
+                    y = f"20{g3}" if len(g3) == 2 else g3
                     m_num, d = int(g2), int(g1)
-                if int(y) >= 2010 and 1 <= m_num <= 12 and 1 <= d <= 31:
+                if 2010 <= int(y) <= 2035 and 1 <= m_num <= 12 and 1 <= d <= 31:
                     return f"{y}-{m_num:02d}-{d:02d}"
             except Exception:
                 pass
@@ -203,15 +204,18 @@ def _extract_date(text: str) -> str:
             return f"{y_str}-{SPANISH_MONTHS[mon_str]}-{int(d_str):02d}"
 
     # Prioridad 3: Fechas numéricas genéricas en texto filtrado (excluyendo años < 2010)
-    for m in re.finditer(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b", text_no_dob):
+    for m in re.finditer(r"\b(\d{1,4})[/\-\.](\d{1,2})[/\-\.](\d{1,4})\b", text_no_dob):
         g1, g2, g3 = m.group(1), m.group(2), m.group(3)
         try:
             if len(g1) == 4:
                 y, m_num, d = g1, int(g2), int(g3)
+            elif len(g3) == 4:
+                y, m_num, d = g3, int(g2), int(g1)
+            elif len(g3) == 2:
+                y, m_num, d = f"20{g3}", int(g2), int(g1)
             else:
-                y = g3 if len(g3) == 4 else f"20{g3}"
-                m_num, d = int(g2), int(g1)
-            if int(y) >= 2010 and 1 <= m_num <= 12 and 1 <= d <= 31:
+                continue
+            if 2010 <= int(y) <= 2035 and 1 <= m_num <= 12 and 1 <= d <= 31:
                 return f"{y}-{m_num:02d}-{d:02d}"
         except Exception:
             pass
@@ -225,7 +229,7 @@ def _extract_patient_name(text: str) -> str:
         return None
 
     name_patterns = [
-        r"(?:PACIENTE|Paciente|USUARIO|Usuario|NOMBRE(?:\s+DEL\s+PACIENTE)?|Nombre(?:\s+del\s+paciente)?)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ\s]{4,50}?)(?=\n|\r|\s{2,}|Empresa|EMPRESA|Identificación|IDENTIFICACIÓN|ID|CC|Documento|Edad|EDAD|Sexo|SEXO|FECHA|Fecha|$)",
+        r"(?:PACIENTE|Paciente|USUARIO|Usuario|NOMBRE(?:\s+DEL\s+PACIENTE)?|Nombre(?:\s+del\s+paciente)?)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ\s,]{4,50}?)(?=\n|\r|\s{2,}|Edad|EDAD|Empresa|EMPRESA|Identificación|IDENTIFICACIÓN|ID|CC|Documento|Sexo|SEXO|FECHA|Fecha|$)",
     ]
 
     for pat in name_patterns:
@@ -257,7 +261,7 @@ _MARKER_PATTERNS = [
     (
         "chcm",
         [
-            r"(?:promedio\s+concentraci[oó]n(?:\s+(?:de\s+)?hb\.?|\s+(?:de\s+)?hemoglobina)?(?:\s+corpuscular)?(?:\s+media)?|concentraci[oó]n\s+(?:media\s+de\s+|de\s+)?(?:hemoglobina|hb\.?)\s+corpuscular(?:\s+media)?|concentraci[oó]n\s+corpuscular\s+(?:de\s+)?(?:hemoglobina|hb\.?)(?:\s+media)?|conc\.\s*(?:media\s*)?(?:de\s*)?hb\.?\s*corp\.?(?:uscular)?(?:\s*media)?|chcm|mchc|ccmh|c\.?h\.?c\.?m\.?|m\.?c\.?h\.?c\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
+            r"(?:promedio\s+concentraci[oó]n(?:\s+(?:de\s+)?hb\.?|\s+(?:de\s+)?hemoglobina)?(?:\s+corpuscular)?(?:\s+media)?|concentraci[oó]n\s+(?:media\s+de\s+|de\s+)?(?:hemoglobina|hb\.?)\s+corpuscular(?:\s+media)?|concentraci[oó]n\s+corpuscular\s+(?:de\s+)?(?:hemoglobina|hb\.?)(?:\s+media)?|conc\.\s*(?:media\s*)?(?:de\s*)?hb\.?\s*corp\.?(?:uscular)?(?:\s*media)?|chcm|mchc|ccmh|chmc|c\.?h\.?c\.?m\.?|c\.?h\.?m\.?c\.?|m\.?c\.?h\.?c\.?)\b(?:\s*\([^)]*\))?[\s:;\-\.\)\n]+(\d+(?:[\.,]\d+)?)",
             r"concentraci[oó]n\s+media\s+de\s+hb[\s\S]{0,30}?(\d{2}[\.,]\d{1,2})",
         ],
         "g_dl"
