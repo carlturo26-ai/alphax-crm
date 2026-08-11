@@ -2189,15 +2189,24 @@ elif page == "🩸 Marcadores Clínicos":
                     <div style="overflow-x: auto;">
                     <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
                     <thead>
-                    <tr style="background:#181828; border-bottom:2px solid #00EEFF;">
-                        <th style="padding:12px 10px; color:#00EEFF; text-align:left; font-size:0.85rem;">Fecha</th>
+                    <tr style="background:#181828; border-bottom:1px solid rgba(255,255,255,0.08);">
+                        <th rowspan="2" style="padding:10px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle;">Fecha</th>
                     """
                     for key in marker_keys:
                         r = BLOODWORK_RANGES[key]
                         c_color = r["color"]
-                        table_html += f'<th style="padding:12px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]};">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
-                    table_html += '<th style="padding:12px 8px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08);">Notas</th>'
-                    table_html += '<th style="padding:12px 8px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08);">PDF</th>'
+                        table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.82rem; background:{r["bg"]}; vertical-align:middle;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.72rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
+                    
+                    table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">Notas</th>'
+                    table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">PDF</th>'
+                    table_html += '</tr><tr style="background:#141422; border-bottom:2px solid #00EEFF;">'
+                    
+                    for key in marker_keys:
+                        r = BLOODWORK_RANGES[key]
+                        c_color = r["color"]
+                        table_html += f'<th style="padding:5px 8px; color:{c_color}EE; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.75rem; background:{r["bg"]}; font-weight:bold;">Valor</th>'
+                        table_html += f'<th style="padding:5px 6px; color:{c_color}AA; text-align:center; font-size:0.75rem; background:{r["bg"]}; font-weight:600;">Δ</th>'
+                    
                     table_html += "</tr></thead><tbody>"
                     
                     for idx, rec in enumerate(records):
@@ -2206,7 +2215,7 @@ elif page == "🩸 Marcadores Clínicos":
                         
                         row_bg = "#161625" if idx % 2 == 0 else "#121212"
                         table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
-                        table_html += f'<td style="padding:10px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
+                        table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
                         
                         for key in marker_keys:
                             r = BLOODWORK_RANGES[key]
@@ -2216,16 +2225,20 @@ elif page == "🩸 Marcadores Clínicos":
                             
                             val_str = f"{val:.1f}" if val is not None else "—"
                             
-                            table_html += f'<td style="padding:10px 8px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]};">'
-                            table_html += f'<div style="font-weight:bold; color:{val_status_color}; font-size:0.95rem;">{val_str}</div>'
-                            table_html += f'<div style="margin:2px 0;">{badge_html(label, val_status_color)}</div>'
-                            table_html += f'<div style="margin-top:3px;">{delta_html(val, prev_val, default_color=r["color"])}</div>'
+                            # Cajón 1: Valor + Badge
+                            table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]}; white-space:nowrap;">'
+                            table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.9rem;">{val_str}</span> {badge_html(label, val_status_color)}'
+                            table_html += '</td>'
+                            
+                            # Cajón 2: Diferencia (Δ) separada
+                            table_html += f'<td style="padding:8px 6px; text-align:center; background:{r["bg"]}; white-space:nowrap;">'
+                            table_html += f'{delta_html(val, prev_val, default_color=r["color"])}'
                             table_html += '</td>'
                         
                         notes_str = (rec.notes or "")[:30]
                         pdf_str = "📎" if rec.pdf_filename else ""
-                        table_html += f'<td style="padding:10px 8px; text-align:center; color:#888; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.05);">{notes_str}</td>'
-                        table_html += f'<td style="padding:10px 8px; text-align:center; border-left:1px solid rgba(255,255,255,0.05);">{pdf_str}</td>'
+                        table_html += f'<td style="padding:8px 6px; text-align:center; color:#888; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.05);">{notes_str}</td>'
+                        table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05);">{pdf_str}</td>'
                         table_html += "</tr>"
                     
                     table_html += "</tbody></table></div>"
