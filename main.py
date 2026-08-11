@@ -2098,12 +2098,12 @@ elif page == "🩸 Marcadores Clínicos":
     
     # ── Rangos de referencia ─────────────────────────────────────────
     BLOODWORK_RANGES = {
-        "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hemoglobina",  "emoji": "🔴"},
-        "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "VCM",          "emoji": "🟠"},
-        "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "CHCM",         "emoji": "🟡"},
-        "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "RBC",          "emoji": "🩸"},
-        "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito",  "emoji": "💧"},
-        "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina",    "emoji": "⚡"},
+        "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hemoglobina Total",                                    "emoji": "🔴", "color": "#FF5555", "bg": "rgba(255, 85, 85, 0.05)"},
+        "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "Volumen Corpuscular Medio",                            "emoji": "🟠", "color": "#FF9F43", "bg": "rgba(255, 159, 67, 0.05)"},
+        "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "Concentración de Hemoglobina Corpuscular Media",      "emoji": "🟡", "color": "#FECA57", "bg": "rgba(254, 202, 87, 0.05)"},
+        "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "Conteo de Eritrocitos (Glóbulos Rojos)",                 "emoji": "🩸", "color": "#FF6B6B", "bg": "rgba(255, 107, 107, 0.05)"},
+        "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito",                                          "emoji": "💧", "color": "#00EEFF", "bg": "rgba(0, 238, 255, 0.05)"},
+        "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina Sérica",                                     "emoji": "⚡", "color": "#B8E994", "bg": "rgba(184, 233, 148, 0.05)"},
     }
     
     def classify_value(key, value):
@@ -2123,17 +2123,18 @@ elif page == "🩸 Marcadores Clínicos":
             return "ALTO", "#FF4B4B"
     
     def badge_html(label, color):
-        return f'<span style="background:{color}22; color:{color}; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:bold; border:1px solid {color}44;">{label}</span>'
+        return f'<span style="background:{color}22; color:{color}; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold; border:1px solid {color}44;">{label}</span>'
     
-    def delta_html(current, previous):
+    def delta_html(current, previous, default_color="#888888"):
         if current is None or previous is None:
-            return ""
+            return '<span style="color:#555555; font-size:0.75rem;">—</span>'
         diff = current - previous
-        if abs(diff) < 0.01:
-            return '<span style="color:#666;">—</span>'
-        arrow = "↑" if diff > 0 else "↓"
-        color = "#00EEFF"
-        return f'<span style="color:{color}; font-weight:bold;">{arrow} {abs(diff):.1f}</span>'
+        if abs(diff) < 0.001:
+            return f'<span style="color:{default_color}; font-size:0.75rem; font-weight:600;">= 0.0</span>'
+        elif diff > 0:
+            return f'<span style="color:#00FF00; font-weight:bold; font-size:0.82rem;">▲ +{diff:.1f}</span>'
+        else:
+            return f'<span style="color:#FF4B4B; font-weight:bold; font-size:0.82rem;">▼ {diff:.1f}</span>'
     
     # ── Selector de deportista ───────────────────────────────────────
     session = SessionLocal()
@@ -2186,20 +2187,18 @@ elif page == "🩸 Marcadores Clínicos":
                     
                     table_html = """
                     <div style="overflow-x: auto;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:8px; overflow:hidden;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
                     <thead>
-                    <tr style="background:#1a1a2e; border-bottom:2px solid #00EEFF;">
-                        <th style="padding:10px 8px; color:#00EEFF; text-align:left;">Fecha</th>
+                    <tr style="background:#181828; border-bottom:2px solid #00EEFF;">
+                        <th style="padding:12px 10px; color:#00EEFF; text-align:left; font-size:0.85rem;">Fecha</th>
                     """
                     for key in marker_keys:
                         r = BLOODWORK_RANGES[key]
-                        table_html += f'<th style="padding:10px 6px; color:#00EEFF; text-align:center;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.65rem; color:#888;">({r["unit"]})</span></th>'
-                        table_html += f'<th style="padding:10px 4px; color:#666; text-align:center; font-size:0.7rem;">Δ</th>'
-                    table_html += '<th style="padding:10px 6px; color:#888; text-align:center;">Notas</th>'
-                    table_html += '<th style="padding:10px 6px; color:#888; text-align:center;">PDF</th>'
+                        c_color = r["color"]
+                        table_html += f'<th style="padding:12px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]};">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
+                    table_html += '<th style="padding:12px 8px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08);">Notas</th>'
+                    table_html += '<th style="padding:12px 8px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08);">PDF</th>'
                     table_html += "</tr></thead><tbody>"
-                    
-                    records_asc = list(reversed(records))
                     
                     for idx, rec in enumerate(records):
                         # Find previous record (next in desc order = previous in time)
@@ -2207,21 +2206,26 @@ elif page == "🩸 Marcadores Clínicos":
                         
                         row_bg = "#161625" if idx % 2 == 0 else "#121212"
                         table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
-                        table_html += f'<td style="padding:8px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
+                        table_html += f'<td style="padding:10px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
                         
                         for key in marker_keys:
+                            r = BLOODWORK_RANGES[key]
                             val = getattr(rec, key)
                             prev_val = getattr(prev_rec, key) if prev_rec else None
-                            label, color = classify_value(key, val)
+                            label, val_status_color = classify_value(key, val)
                             
                             val_str = f"{val:.1f}" if val is not None else "—"
-                            table_html += f'<td style="padding:8px; text-align:center; color:{color}; font-weight:bold;">{val_str} {badge_html(label, color)}</td>'
-                            table_html += f'<td style="padding:8px; text-align:center;">{delta_html(val, prev_val)}</td>'
+                            
+                            table_html += f'<td style="padding:10px 8px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]};">'
+                            table_html += f'<div style="font-weight:bold; color:{val_status_color}; font-size:0.95rem;">{val_str}</div>'
+                            table_html += f'<div style="margin:2px 0;">{badge_html(label, val_status_color)}</div>'
+                            table_html += f'<div style="margin-top:3px;">{delta_html(val, prev_val, default_color=r["color"])}</div>'
+                            table_html += '</td>'
                         
                         notes_str = (rec.notes or "")[:30]
                         pdf_str = "📎" if rec.pdf_filename else ""
-                        table_html += f'<td style="padding:8px; text-align:center; color:#888; font-size:0.8rem;">{notes_str}</td>'
-                        table_html += f'<td style="padding:8px; text-align:center;">{pdf_str}</td>'
+                        table_html += f'<td style="padding:10px 8px; text-align:center; color:#888; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.05);">{notes_str}</td>'
+                        table_html += f'<td style="padding:10px 8px; text-align:center; border-left:1px solid rgba(255,255,255,0.05);">{pdf_str}</td>'
                         table_html += "</tr>"
                     
                     table_html += "</tbody></table></div>"
@@ -2307,17 +2311,17 @@ elif page == "🩸 Marcadores Clínicos":
                                 fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
                                               annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
                                 
-                                # Línea de datos
+                                # Línea de datos con el color único de cada marcador
                                 fig.add_trace(go.Scatter(
                                     x=dates_list,
                                     y=values,
                                     mode='lines+markers+text',
                                     name=r["name"],
-                                    line=dict(color="#00EEFF", width=3),
-                                    marker=dict(size=10, symbol='circle', line=dict(width=2, color="#121212")),
+                                    line=dict(color=r["color"], width=3),
+                                    marker=dict(size=10, symbol='circle', line=dict(width=2, color="#121212"), color=r["color"]),
                                     text=[f"{v:.1f}" if v is not None else "" for v in values],
                                     textposition="top center",
-                                    textfont=dict(color="#00EEFF", size=11, weight="bold"),
+                                    textfont=dict(color=r["color"], size=11, weight="bold"),
                                     connectgaps=True,
                                 ))
                                 
@@ -2325,7 +2329,7 @@ elif page == "🩸 Marcadores Clínicos":
                                     title=dict(
                                         text=f"{r['emoji']} {r['name']} ({r['unit']})",
                                         x=0.5, xanchor='center',
-                                        font=dict(color="#00EEFF", size=15, weight="bold")
+                                        font=dict(color=r["color"], size=14, weight="bold")
                                     ),
                                     paper_bgcolor="#121212",
                                     plot_bgcolor="#121212",
