@@ -198,24 +198,24 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     try:
         from sqlalchemy import text
-        with engine.connect() as conn:
-            is_sqlite = "sqlite" in str(engine.url)
-            cols_to_add = [
-                ("ck", "FLOAT"),
-                ("vitamin_b12", "FLOAT"),
-                ("folic_acid", "FLOAT"),
-            ]
-            for col_name, col_type in cols_to_add:
-                try:
+        cols_to_add = [
+            ("ck", "FLOAT"),
+            ("vitamin_b12", "FLOAT"),
+            ("folic_acid", "FLOAT"),
+        ]
+        is_sqlite = "sqlite" in str(engine.url)
+        for col_name, col_type in cols_to_add:
+            try:
+                with engine.begin() as conn:
                     if is_sqlite:
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN {col_name} {col_type};"))
                     else:
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-                    conn.commit()
-                except Exception:
-                    pass
+            except Exception:
+                pass
     except Exception:
         pass
+
     
 def get_db():
     db = SessionLocal()
