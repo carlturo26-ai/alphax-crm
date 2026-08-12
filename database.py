@@ -176,13 +176,16 @@ class BloodworkRecord(Base):
     member_id = Column(Integer, ForeignKey("members.id"))
     date = Column(Date, default=datetime.now)
     
-    # 6 marcadores clínicos para deportistas de resistencia
+    # 9 marcadores clínicos para deportistas de resistencia
     hemoglobin = Column(Float, nullable=True)       # g/dL
     vcm = Column(Float, nullable=True)              # fL (Volumen Corpuscular Medio)
     chcm = Column(Float, nullable=True)             # g/dL (Concentración Hb Corpuscular Media)
     rbc = Column(Float, nullable=True)              # x10⁶/μL (Recuento Glóbulos Rojos)
     hematocrit = Column(Float, nullable=True)       # %
     ferritin = Column(Float, nullable=True)          # ng/mL
+    ck = Column(Float, nullable=True)               # U/L (Creatina Kinasa)
+    vitamin_b12 = Column(Float, nullable=True)      # pg/mL (Vitamina B12)
+    folic_acid = Column(Float, nullable=True)       # ng/mL (Ácido Fólico)
     
     pdf_filename = Column(String, nullable=True)    # Nombre del archivo PDF de referencia
     notes = Column(String, nullable=True)
@@ -193,6 +196,26 @@ class BloodworkRecord(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            is_sqlite = "sqlite" in str(engine.url)
+            cols_to_add = [
+                ("ck", "FLOAT"),
+                ("vitamin_b12", "FLOAT"),
+                ("folic_acid", "FLOAT"),
+            ]
+            for col_name, col_type in cols_to_add:
+                try:
+                    if is_sqlite:
+                        conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN {col_name} {col_type};"))
+                    else:
+                        conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
+                    conn.commit()
+                except Exception:
+                    pass
+    except Exception:
+        pass
     
 def get_db():
     db = SessionLocal()
@@ -200,4 +223,5 @@ def get_db():
         yield db
     finally:
         db.close()
+
 

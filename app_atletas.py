@@ -585,6 +585,9 @@ else:
             "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "Conteo de Eritrocitos (Glóbulos Rojos)"},
             "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito"},
             "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina Sérica"},
+            "ck":          {"low": 60,   "opt_lo": 61,   "opt_hi": 400,  "high": 500,  "unit": "U/L",     "name": "Creatina Kinasa (CK)"},
+            "vitamin_b12": {"low": 200,  "opt_lo": 400,  "opt_hi": 900,  "high": 900,  "unit": "pg/mL",   "name": "Vitamina B12 (Cobalamina)"},
+            "folic_acid":  {"low": 3,    "opt_lo": 6,    "opt_hi": 20,   "high": 20,   "unit": "ng/mL",   "name": "Ácido Fólico (Folato)"},
         }
         def _classify_ath(key, val):
             if val is None: return "—", "#999"
@@ -609,7 +612,7 @@ else:
                         card_html = f'<div style="background:white; border:2px solid #00EEFF; border-radius:12px; padding:14px; font-size:0.9rem; color:#333; box-shadow: 0 0 10px rgba(0,238,255,0.15);">'
                         card_html += f'<div style="color:#00EEFF; font-weight:bold; margin-bottom:8px;">📅 {bw_date}</div>'
                         
-                        for key in ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin"]:
+                        for key in ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin", "ck", "vitamin_b12", "folic_acid"]:
                             val = getattr(last_bw, key)
                             icon, _ = _classify_ath(key, val)
                             val_str = f"{val:.1f}" if val is not None else "—"
@@ -648,6 +651,9 @@ else:
                                             rbc=parsed.get("rbc"),
                                             hematocrit=parsed.get("hematocrit"),
                                             ferritin=parsed.get("ferritin"),
+                                            ck=parsed.get("ck"),
+                                            vitamin_b12=parsed.get("vitamin_b12"),
+                                            folic_acid=parsed.get("folic_acid"),
                                             pdf_filename=ath_file.name
                                         )
                                         session.add(new_rec)

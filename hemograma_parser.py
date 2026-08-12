@@ -290,6 +290,30 @@ _MARKER_PATTERNS = [
         ],
         "ng_ml"
     ),
+    (
+        "ck",
+        [
+            r"(?:creatin(?:a)?\s*kinasa(?:\s+total)?|creatin(?:a)?\s*quinasa(?:\s+total)?|creatinquinasa|creatinakinasa|ck\s+total|cpk\s+total|ck|cpk)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
+            r"(?:ck|cpk)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+        ],
+        "u_l"
+    ),
+    (
+        "vitamin_b12",
+        [
+            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|b12|cobalamina)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
+            r"(?:vitamina\s+b12|vit\.\s*b12|cobalamina)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+        ],
+        "pg_ml"
+    ),
+    (
+        "folic_acid",
+        [
+            r"(?:[aá]cido\s+f[oó]lico(?:\s+s[eé]rico)?|folato(?:s)?(?:\s+s[eé]ricos?)?|vitamina\s+b9|folic\s+acid)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
+            r"(?:folato|folatos|[aá]cido\s+f[oó]lico)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+        ],
+        "ng_ml"
+    ),
 ]
 
 
@@ -304,11 +328,14 @@ def parse_hemograma(text: str) -> dict:
         "rbc": None,
         "hematocrit": None,
         "ferritin": None,
+        "ck": None,
+        "vitamin_b12": None,
+        "folic_acid": None,
         "date": None,
         "patient_name": None,
         "raw_text": text or "",
         "markers_found": 0,
-        "markers_total": 6,
+        "markers_total": 9,
     }
 
     if not text or text.startswith("[ERROR]"):
