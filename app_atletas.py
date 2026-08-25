@@ -226,7 +226,6 @@ def format_date_es(d):
     return str(d)
 
 # --- INTERFAZ DE USUARIO Y BANNER PRINCIPAL ---
-st.image("assq_banner.jpg", use_container_width=True)
 st.markdown("<h1 style='text-align: center; font-size: clamp(1.3rem, 4vw, 2.2rem); color: #00EEFF; font-weight: 800; margin-top: 10px; margin-bottom: 0px;'>⚡ BIENVENIDO A ALPHAX ENDURANCE COACHING APP ⚡</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #BBBBBB; font-size: 0.95rem; font-weight: 600; margin-top: 4px; margin-bottom: 15px;'>Portal de Monitoreo de Rendimiento, Fisiología y Recuperación del Atleta</p>", unsafe_allow_html=True)
 
@@ -596,6 +595,10 @@ else:
                     else:
                         st.error("⚠️ No se encontró tu nombre en la base de datos.")
 
+        st.markdown("---")
+        st.markdown("<h4 style='text-align: center; color: #00EEFF; font-weight: bold;'>📊 GUÍA E INTERPRETACIÓN DEL SCORE DE SUEÑO (ESS / ASSQ)</h4>", unsafe_allow_html=True)
+        st.image("assq_banner.jpg", use_container_width=True)
+
     # ══════════════════════════════════════════════════════════════════
     #  PESTAÑA 3: VER MIS HEMOGRAMAS
     # ══════════════════════════════════════════════════════════════════
@@ -690,6 +693,77 @@ else:
                                     """,
                                     unsafe_allow_html=True
                                 )
+
+                        # ── Gráficas Plotly de evolución ─────────────────────
+                        st.markdown("---")
+                        st.markdown("<h4 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN TEMPORAL DE TUS MARCADORES CLÍNICOS</h4>", unsafe_allow_html=True)
+                        
+                        records_chrono = list(reversed(records))
+                        dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
+                        
+                        marker_triplets = [
+                            ("hemoglobin", "vcm", "chcm"),
+                            ("rbc", "hematocrit", "ferritin"),
+                            ("ck", "vitamin_b12", "folic_acid"),
+                        ]
+                        
+                        for key1, key2, key3 in marker_triplets:
+                            col1, col2, col3 = st.columns(3)
+                            
+                            for col, key in [(col1, key1), (col2, key2), (col3, key3)]:
+                                with col:
+                                    r = BLOODWORK_RANGES_FULL[key]
+                                    values = [getattr(rec, key) for rec in records_chrono]
+                                    values_clean = [v for v in values if v is not None]
+                                    
+                                    if not values_clean:
+                                        st.info(f"Sin datos de {r['name']}")
+                                        continue
+                                    
+                                    fig = go.Figure()
+                                    
+                                    # Bandas de referencia
+                                    y_min = min(min(values_clean) * 0.85, r["low"] * 0.9)
+                                    y_max = max(max(values_clean) * 1.1, r["high"] * 1.05)
+                                    
+                                    fig.add_hrect(y0=y_min, y1=r["low"], fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, 
+                                                  annotation_text="BAJO", annotation_position="inside left", annotation_font=dict(color="#FF4B4B", size=10))
+                                    fig.add_hrect(y0=r["opt_lo"], y1=r["opt_hi"], fillcolor="rgba(0, 255, 0, 0.08)", line_width=0,
+                                                  annotation_text="ÓPTIMO", annotation_position="inside left", annotation_font=dict(color="#00FF00", size=10))
+                                    fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
+                                                  annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
+                                    
+                                    # Línea de datos con el color único de cada marcador
+                                    fig.add_trace(go.Scatter(
+                                        x=dates_list,
+                                        y=values,
+                                        mode='lines+markers+text',
+                                        name=r["name"],
+                                        line=dict(color=r["color"], width=3),
+                                        marker=dict(size=10, symbol='circle', line=dict(width=2, color="#121212"), color=r["color"]),
+                                        text=[f"{v:.1f}" if v is not None else "" for v in values],
+                                        textposition="top center",
+                                        textfont=dict(color=r["color"], size=10, weight="bold"),
+                                        connectgaps=True,
+                                    ))
+                                    
+                                    fig.update_layout(
+                                        title=dict(
+                                            text=f"{r['emoji']} {r['name']} ({r['unit']})",
+                                            x=0.5, xanchor='center',
+                                            font=dict(color=r["color"], size=13, weight="bold")
+                                        ),
+                                        paper_bgcolor="#121212",
+                                        plot_bgcolor="#121212",
+                                        font_color="#FFFFFF",
+                                        xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category"),
+                                        yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max]),
+                                        margin=dict(l=10, r=10, t=50, b=10),
+                                        showlegend=False,
+                                        height=280,
+                                    )
+                                    
+                                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                     else:
                         st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la pestaña **'Registrar nuevo hemograma'**.")
             except Exception as e:
