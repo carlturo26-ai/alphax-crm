@@ -51,7 +51,7 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] {{ background
 .stPlotlyChart {{ background-color: white !important; border-radius: 20px; border: 2px solid #00EEFF; padding: 0px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 238, 255, 0.4); }}
 
 /* Tabs styling - Cuadritos modernos para navegación y deslizamiento */
-div[data-baseweb="tab-list"] {
+div[data-baseweb="tab-list"] {{
     display: flex !important;
     gap: 8px !important;
     padding: 8px 2px 14px 2px !important;
@@ -59,9 +59,9 @@ div[data-baseweb="tab-list"] {
     -webkit-overflow-scrolling: touch !important;
     border-bottom: 1px solid rgba(0, 238, 255, 0.2) !important;
     justify-content: center !important;
-}
+}}
 
-button[data-baseweb="tab"] {
+button[data-baseweb="tab"] {{
     background: rgba(18, 18, 32, 0.9) !important;
     border: 1.5px solid rgba(0, 238, 255, 0.25) !important;
     border-radius: 12px !important;
@@ -77,26 +77,26 @@ button[data-baseweb="tab"] {
     box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
     white-space: normal !important;
     line-height: 1.25 !important;
-}
+}}
 
-button[data-baseweb="tab"]:hover {
+button[data-baseweb="tab"]:hover {{
     border-color: #00EEFF !important;
     color: #00EEFF !important;
     transform: translateY(-2px) !important;
     box-shadow: 0 6px 15px rgba(0, 238, 255, 0.3) !important;
-}
+}}
 
-button[data-baseweb="tab"][aria-selected="true"] {
+button[data-baseweb="tab"][aria-selected="true"] {{
     background: linear-gradient(135deg, rgba(0, 238, 255, 0.25), rgba(0, 100, 255, 0.4)) !important;
     border: 2px solid #00EEFF !important;
     color: #00EEFF !important;
     font-weight: 800 !important;
     box-shadow: 0 0 16px rgba(0, 238, 255, 0.45) !important;
-}
+}}
 
-div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {
+div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{
     display: none !important;
-}
+}}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
