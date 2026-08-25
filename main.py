@@ -215,21 +215,46 @@ if page == "Dashboard":
         all_expenses = session.query(Expense).all()
         total_expenses_raw = sum(e.amount for e in all_expenses)
         
-        inc_ale = sum(t.amount for t in all_txs if t.member.group == "Alejandro")
-        inc_car = sum(t.amount for t in all_txs if t.member.group == "Carlos")
-        inc_apr = sum(t.amount for t in all_txs if t.member.group == "Aprendizaje")
+        months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
+                        "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
         
         if selected_group == "Todos":
-            total_income = sum(t.amount for t in txs)
+            total_income = sum(t.amount for t in all_txs)
             total_expenses = total_expenses_raw
         elif selected_group == "Carlos":
-            total_income = inc_car + (inc_ale * 0.20) + (inc_apr / 2.0)
-            total_expenses = total_expenses_raw / 2.0
+            total_inc_calc = 0.0
+            for t in all_txs:
+                m_idx = months_order.index(t.month) + 1 if t.month in months_order else 1
+                if t.member.group == "Carlos":
+                    total_inc_calc += t.amount
+                elif t.member.group == "Alejandro":
+                    total_inc_calc += t.amount * 0.20
+                elif t.member.group == "Aprendizaje":
+                    total_inc_calc += t.amount if m_idx >= 7 else (t.amount / 2.0)
+            total_income = total_inc_calc
+            
+            total_exp_calc = 0.0
+            for e in all_expenses:
+                m_idx = e.date.month if (hasattr(e, 'date') and e.date) else 1
+                total_exp_calc += e.amount if m_idx >= 7 else (e.amount / 2.0)
+            total_expenses = total_exp_calc
         elif selected_group == "Alejandro":
-            total_income = (inc_ale * 0.80) + (inc_apr / 2.0)
-            total_expenses = total_expenses_raw / 2.0
+            total_inc_calc = 0.0
+            for t in all_txs:
+                m_idx = months_order.index(t.month) + 1 if t.month in months_order else 1
+                if t.member.group == "Alejandro":
+                    total_inc_calc += t.amount * 0.80
+                elif t.member.group == "Aprendizaje":
+                    total_inc_calc += 0.0 if m_idx >= 7 else (t.amount / 2.0)
+            total_income = total_inc_calc
+            
+            total_exp_calc = 0.0
+            for e in all_expenses:
+                m_idx = e.date.month if (hasattr(e, 'date') and e.date) else 1
+                total_exp_calc += 0.0 if m_idx >= 7 else (e.amount / 2.0)
+            total_expenses = total_exp_calc
         elif selected_group == "Aprendizaje":
-            total_income = inc_apr
+            total_income = sum(t.amount for t in all_txs if t.member.group == "Aprendizaje")
             total_expenses = total_expenses_raw
         else:
             total_income = sum(t.amount for t in txs)
@@ -278,9 +303,6 @@ if page == "Dashboard":
     col4.metric("Socios", member_count)
     
     # --- GRÁFICOS Y ANÁLISIS ---
-    months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
-                    "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
-    
     # 1. Preparar Datos Mensuales con Lógica Estratégica
     monthly_data = {m: {"Income": 0.0, "Expense": 0.0} for m in months_order}
     data_exp_cat = [] # Detalle para gráfico apilado de gastos
@@ -293,15 +315,16 @@ if page == "Dashboard":
         grp = t.member.group
         
         if m in monthly_data:
+            m_idx = months_order.index(m) + 1
             if selected_group == "Todos":
                 monthly_data[m]["Income"] += amt
             elif selected_group == "Carlos":
                 if grp == "Carlos": monthly_data[m]["Income"] += amt
                 elif grp == "Alejandro": monthly_data[m]["Income"] += amt * 0.20
-                elif grp == "Aprendizaje": monthly_data[m]["Income"] += amt / 2.0
+                elif grp == "Aprendizaje": monthly_data[m]["Income"] += amt if m_idx >= 7 else (amt / 2.0)
             elif selected_group == "Alejandro":
                 if grp == "Alejandro": monthly_data[m]["Income"] += amt * 0.80
-                elif grp == "Aprendizaje": monthly_data[m]["Income"] += amt / 2.0
+                elif grp == "Aprendizaje": monthly_data[m]["Income"] += 0.0 if m_idx >= 7 else (amt / 2.0)
             elif selected_group == "Aprendizaje":
                 if grp == "Aprendizaje": monthly_data[m]["Income"] += amt
                 
@@ -311,14 +334,18 @@ if page == "Dashboard":
         all_expenses_list = expense_query.all()
         for e in all_expenses_list:
             if hasattr(e, 'date') and e.date:
-                m_str = months_order[e.date.month - 1]
+                m_idx = e.date.month
+                m_str = months_order[m_idx - 1]
             else:
+                m_idx = 1
                 m_str = "SIN MES"
                 
             amt = e.amount
-            # Aplicar partición de gastos si filtramos por Alejandro o Carlos
-            if selected_group in ["Carlos", "Alejandro"]:
-                allocated_exp = amt / 2.0
+            # Aplicar partición de gastos si filtramos por Alejandro o Carlos (A partir de Julio: 100% Carlos, 0% Alejandro)
+            if selected_group == "Carlos":
+                allocated_exp = amt if m_idx >= 7 else (amt / 2.0)
+            elif selected_group == "Alejandro":
+                allocated_exp = 0.0 if m_idx >= 7 else (amt / 2.0)
             else:
                 allocated_exp = amt
                 
