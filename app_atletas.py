@@ -40,7 +40,7 @@ except Exception:
 css_styles = f"""
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-html, body, [class*="css"], .stApp {{ font-family: 'Nunito Sans', sans-serif !important; color: #FFFFFF !important; }} 
+html, body, [class*="css"], .stApp {{ font-family: 'Nunito Sans', sans-serif !important; color: #FFFFFF !important; }}
 body, .stApp {{ background-image: url("data:image/png;base64,{BACKGROUND_IMAGE_BASE64}"); }}
 div[data-baseweb="input"] > div, div[data-baseweb="base-input"] {{ background-color: #121212 !important; }}
 div[data-baseweb="select"] > div {{ background-color: #121212 !important; border-color: #00EEFF !important; }}
@@ -49,54 +49,11 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] {{ background
 .stButton > button {{ border-radius: 8px; font-weight: 700; border: 1px solid #FFFFFF; color: #FFFFFF !important; background-color: transparent !important; transition: all 0.3s ease; }}
 .stButton > button:hover {{ background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }}
 .stPlotlyChart {{ background-color: white !important; border-radius: 20px; border: 2px solid #00EEFF; padding: 0px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 238, 255, 0.4); }}
-
-/* Tabs styling - Cuadritos modernos para navegación y deslizamiento */
-div[data-baseweb="tab-list"] {{
-    display: flex !important;
-    gap: 8px !important;
-    padding: 8px 2px 14px 2px !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    border-bottom: 1px solid rgba(0, 238, 255, 0.2) !important;
-    justify-content: center !important;
-}}
-
-button[data-baseweb="tab"] {{
-    background: rgba(18, 18, 32, 0.9) !important;
-    border: 1.5px solid rgba(0, 238, 255, 0.25) !important;
-    border-radius: 12px !important;
-    padding: 10px 14px !important;
-    font-size: 0.9rem !important;
-    font-weight: 700 !important;
-    color: #BBBBBB !important;
-    text-align: center !important;
-    min-width: 100px !important;
-    flex: 1 1 0px !important;
-    max-width: 220px !important;
-    transition: all 0.25s ease-in-out !important;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
-    white-space: normal !important;
-    line-height: 1.25 !important;
-}}
-
-button[data-baseweb="tab"]:hover {{
-    border-color: #00EEFF !important;
-    color: #00EEFF !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 15px rgba(0, 238, 255, 0.3) !important;
-}}
-
-button[data-baseweb="tab"][aria-selected="true"] {{
-    background: linear-gradient(135deg, rgba(0, 238, 255, 0.25), rgba(0, 100, 255, 0.4)) !important;
-    border: 2px solid #00EEFF !important;
-    color: #00EEFF !important;
-    font-weight: 800 !important;
-    box-shadow: 0 0 16px rgba(0, 238, 255, 0.45) !important;
-}}
-
-div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{
-    display: none !important;
-}}
+div[data-baseweb="tab-list"] {{ display: flex !important; gap: 8px !important; padding: 8px 2px 14px 2px !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; border-bottom: 1px solid rgba(0, 238, 255, 0.2) !important; justify-content: center !important; }}
+button[data-baseweb="tab"] {{ background: rgba(18, 18, 32, 0.9) !important; border: 1.5px solid rgba(0, 238, 255, 0.25) !important; border-radius: 12px !important; padding: 10px 14px !important; font-size: 0.9rem !important; font-weight: 700 !important; color: #BBBBBB !important; text-align: center !important; min-width: 100px !important; flex: 1 1 0px !important; max-width: 220px !important; transition: all 0.25s ease-in-out !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important; white-space: normal !important; line-height: 1.25 !important; }}
+button[data-baseweb="tab"]:hover {{ border-color: #00EEFF !important; color: #00EEFF !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(0, 238, 255, 0.3) !important; }}
+button[data-baseweb="tab"][aria-selected="true"] {{ background: linear-gradient(135deg, rgba(0, 238, 255, 0.25), rgba(0, 100, 255, 0.4)) !important; border: 2px solid #00EEFF !important; color: #00EEFF !important; font-weight: 800 !important; box-shadow: 0 0 16px rgba(0, 238, 255, 0.45) !important; }}
+div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{ display: none !important; }}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
