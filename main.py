@@ -1384,13 +1384,14 @@ elif page == "ASSQ (Sueño)":
                     plot_bgcolor="#121212", 
                     font_color="#FFFFFF",
                     margin=dict(l=5, r=5, t=60, b=5),
+                    dragmode=False,
                     yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#333333", tickfont=dict(color="#FFFFFF"), ticks=""),
                     xaxis=dict(title=dict(text="FECHA", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="#FFFFFF"), type="category", ticks="")
                 )
                 
                 # Card styling for the chart
                 st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info(f"El atleta {selected_athlete} aún no tiene registros de sueño guardados.")
@@ -1772,7 +1773,8 @@ elif page == "Análisis de Lactato":
                                     ),
                                     gridcolor="#333333", 
                                     showgrid=True,
-                                    tickfont=dict(color="#00EEFF")
+                                    tickfont=dict(color="#00EEFF"),
+                                    fixedrange=True
                                 ),
                                 yaxis2=dict(
                                     title=dict(
@@ -1782,7 +1784,8 @@ elif page == "Análisis de Lactato":
                                     showgrid=False,
                                     tickfont=dict(color="#FF3366"),
                                     overlaying="y",
-                                    side="right"
+                                    side="right",
+                                    fixedrange=True
                                 ),
                                 legend=dict(
                                     bgcolor="rgba(0,0,0,0.5)",
@@ -1793,7 +1796,7 @@ elif page == "Análisis de Lactato":
                             )
                             
                             st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                             st.markdown("</div>", unsafe_allow_html=True)
                         except Exception as e:
                             st.error(f"Error cargando gráficos: {e}")
@@ -1828,7 +1831,8 @@ elif page == "Análisis de Lactato":
                     fig_evo_p.update_layout(
                         title="Evolución de Potencia de Umbral (W)",
                         paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
-                        xaxis=dict(gridcolor="#333333"), yaxis=dict(gridcolor="#333333")
+                        dragmode=False,
+                        xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
                     )
                     
                     fig_evo_hr = px.line(df_evo, x="Fecha", y=["LT1 Pulso (bpm)", "LT2 Pulso (bpm)"], markers=True,
@@ -1836,7 +1840,8 @@ elif page == "Análisis de Lactato":
                     fig_evo_hr.update_layout(
                         title="Evolución de Pulso de Umbral (bpm)",
                         paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
-                        xaxis=dict(gridcolor="#333333"), yaxis=dict(gridcolor="#333333")
+                        dragmode=False,
+                        xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
                     )
                     
                     col_evo1, col_evo2 = st.columns(2)
@@ -2391,15 +2396,16 @@ elif page == "🩸 Marcadores Clínicos":
                                     paper_bgcolor="#121212",
                                     plot_bgcolor="#121212",
                                     font_color="#FFFFFF",
-                                    xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category"),
-                                    yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max]),
+                                    dragmode=False,
+                                    xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category", fixedrange=True),
+                                    yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
                                     margin=dict(l=10, r=10, t=50, b=10),
                                     showlegend=False,
                                     height=280,
                                 )
                                 
                                 st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                                 st.markdown("</div>", unsafe_allow_html=True)
                     
                     # ── Eliminar registro ─────────────────────────────────

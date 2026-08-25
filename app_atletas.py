@@ -499,11 +499,12 @@ else:
                             paper_bgcolor="white", 
                             plot_bgcolor="white", 
                             font_color="#121212",
+                            dragmode=False,
                             margin=dict(l=5, r=5, t=60, b=5),
                             yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#E0E0E0", tickfont=dict(color="black"), ticks=""),
                             xaxis=dict(title=dict(text="FECHA", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="black"), type="category", ticks="")
                         )
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                         
                         last_record = session.query(SleepRecord).filter(SleepRecord.member_id == member_id).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).first()
                         if last_record:
@@ -756,14 +757,15 @@ else:
                                         paper_bgcolor="#121212",
                                         plot_bgcolor="#121212",
                                         font_color="#FFFFFF",
-                                        xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category"),
-                                        yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max]),
+                                        dragmode=False,
+                                        xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category", fixedrange=True),
+                                        yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
                                         margin=dict(l=10, r=10, t=50, b=10),
                                         showlegend=False,
                                         height=280,
                                     )
                                     
-                                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:
                         st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la pestaña **'Registrar nuevo hemograma'**.")
             except Exception as e:
@@ -930,14 +932,15 @@ else:
                                 paper_bgcolor="white",
                                 plot_bgcolor="white",
                                 font_color="#121212",
+                                dragmode=False,
                                 margin=dict(l=10, r=10, t=50, b=10),
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                             )
-                            fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="#E0E0E0", title_font=dict(color="black"))
-                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="#E0E0E0", title_font=dict(color="#0066CC"))
-                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#CC0000"))
+                            fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="#E0E0E0", title_font=dict(color="black"), fixedrange=True)
+                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="#E0E0E0", title_font=dict(color="#0066CC"), fixedrange=True)
+                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#CC0000"), fixedrange=True)
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:
                         st.info("Aún no tienes pruebas de lactato registradas en tu perfil.")
             except Exception as e:
