@@ -50,17 +50,53 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] {{ background
 .stButton > button:hover {{ background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }}
 .stPlotlyChart {{ background-color: white !important; border-radius: 20px; border: 2px solid #00EEFF; padding: 0px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 238, 255, 0.4); }}
 
-/* Tabs styling */
-button[data-baseweb="tab"] {{
+/* Tabs styling - Cuadritos modernos para navegación y deslizamiento */
+div[data-baseweb="tab-list"] {
+    display: flex !important;
+    gap: 8px !important;
+    padding: 8px 2px 14px 2px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-bottom: 1px solid rgba(0, 238, 255, 0.2) !important;
+    justify-content: center !important;
+}
+
+button[data-baseweb="tab"] {
+    background: rgba(18, 18, 32, 0.9) !important;
+    border: 1.5px solid rgba(0, 238, 255, 0.25) !important;
+    border-radius: 12px !important;
+    padding: 10px 14px !important;
     font-size: 0.9rem !important;
     font-weight: 700 !important;
-    color: #AAAAAA !important;
-    padding: 8px 12px !important;
-}}
-button[data-baseweb="tab"][aria-selected="true"] {{
+    color: #BBBBBB !important;
+    text-align: center !important;
+    min-width: 100px !important;
+    flex: 1 1 0px !important;
+    max-width: 220px !important;
+    transition: all 0.25s ease-in-out !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+    white-space: normal !important;
+    line-height: 1.25 !important;
+}
+
+button[data-baseweb="tab"]:hover {
+    border-color: #00EEFF !important;
     color: #00EEFF !important;
-    border-bottom-color: #00EEFF !important;
-}}
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 15px rgba(0, 238, 255, 0.3) !important;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(135deg, rgba(0, 238, 255, 0.25), rgba(0, 100, 255, 0.4)) !important;
+    border: 2px solid #00EEFF !important;
+    color: #00EEFF !important;
+    font-weight: 800 !important;
+    box-shadow: 0 0 16px rgba(0, 238, 255, 0.45) !important;
+}
+
+div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {
+    display: none !important;
+}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -455,20 +491,32 @@ else:
 
     st.markdown("---")
     
-    # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA ──────────────────────
-    tab_sleep_view, tab_sleep_reg, tab_bw_view, tab_bw_reg, tab_lac_view = st.tabs([
-        "💤 Ver mi estado del sueño",
-        "📝 Registrar estado del sueño",
-        "🩸 Ver mis hemogramas",
-        "📥 Registrar nuevo hemograma",
-        "🧪 Ver mis mediciones de lactato"
+    # ── BANNER GUÍA DE NAVEGACIÓN TÁCTIL / DESLIZAMIENTO ───────────────
+    st.markdown(
+        """
+        <div style="background: rgba(0, 238, 255, 0.07); border: 1px dashed rgba(0, 238, 255, 0.4); border-radius: 12px; padding: 8px 14px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center;">
+            <span style="font-size: 1.1rem;">📲</span>
+            <span style="color: #00EEFF; font-size: 0.88rem; font-weight: 700; letter-spacing: 0.3px;">
+                Toca o desliza en los 3 bloques para navegar entre tus marcadores
+            </span>
+            <span style="color: #00EEFF; font-size: 1rem; font-weight: bold;">⇄</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA (UNIFICADAS EN 3) ───
+    tab_sleep, tab_bw, tab_lac = st.tabs([
+        "💤 Sueño (ASSQ)",
+        "🩸 Hemogramas",
+        "🧪 Pruebas de Lactato"
     ])
 
     # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 1: VER MI ESTADO DEL SUEÑO
+    #  PESTAÑA 1: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)
     # ══════════════════════════════════════════════════════════════════
-    with tab_sleep_view:
-        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN DE SUEÑO Y RECUPERACIÓN (ASSQ)</h3>", unsafe_allow_html=True)
+    with tab_sleep:
+        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN Y ESTADO DE SUEÑO (ASSQ)</h3>", unsafe_allow_html=True)
         if member_id:
             try:
                 with SessionLocal() as session:
@@ -522,17 +570,15 @@ else:
                                 unsafe_allow_html=True
                             )
                     else:
-                        st.info("Aún no tienes registros de sueño. ¡Dirígete a la pestaña **'Registrar estado del sueño'** para llenar tu primer reporte!")
+                        st.info("Aún no tienes registros de sueño guardados. Diligencia el formulario abajo para tu primer reporte.")
             except Exception as e:
                 st.error(f"Error cargando historial de sueño: {e}")
         else:
             st.info("No se encontró tu perfil de atleta en la base de datos.")
 
-    # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 2: REGISTRAR ESTADO DEL SUEÑO
-    # ══════════════════════════════════════════════════════════════════
-    with tab_sleep_reg:
-        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>📝 REGISTRAR NUEVO REPORTE DE SUEÑO (ASSQ)</h3>", unsafe_allow_html=True)
+        # Sección de Registro de Sueño
+        st.markdown("---")
+        st.markdown("<h4 style='color: #00EEFF; font-weight: bold;'>📝 Registrar Nuevo Reporte de Sueño (ASSQ)</h4>", unsafe_allow_html=True)
         with st.form("form_assq", clear_on_submit=True):
             st.subheader("💤 Calidad del Descanso")
         
@@ -596,15 +642,64 @@ else:
                     else:
                         st.error("⚠️ No se encontró tu nombre en la base de datos.")
 
+        # Guía e Interpretación al final
         st.markdown("---")
         st.markdown("<h4 style='text-align: center; color: #00EEFF; font-weight: bold;'>📊 GUÍA E INTERPRETACIÓN DEL SCORE DE SUEÑO (ESS / ASSQ)</h4>", unsafe_allow_html=True)
         st.image("assq_banner.jpg", use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 3: VER MIS HEMOGRAMAS
+    #  PESTAÑA 2: HEMOGRAMAS (CARGAR + HISTORIAL + ALERTAS + GRÁFICAS)
     # ══════════════════════════════════════════════════════════════════
-    with tab_bw_view:
-        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>🩸 HISTORIAL DE EXÁMENES DE SANGRE Y MARCADORES CLÍNICOS</h3>", unsafe_allow_html=True)
+    with tab_bw:
+        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>🩸 HISTORIAL Y CARGA DE MARCADORES CLÍNICOS</h3>", unsafe_allow_html=True)
+        
+        # Desplegable para subir nuevo examen
+        with st.expander("📥 Cargar Nuevo Examen de Sangre (PDF o Imagen)", expanded=False):
+            st.write("Sube tu examen de laboratorio (en archivo PDF o foto JPG/PNG) para extraer y registrar automáticamente tus marcadores en tu historial.")
+            
+            ath_file = st.file_uploader("Selecciona el archivo PDF o Imagen del examen:", type=["pdf", "png", "jpg", "jpeg"], key="ath_bw_file_main")
+            ath_pwd = st.text_input("Clave del PDF (si está protegido con contraseña):", type="password", key="ath_bw_pwd_main")
+            
+            if ath_file is not None:
+                if st.button("⚡ Procesar Examen", key="btn_proc_ath_main", use_container_width=True):
+                    try:
+                        with st.spinner("Leyendo y analizando marcadores clínicamente..."):
+                            import importlib
+                            import hemograma_parser
+                            importlib.reload(hemograma_parser)
+                            parsed = hemograma_parser.process_file(ath_file.getvalue(), ath_file.name, password=ath_pwd if ath_pwd else None)
+                            
+                            if parsed.get("raw_text", "").startswith("[ERROR]"):
+                                st.error(f"Error al procesar archivo: {parsed.get('raw_text')}")
+                            else:
+                                rec_date = datetime.now().date()
+                                if parsed.get("date"):
+                                    try: rec_date = datetime.strptime(parsed["date"], "%Y-%m-%d").date()
+                                    except Exception: pass
+                                    
+                                with SessionLocal() as session:
+                                    new_rec = BloodworkRecord(
+                                        member_id=member_id,
+                                        date=rec_date,
+                                        hemoglobin=parsed.get("hemoglobin"),
+                                        vcm=parsed.get("vcm"),
+                                        chcm=parsed.get("chcm"),
+                                        rbc=parsed.get("rbc"),
+                                        hematocrit=parsed.get("hematocrit"),
+                                        ferritin=parsed.get("ferritin"),
+                                        ck=parsed.get("ck"),
+                                        vitamin_b12=parsed.get("vitamin_b12"),
+                                        folic_acid=parsed.get("folic_acid"),
+                                        pdf_filename=ath_file.name
+                                    )
+                                    session.add(new_rec)
+                                    session.commit()
+                                st.success(f"🎉 Examen guardado exitosamente ({parsed.get('markers_found', 0)} marcadores extraídos).")
+                                st.rerun()
+                    except Exception as err:
+                        st.error(f"Error procesando examen: {err}")
+
+        # Historial y Gráficas
         if member_id:
             try:
                 with SessionLocal() as session:
@@ -767,63 +862,14 @@ else:
                                     
                                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:
-                        st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la pestaña **'Registrar nuevo hemograma'**.")
+                        st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la sección de arriba.")
             except Exception as e:
                 st.error(f"Error cargando hemogramas: {e}")
 
     # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 4: REGISTRAR NUEVO HEMOGRAMA
+    #  PESTAÑA 3: VER MIS MEDICIONES DE LACTATO
     # ══════════════════════════════════════════════════════════════════
-    with tab_bw_reg:
-        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>📥 CARGAR NUEVO EXAMEN DE SANGRE</h3>", unsafe_allow_html=True)
-        st.write("Sube tu examen de laboratorio (en archivo PDF o foto JPG/PNG) para extraer y registrar automáticamente tus marcadores en tu historial.")
-        
-        ath_file = st.file_uploader("Selecciona el archivo PDF o Imagen del examen:", type=["pdf", "png", "jpg", "jpeg"], key="ath_bw_file_main")
-        ath_pwd = st.text_input("Clave del PDF (si está protegido con contraseña):", type="password", key="ath_bw_pwd_main")
-        
-        if ath_file is not None:
-            if st.button("⚡ Procesar Examen", key="btn_proc_ath_main", use_container_width=True):
-                try:
-                    with st.spinner("Leyendo y analizando marcadores clínicamente..."):
-                        import importlib
-                        import hemograma_parser
-                        importlib.reload(hemograma_parser)
-                        parsed = hemograma_parser.process_file(ath_file.getvalue(), ath_file.name, password=ath_pwd if ath_pwd else None)
-                        
-                        if parsed.get("raw_text", "").startswith("[ERROR]"):
-                            st.error(f"Error al procesar archivo: {parsed.get('raw_text')}")
-                        else:
-                            rec_date = datetime.now().date()
-                            if parsed.get("date"):
-                                try: rec_date = datetime.strptime(parsed["date"], "%Y-%m-%d").date()
-                                except Exception: pass
-                                
-                            with SessionLocal() as session:
-                                new_rec = BloodworkRecord(
-                                    member_id=member_id,
-                                    date=rec_date,
-                                    hemoglobin=parsed.get("hemoglobin"),
-                                    vcm=parsed.get("vcm"),
-                                    chcm=parsed.get("chcm"),
-                                    rbc=parsed.get("rbc"),
-                                    hematocrit=parsed.get("hematocrit"),
-                                    ferritin=parsed.get("ferritin"),
-                                    ck=parsed.get("ck"),
-                                    vitamin_b12=parsed.get("vitamin_b12"),
-                                    folic_acid=parsed.get("folic_acid"),
-                                    pdf_filename=ath_file.name
-                                )
-                                session.add(new_rec)
-                                session.commit()
-                            st.success(f"🎉 Examen guardado exitosamente ({parsed.get('markers_found', 0)} marcadores extraídos).")
-                            st.rerun()
-                except Exception as err:
-                    st.error(f"Error procesando examen: {err}")
-
-    # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 5: VER MIS MEDICIONES DE LACTATO
-    # ══════════════════════════════════════════════════════════════════
-    with tab_lac_view:
+    with tab_lac:
         st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>🧪 HISTORIAL Y CURVAS DE LACTATO</h3>", unsafe_allow_html=True)
         if member_id:
             try:
