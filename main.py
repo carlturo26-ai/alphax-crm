@@ -742,8 +742,7 @@ elif page == "Socios":
             new_name = c1.text_input("Nombre Completo")
             new_phone = c1.text_input("Teléfono (Ej: 57300...)", placeholder="573001234567")
             
-            existing_groups = [r[0] for r in session.query(Member.group).distinct().all() if r[0]]
-            new_group = c2.selectbox("Grupo", existing_groups + ["Nuevo..."])
+            new_group = c2.selectbox("Grupo", ["Carlos", "Aprendizaje", "Nuevo..."])
             new_start_month = c2.selectbox("Mes de Inicio (Inscripción)", months_order)
             
             submit_member = st.form_submit_button("Guardar Atleta")
@@ -875,7 +874,7 @@ elif page == "Novedades/Pagos":
         new_member_start_month = "ENERO" # Default
         if selected_member_ui == "+ Agregar Nuevo Socio...":
             final_member_name = st.text_input("Escribe el nombre del nuevo deportista:").strip().upper()
-            new_member_group = st.selectbox("Grupo al que ingresa:", ["Aprendizaje", "Alejandro", "Carlos"])
+            new_member_group = st.selectbox("Grupo al que ingresa:", ["Carlos", "Aprendizaje"])
             new_member_start_month = st.selectbox("Mes de Inicio (Inscripción):", ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"])
         else:
             final_member_name = selected_member_ui
