@@ -2513,15 +2513,24 @@ elif page == "🩸 Marcadores Clínicos":
                     except Exception:
                         pass
                 
-                val_hb = float(parsed_data["hemoglobin"]) if parsed_data.get("hemoglobin") is not None else None
-                val_vcm = float(parsed_data["vcm"]) if parsed_data.get("vcm") is not None else None
-                val_chcm = float(parsed_data["chcm"]) if parsed_data.get("chcm") is not None else None
-                val_rbc = float(parsed_data["rbc"]) if parsed_data.get("rbc") is not None else None
-                val_hto = float(parsed_data["hematocrit"]) if parsed_data.get("hematocrit") is not None else None
-                val_fer = float(parsed_data["ferritin"]) if parsed_data.get("ferritin") is not None else None
-                val_ck = float(parsed_data["ck"]) if parsed_data.get("ck") is not None else None
-                val_b12 = float(parsed_data["vitamin_b12"]) if parsed_data.get("vitamin_b12") is not None else None
-                val_fol = float(parsed_data["folic_acid"]) if parsed_data.get("folic_acid") is not None else None
+                def _clean_input_val(v):
+                    if v is None:
+                        return None
+                    try:
+                        f = float(v)
+                        return max(0.0, f)
+                    except (ValueError, TypeError):
+                        return None
+
+                val_hb = _clean_input_val(parsed_data.get("hemoglobin"))
+                val_vcm = _clean_input_val(parsed_data.get("vcm"))
+                val_chcm = _clean_input_val(parsed_data.get("chcm"))
+                val_rbc = _clean_input_val(parsed_data.get("rbc"))
+                val_hto = _clean_input_val(parsed_data.get("hematocrit"))
+                val_fer = _clean_input_val(parsed_data.get("ferritin"))
+                val_ck = _clean_input_val(parsed_data.get("ck"))
+                val_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
+                val_fol = _clean_input_val(parsed_data.get("folic_acid"))
 
                 with st.form("form_bloodwork", clear_on_submit=False):
                     col_d1, col_d2 = st.columns(2)
@@ -2539,51 +2548,51 @@ elif page == "🩸 Marcadores Clínicos":
                     with col_m1:
                         bw_hb = st.number_input(
                             "🔴 Hemoglobina (g/dL)", 
-                            min_value=0.0, max_value=25.0, value=val_hb, step=0.1,
+                            min_value=0.0, max_value=None, value=val_hb, step=0.1,
                             help="Óptimo deportistas: 15.0–17.5 g/dL", key="bw_hb"
                         )
                         bw_vcm = st.number_input(
                             "🟠 VCM — Vol. Corp. Medio (fL)", 
-                            min_value=0.0, max_value=150.0, value=val_vcm, step=0.1,
+                            min_value=0.0, max_value=None, value=val_vcm, step=0.1,
                             help="Óptimo deportistas: 82–95 fL", key="bw_vcm"
                         )
                         bw_chcm = st.number_input(
                             "🟡 CHCM — Conc. Hb Corp. (g/dL)", 
-                            min_value=0.0, max_value=45.0, value=val_chcm, step=0.1,
+                            min_value=0.0, max_value=None, value=val_chcm, step=0.1,
                             help="Óptimo deportistas: 33–36 g/dL", key="bw_chcm"
                         )
                     
                     with col_m2:
                         bw_rbc = st.number_input(
                             "🩸 RBC — Conteo GR (×10⁶/μL)", 
-                            min_value=0.0, max_value=10.0, value=val_rbc, step=0.01,
+                            min_value=0.0, max_value=None, value=val_rbc, step=0.01,
                             help="Óptimo deportistas: 5.0–5.8 ×10⁶/μL", key="bw_rbc"
                         )
                         bw_hto = st.number_input(
                             "💧 Hematocrito (%)", 
-                            min_value=0.0, max_value=70.0, value=val_hto, step=0.1,
+                            min_value=0.0, max_value=None, value=val_hto, step=0.1,
                             help="Óptimo deportistas: 40–50%", key="bw_hto"
                         )
                         bw_fer = st.number_input(
                             "⚡ Ferritina Sérica (ng/mL)", 
-                            min_value=0.0, max_value=1000.0, value=val_fer, step=1.0,
+                            min_value=0.0, max_value=None, value=val_fer, step=1.0,
                             help="Óptimo deportistas: 50–150 ng/mL", key="bw_fer"
                         )
                     
                     with col_m3:
                         bw_ck = st.number_input(
                             "💪 CK — Creatina Kinasa (U/L)", 
-                            min_value=0.0, max_value=5000.0, value=val_ck, step=1.0,
+                            min_value=0.0, max_value=None, value=val_ck, step=1.0,
                             help="Óptimo deportistas: 61–400 U/L (Elevado 500-1000, Muy Alto >1000)", key="bw_ck"
                         )
                         bw_b12 = st.number_input(
                             "💊 Vitamina B12 (pg/mL)", 
-                            min_value=0.0, max_value=2000.0, value=val_b12, step=1.0,
+                            min_value=0.0, max_value=None, value=val_b12, step=1.0,
                             help="Óptimo deportistas: 400–900 pg/mL (Límite: 200-300)", key="bw_b12"
                         )
                         bw_fol = st.number_input(
                             "🌿 Ácido Fólico (ng/mL)", 
-                            min_value=0.0, max_value=50.0, value=val_fol, step=0.1,
+                            min_value=0.0, max_value=None, value=val_fol, step=0.1,
                             help="Óptimo deportistas: 6–20 ng/mL (Límite: 3.0-5.9)", key="bw_fol"
                         )
                     

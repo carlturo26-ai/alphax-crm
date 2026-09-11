@@ -285,32 +285,38 @@ _MARKER_PATTERNS = [
     (
         "ferritin",
         [
-            r"(?:ferritina(?:\s+s[eé]rica|\s+plasm[aá]tica)?|ferritin)\b[\s\S]{0,800}?(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/ml|ug/l|mcg/l|microg/l)",
-            r"ferritina\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+            r"(?:ferritina(?:\s+s[eé]rica|\s+plasm[aá]tica)?|ferritin)\b[\s\S]{0,800}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/ml|ug/l|mcg/l|microg/l)",
+            r"ferritina\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
         ],
         "ng_ml"
     ),
     (
         "ck",
         [
-            r"(?:creatin(?:a)?\s*kinasa(?:\s+total)?|creatin(?:a)?\s*quinasa(?:\s+total)?|creatinquinasa|creatinakinasa|ck\s+total|cpk\s+total|ck|cpk)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
-            r"(?:ck|cpk)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+            r"(?:creatin(?:a)?\s*kinasa(?:\s+total)?|creatin(?:a)?\s*quinasa(?:\s+total)?|creatinquinasa|creatinakinasa|ck\s+total|cpk\s+total|ck|cpk)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:u/l|ui/l|u\.l\.|ui\.l\.)",
+            r"(?:creatin(?:a)?\s*kinasa(?:\s+total)?|creatin(?:a)?\s*quinasa(?:\s+total)?|creatinquinasa|creatinakinasa|ck\s+total|cpk\s+total|ck|cpk)\b[\s\S]{0,300}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:creatin(?:a)?\s*kinasa(?:\s+total)?|creatin(?:a)?\s*quinasa(?:\s+total)?|creatinquinasa|creatinakinasa|ck\s+total|cpk\s+total|ck|cpk)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:creatin(?:a)?\s*kinasa|creatin(?:a)?\s*quinasa|ck\s+total|cpk\s+total)\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
         ],
         "u_l"
     ),
     (
         "vitamin_b12",
         [
-            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|b12|cobalamina)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
-            r"(?:vitamina\s+b12|vit\.\s*b12|cobalamina)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina|b12)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:pg/ml|pmol/l|pg/mL)",
+            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina|b12)\b[\s\S]{0,300}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina|b12)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina)\b[\s\S]{0,100}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
         ],
         "pg_ml"
     ),
     (
         "folic_acid",
         [
-            r"(?:[aá]cido\s+f[oó]lico(?:\s+s[eé]rico)?|folato(?:s)?(?:\s+s[eé]ricos?)?|vitamina\s+b9|folic\s+acid)\b[\s\S]{0,40}?(\d+(?:[\.,]\d+)?)",
-            r"(?:folato|folatos|[aá]cido\s+f[oó]lico)\b[^\d\n]*?(\d+(?:[\.,]\d+)?)",
+            r"(?:[aá]cido\s+f[oó]lico(?:\s+s[eé]rico)?|folato(?:s)?(?:\s+s[eé]ricos?)?|vitamina\s+b9|folic\s+acid)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/ml|nmol/l|ug/l|mcg/l)",
+            r"(?:[aá]cido\s+f[oó]lico(?:\s+s[eé]rico)?|folato(?:s)?(?:\s+s[eé]ricos?)?|vitamina\s+b9|folic\s+acid)\b[\s\S]{0,300}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:[aá]cido\s+f[oó]lico(?:\s+s[eé]rico)?|folato(?:s)?(?:\s+s[eé]ricos?)?|vitamina\s+b9|folic\s+acid)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:[aá]cido\s+f[oó]lico|folato(?:s)?)\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
         ],
         "ng_ml"
     ),
@@ -371,12 +377,21 @@ def parse_hemograma(text: str) -> dict:
                 except (ValueError, IndexError):
                     continue
 
-    # Fallback global para Ferritina si está en otra página / sección desalineada
+    # Fallbacks globales para secciones desalineadas / multi-página
     if result["ferritin"] is None and re.search(r"\bferritin", text, re.IGNORECASE):
-        m_fer = re.search(r"(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/mL|ng/ml|ug/L|ug/l|mcg/L|microg/L)", text, re.IGNORECASE)
+        m_fer = re.search(r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:ng/mL|ng/ml|ug/L|ug/l|mcg/L|microg/L)", text, re.IGNORECASE)
         if m_fer:
             try:
                 result["ferritin"] = round(_parse_number(m_fer.group(1)), 2)
+                found += 1
+            except Exception:
+                pass
+
+    if result["vitamin_b12"] is None and re.search(r"\b(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina)\b", text, re.IGNORECASE):
+        m_b12 = re.search(r"(?:vitamina\s+b-?12|vit\.?\s*b-?12|cobalamina)\b[\s\S]{0,500}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:pg/ml|pmol/l)", text, re.IGNORECASE)
+        if m_b12:
+            try:
+                result["vitamin_b12"] = round(_parse_number(m_b12.group(1)), 2)
                 found += 1
             except Exception:
                 pass
