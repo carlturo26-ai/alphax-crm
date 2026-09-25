@@ -355,7 +355,7 @@ if not st.session_state["cookie_checked"]:
     st.session_state["cookie_checked"] = True
     st.rerun()
 
-# Iniciar login automático multicapa
+# Iniciar login automático multicapa (EXCLUSIVO PARA SOCIOS ACTIVOS)
 if not st.session_state["logged_out"] and st.session_state["athlete_user"] is None:
     # 1. Query Parameters
     query_athlete = st.query_params.get("athlete")
@@ -364,61 +364,67 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
     if query_athlete or query_email:
         try:
             with SessionLocal() as session:
-                user = None
+                target_member = None
                 if query_email:
-                    user = session.query(AthleteUser).filter(AthleteUser.email == query_email.lower().strip()).first()
+                    u_chk = session.query(AthleteUser).filter(AthleteUser.email == query_email.lower().strip()).first()
+                    if u_chk:
+                        target_member = session.query(Member).filter(Member.name == u_chk.athlete_name).first()
                 elif query_athlete:
-                    user = session.query(AthleteUser).filter(AthleteUser.athlete_name == query_athlete).first()
-                    if not user:
-                        m_obj = session.query(Member).filter(Member.name == query_athlete).first()
-                        if m_obj:
-                            user = session.query(AthleteUser).filter(AthleteUser.athlete_name == m_obj.name).first()
-                            # Si es un socio válido pero aún no creó contraseña en AthleteUser, permitir ingreso directo
-                            if not user:
-                                st.session_state["athlete_user"] = m_obj.name
-                                st.session_state["athlete_member_id"] = m_obj.id
-                                cookie_controller.set("athlete_user_cookie", m_obj.name, max_age=30*86400)
-                                st.query_params["app"] = "atletas"
-                                st.query_params["athlete"] = m_obj.name
-                                st.rerun()
+                    target_member = session.query(Member).filter(Member.name == query_athlete).first()
                 
-                if user:
-                    st.session_state["athlete_user"] = user.athlete_name
-                    m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
-                    if m_obj:
-                        st.session_state["athlete_member_id"] = m_obj.id
-                    client_ip = get_client_ip()
-                    if client_ip:
-                        user.last_ip = client_ip
-                        session.commit()
-                    cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                    # CRÍTICO: Mantener app=atletas y athlete en la URL para que al "Añadir a pantalla de inicio"
-                    # el celular guarde el enlace directo al portal del atleta y no el CRM de administración
-                    st.query_params["app"] = "atletas"
-                    st.query_params["athlete"] = user.athlete_name
-                    st.rerun()
+                # REGLA ESTRICTA: Solo permitir si existe y active == True
+                if target_member:
+                    if not target_member.active:
+                        st.session_state["athlete_user"] = None
+                        st.session_state["athlete_member_id"] = None
+                        st.session_state["inactive_denied_athlete"] = target_member.name
+                        try:
+                            cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                        except Exception:
+                            pass
+                    else:
+                        st.session_state["athlete_user"] = target_member.name
+                        st.session_state["athlete_member_id"] = target_member.id
+                        st.session_state.pop("inactive_denied_athlete", None)
+                        
+                        user = session.query(AthleteUser).filter(AthleteUser.athlete_name == target_member.name).first()
+                        client_ip = get_client_ip()
+                        if user and client_ip:
+                            user.last_ip = client_ip
+                            session.commit()
+                        cookie_controller.set("athlete_user_cookie", target_member.name, max_age=30*86400)
+                        st.query_params["app"] = "atletas"
+                        st.query_params["athlete"] = target_member.name
+                        st.rerun()
         except Exception:
             pass
 
-    # 2. Cookies
+    # 2. Cookies (Validar que el socio siga activo)
     try:
         athlete_cookie = cookie_controller.get("athlete_user_cookie")
     except Exception:
         athlete_cookie = None
     if athlete_cookie and st.session_state["athlete_user"] is None:
-        st.session_state["athlete_user"] = athlete_cookie
         try:
             with SessionLocal() as session:
                 m_obj = session.query(Member).filter(Member.name == athlete_cookie).first()
-                if m_obj:
+                if m_obj and m_obj.active:
+                    st.session_state["athlete_user"] = m_obj.name
                     st.session_state["athlete_member_id"] = m_obj.id
+                    st.session_state.pop("inactive_denied_athlete", None)
+                    st.query_params["app"] = "atletas"
+                    st.query_params["athlete"] = m_obj.name
+                    st.rerun()
+                elif m_obj and not m_obj.active:
+                    try:
+                        cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                    except Exception:
+                        pass
+                    st.session_state["inactive_denied_athlete"] = m_obj.name
         except Exception:
             pass
-        st.query_params["app"] = "atletas"
-        st.query_params["athlete"] = athlete_cookie
-        st.rerun()
 
-    # 3. IP del Dispositivo
+    # 3. IP del Dispositivo (Validar que el socio siga activo)
     if st.session_state["athlete_user"] is None:
         client_ip = get_client_ip()
         if client_ip and client_ip not in ["127.0.0.1", "localhost", "::1", ""]:
@@ -426,20 +432,47 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                 with SessionLocal() as session:
                     user = session.query(AthleteUser).filter(AthleteUser.last_ip == client_ip).first()
                     if user:
-                        st.session_state["athlete_user"] = user.athlete_name
                         m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
-                        if m_obj:
+                        if m_obj and m_obj.active:
+                            st.session_state["athlete_user"] = user.athlete_name
                             st.session_state["athlete_member_id"] = m_obj.id
-                        cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                        st.query_params["app"] = "atletas"
-                        st.query_params["athlete"] = user.athlete_name
-                        st.rerun()
+                            st.session_state.pop("inactive_denied_athlete", None)
+                            cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                            st.query_params["app"] = "atletas"
+                            st.query_params["athlete"] = user.athlete_name
+                            st.rerun()
+                        elif m_obj and not m_obj.active:
+                            try:
+                                cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                            except Exception:
+                                pass
+                            st.session_state["inactive_denied_athlete"] = m_obj.name
             except Exception:
                 pass
 
 submitted = False
 
 if not st.session_state["athlete_user"]:
+    # AVISO DE ACCESO RESTRINGIDO SI SE DETECTA CUENTA INACTIVA
+    denied_name = st.session_state.get("inactive_denied_athlete")
+    if denied_name:
+        st.markdown(
+            f"""
+            <div style="background: rgba(255, 75, 75, 0.1); border: 2px solid #FF4B4B; border-radius: 14px; padding: 18px 22px; margin-bottom: 20px;">
+                <h4 style="color: #FF4B4B; margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    🔒 Acceso Restringido: Socio Inactivo
+                </h4>
+                <p style="color: #EEEEEE; font-size: 0.95rem; margin-bottom: 8px;">
+                    La cuenta vinculada a <strong>{denied_name}</strong> se encuentra actualmente inactiva en el CRM de <strong>AlphaX Coaching</strong>.
+                </p>
+                <p style="color: #AAAAAA; font-size: 0.88rem; margin: 0;">
+                    El portal de evolución clínica, sueño y pruebas de lactato es un beneficio exclusivo para deportistas activos. Para reactivar tu membresía, por favor contacta a tu entrenador.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
     # LOGIN / REGISTRO
     col_acc, col_ref = st.columns([2.8, 1.2])
     with col_acc:
@@ -461,19 +494,25 @@ if not st.session_state["athlete_user"]:
                 with SessionLocal() as session:
                     user = session.query(AthleteUser).filter(AthleteUser.email == login_email.lower().strip()).first()
                     if user and user.password_hash == hash_password(login_pass):
-                        st.session_state["athlete_user"] = user.athlete_name
-                        st.session_state["logged_out"] = False
                         m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
-                        if m_obj:
+                        if not m_obj or not m_obj.active:
+                            st.session_state["athlete_user"] = None
+                            st.session_state["athlete_member_id"] = None
+                            st.session_state["inactive_denied_athlete"] = user.athlete_name
+                            st.error(f"🔒 Acceso denegado: El deportista '{user.athlete_name}' se encuentra INACTIVO en AlphaX CRM. Este portal es exclusivo para deportistas activos.")
+                        else:
+                            st.session_state["athlete_user"] = user.athlete_name
                             st.session_state["athlete_member_id"] = m_obj.id
-                        client_ip = get_client_ip()
-                        if client_ip:
-                            user.last_ip = client_ip
-                            session.commit()
-                        cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                        st.query_params["app"] = "atletas"
-                        st.query_params["athlete"] = user.athlete_name
-                        st.rerun()
+                            st.session_state["logged_out"] = False
+                            st.session_state.pop("inactive_denied_athlete", None)
+                            client_ip = get_client_ip()
+                            if client_ip:
+                                user.last_ip = client_ip
+                                session.commit()
+                            cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                            st.query_params["app"] = "atletas"
+                            st.query_params["athlete"] = user.athlete_name
+                            st.rerun()
                     else:
                         st.error("Correo o contraseña incorrectos.")
             except Exception as e:
@@ -534,22 +573,29 @@ if not st.session_state["athlete_user"]:
 
 else:
     atleta = st.session_state["athlete_user"]
+    
+    # REGLA ESTRICTA: Validar en tiempo real si el socio sigue activo en AlphaX
+    with SessionLocal() as s_verif:
+        m_check = s_verif.query(Member).filter(Member.name == atleta).first()
+        if not m_check or not m_check.active:
+            st.session_state["athlete_user"] = None
+            st.session_state["athlete_member_id"] = None
+            st.session_state["inactive_denied_athlete"] = atleta
+            try:
+                cookie_controller.set("athlete_user_cookie", "", max_age=0)
+            except Exception:
+                pass
+            st.query_params["app"] = "atletas"
+            st.query_params.pop("athlete", None)
+            st.rerun()
+        else:
+            member_id = m_check.id
+            st.session_state["athlete_member_id"] = member_id
+
     # Garantizar que los query params siempre identifiquen al atleta en la barra de direcciones del navegador
     if st.query_params.get("app") != "atletas" or st.query_params.get("athlete") != atleta:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = atleta
-
-    # Obtener member_id
-    member_id = st.session_state.get("athlete_member_id")
-    if not member_id:
-        try:
-            with SessionLocal() as session:
-                m_obj = session.query(Member).filter(Member.name == atleta).first()
-                if m_obj:
-                    member_id = m_obj.id
-                    st.session_state["athlete_member_id"] = member_id
-        except Exception as e:
-            st.error(f"Error al obtener información del atleta: {e}")
 
     # Consultar datos más recientes para el Physiological HUD (Estilo TrainingPeaks)
     latest_sleep = None
