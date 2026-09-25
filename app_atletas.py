@@ -28,7 +28,7 @@ except Exception as e:
 # --- CONFIGURACIÓN DE LA PÁGINA (Optimizada para móvil) ---
 try:
     st.set_page_config(
-        page_title="AlphaX Endurance Coaching App",
+        page_title="AlphaX Atletas",
         page_icon="⚡",
         layout="centered",
         initial_sidebar_state="collapsed"
@@ -36,9 +36,18 @@ try:
 except Exception:
     pass
 
+# Garantizar que el parámetro de enrutamiento app=atletas se mantenga en la URL
+if st.query_params.get("app") != "atletas":
+    st.query_params["app"] = "atletas"
+
 # Estilos personalizados para la app pública (tema oscuro AlphaX)
 css_styles = f"""
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AlphaX Atletas">
+<meta name="application-name" content="AlphaX Atletas">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 html, body, [class*="css"], .stApp {{ font-family: 'Nunito Sans', sans-serif !important; color: #FFFFFF !important; }}
 body, .stApp {{ background-image: url("data:image/png;base64,{BACKGROUND_IMAGE_BASE64}"); }}
@@ -263,6 +272,14 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                         m_obj = session.query(Member).filter(Member.name == query_athlete).first()
                         if m_obj:
                             user = session.query(AthleteUser).filter(AthleteUser.athlete_name == m_obj.name).first()
+                            # Si es un socio válido pero aún no creó contraseña en AthleteUser, permitir ingreso directo
+                            if not user:
+                                st.session_state["athlete_user"] = m_obj.name
+                                st.session_state["athlete_member_id"] = m_obj.id
+                                cookie_controller.set("athlete_user_cookie", m_obj.name, max_age=30*86400)
+                                st.query_params["app"] = "atletas"
+                                st.query_params["athlete"] = m_obj.name
+                                st.rerun()
                 
                 if user:
                     st.session_state["athlete_user"] = user.athlete_name
@@ -274,7 +291,10 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                         user.last_ip = client_ip
                         session.commit()
                     cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                    st.query_params.clear()
+                    # CRÍTICO: Mantener app=atletas y athlete en la URL para que al "Añadir a pantalla de inicio"
+                    # el celular guarde el enlace directo al portal del atleta y no el CRM de administración
+                    st.query_params["app"] = "atletas"
+                    st.query_params["athlete"] = user.athlete_name
                     st.rerun()
         except Exception:
             pass
@@ -293,6 +313,8 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                     st.session_state["athlete_member_id"] = m_obj.id
         except Exception:
             pass
+        st.query_params["app"] = "atletas"
+        st.query_params["athlete"] = athlete_cookie
         st.rerun()
 
     # 3. IP del Dispositivo
@@ -308,6 +330,8 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                         if m_obj:
                             st.session_state["athlete_member_id"] = m_obj.id
                         cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                        st.query_params["app"] = "atletas"
+                        st.query_params["athlete"] = user.athlete_name
                         st.rerun()
             except Exception:
                 pass
@@ -338,6 +362,8 @@ if not st.session_state["athlete_user"]:
                             user.last_ip = client_ip
                             session.commit()
                         cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
+                        st.query_params["app"] = "atletas"
+                        st.query_params["athlete"] = user.athlete_name
                         st.rerun()
                     else:
                         st.error("Correo o contraseña incorrectos.")
@@ -399,6 +425,11 @@ if not st.session_state["athlete_user"]:
 
 else:
     atleta = st.session_state["athlete_user"]
+    # Garantizar que los query params siempre identifiquen al atleta en la barra de direcciones del navegador
+    if st.query_params.get("app") != "atletas" or st.query_params.get("athlete") != atleta:
+        st.query_params["app"] = "atletas"
+        st.query_params["athlete"] = atleta
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown(f"**👤 Atleta:** <span style='color:#00EEFF; font-weight:bold;'>{atleta}</span>", unsafe_allow_html=True)
@@ -408,21 +439,34 @@ else:
             st.session_state["athlete_member_id"] = None
             st.session_state["logged_out"] = True
             cookie_controller.remove("athlete_user_cookie")
+            st.query_params.clear()
+            st.query_params["app"] = "atletas"
             st.rerun()
             
-    # Mostrar enlace de acceso rápido personalizado
+    # Mostrar enlace de acceso rápido personalizado e instrucciones para el Home
     try:
-        host = st.context.headers.get("host", "localhost:8502")
-        proto = st.context.headers.get("x-forwarded-proto", "http")
-        base_url = f"{proto}://{host}"
+        host = st.context.headers.get("host")
+        proto = st.context.headers.get("x-forwarded-proto", "https")
+        if not host or "localhost" in host:
+            base_url = "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
+        else:
+            base_url = f"{proto}://{host}"
         import urllib.parse
         direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(atleta)}"
         
         st.markdown(
             f"""
-            <div style="background: rgba(0, 238, 255, 0.05); border: 1px dashed #00EEFF; border-radius: 8px; padding: 10px; margin-top: 5px; margin-bottom: 12px;">
-                <span style="font-size: 0.85rem; color: #00EEFF; font-weight: bold;">🔗 Enlace de Acceso Rápido:</span><br>
-                <code style="word-break: break-all; color: #00EEFF; font-size: 0.8rem;">{direct_link}</code>
+            <div style="background: rgba(0, 238, 255, 0.05); border: 1px dashed #00EEFF; border-radius: 10px; padding: 12px; margin-top: 5px; margin-bottom: 12px;">
+                <div style="margin-bottom: 6px;">
+                    <span style="font-size: 0.9rem; color: #00EEFF; font-weight: bold;">🔗 Tu Enlace Directo Personal:</span>
+                </div>
+                <code style="word-break: break-all; color: #00EEFF; font-size: 0.8rem; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; display: block; margin-bottom: 8px;">{direct_link}</code>
+                <div style="font-size: 0.82rem; color: #DDDDDD; line-height: 1.45;">
+                    📲 <b>Para tener esta App en el Home de tu teléfono (sin contraseñas):</b><br>
+                    • <b>📱 En iPhone (Safari):</b> Toca el botón <b>Compartir</b> (cuadrado con flecha ⬆️ en la barra inferior) y elige <b>'Añadir a pantalla de inicio'</b> ➕.<br>
+                    • <b>🤖 En Android (Chrome):</b> Toca los <b>tres puntos</b> (⋮) arriba a la derecha y elige <b>'Añadir a pantalla de inicio'</b> 📲.<br>
+                    <i>(Quedará guardada con tu acceso directo para entrar en 1 toque).</i>
+                </div>
             </div>
             """,
             unsafe_allow_html=True

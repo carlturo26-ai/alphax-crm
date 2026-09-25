@@ -3,15 +3,9 @@ from datetime import datetime, timedelta
 import os
 import streamlit as st
 
-# Configuración de página principal
-st.set_page_config(
-    page_title="AlphaX CRM",
-    page_icon="🏆",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- TRUCO DE ENRUTAMIENTO (APP ATLETAS) ---
+# --- ENRUTAMIENTO PRIORITARIO (APP ATLETAS) ---
+# Debe evaluarse ANTES de st.set_page_config para que app_atletas configure
+# su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
     if "app_atletas" in sys.modules:
@@ -19,10 +13,34 @@ if st.query_params.get("app") == "atletas":
     import app_atletas
     st.stop()
 
+# Configuración de página principal del CRM Administrador
+st.set_page_config(
+    page_title="AlphaX CRM",
+    page_icon="🏆",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 from streamlit_cookies_controller import CookieController
 
 # Initialize cookie controller
 cookie_controller = CookieController()
+
+# --- REDIRECCIÓN AUTOMÁTICA SI EL DISPOSITIVO ES DE UN ATLETA ---
+# Si abren el link raíz sin parámetros en el teléfono pero ya tienen guardada la cookie de atleta:
+try:
+    auth_cookie = cookie_controller.get("crm_admin_auth")
+    athlete_cookie = cookie_controller.get("athlete_user_cookie")
+    if athlete_cookie and auth_cookie != "authorized_alphax_2026" and not st.session_state.get("password_correct"):
+        st.query_params["app"] = "atletas"
+        st.query_params["athlete"] = athlete_cookie
+        import sys
+        if "app_atletas" in sys.modules:
+            del sys.modules["app_atletas"]
+        import app_atletas
+        st.stop()
+except Exception:
+    pass
 
 # --- SEGURIDAD: CONTRASEÑA DEL CRM ---
 def check_password():
@@ -55,11 +73,27 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
+    def render_athlete_portal_shortcut():
+        st.markdown("---")
+        st.markdown("""
+        <div style="background: rgba(0, 238, 255, 0.05); border: 1.5px solid #00EEFF; border-radius: 12px; padding: 16px; margin-top: 15px; text-align: center;">
+            <h4 style="color: #00EEFF; margin-top: 0; margin-bottom: 8px;">🏃‍♂️ ¿Eres deportista de AlphaX?</h4>
+            <p style="color: #CCCCCC; font-size: 0.9rem; margin-bottom: 12px;">
+                Esta pantalla es solo para la administración y entrenadores del club.<br>
+                Si deseas ver tus análisis de sueño, hemogramas y pruebas de lactato, ingresa aquí:
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("⚡ Ir a mi Portal de Atleta", use_container_width=True, key="btn_goto_athlete_portal"):
+            st.query_params["app"] = "atletas"
+            st.rerun()
+
     if "password_correct" not in st.session_state:
         st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
         st.text_input(
             "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
         )
+        render_athlete_portal_shortcut()
         return False
     elif not st.session_state["password_correct"]:
         st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
@@ -67,6 +101,7 @@ def check_password():
             "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
         )
         st.error("Contraseña incorrecta 🛑")
+        render_athlete_portal_shortcut()
         return False
     else:
         return True
@@ -1329,9 +1364,12 @@ elif page == "ASSQ (Sueño)":
         selected_coach_athlete = st.selectbox("Selecciona un deportista para generar su enlace:", ["-- Seleccionar --"] + atletas_nombres, key="coach_athlete_sel")
         if selected_coach_athlete != "-- Seleccionar --":
             try:
-                host = st.context.headers.get("host", "localhost:8502")
-                proto = st.context.headers.get("x-forwarded-proto", "http")
-                base_url = f"{proto}://{host}"
+                host = st.context.headers.get("host")
+                proto = st.context.headers.get("x-forwarded-proto", "https")
+                if not host or "localhost" in host or "127.0.0.1" in host:
+                    base_url = "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
+                else:
+                    base_url = f"{proto}://{host}"
                 import urllib.parse
                 athlete_direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(selected_coach_athlete)}"
                 
