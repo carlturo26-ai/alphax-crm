@@ -334,24 +334,26 @@ def format_date_es(d):
     return str(d)
 
 # --- INTERFAZ DE USUARIO Y BANNER PRINCIPAL (ALPHAX PRO BRANDING) ---
-st.markdown(f"""
-<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 4px; margin-bottom: 16px;">
-    <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px;">
-        <img src="data:image/png;base64,{SIMBOLO_B64}" style="height: 52px; object-fit: contain; filter: drop-shadow(0 0 18px rgba(0, 238, 255, 0.75));">
-        <img src="data:image/png;base64,{TEXTO_BLANCO_B64}" style="height: 32px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));">
-    </div>
-    <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(0, 238, 255, 0.08); border: 1px solid rgba(0, 238, 255, 0.3); border-radius: 20px; padding: 4px 14px; margin-bottom: 6px;">
-        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #00EEFF; box-shadow: 0 0 8px #00EEFF;"></span>
-        <span style="color: #00EEFF; font-size: 0.72rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;">ENDURANCE COACHING & PHYSIOLOGY</span>
-    </div>
-    <h1 style='text-align: center; font-size: clamp(1.15rem, 3.8vw, 1.85rem); color: #FFFFFF; font-weight: 900; margin: 0; letter-spacing: -0.3px;'>
-        ⚡ BIENVENIDO A ALPHAX ENDURANCE COACHING APP ⚡
-    </h1>
-    <p style='text-align: center; color: #8E9BAE; font-size: 0.88rem; font-weight: 600; margin-top: 4px; margin-bottom: 0px;'>
-        Portal de Monitoreo de Rendimiento, Fisiología y Recuperación del Atleta
-    </p>
+banner_html = f"""<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 4px; margin-bottom: 16px;">
+<div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px;">
+<img src="data:image/png;base64,{SIMBOLO_B64}" style="height: 52px; object-fit: contain; filter: drop-shadow(0 0 18px rgba(0, 238, 255, 0.75));">
+<img src="data:image/png;base64,{TEXTO_BLANCO_B64}" style="height: 32px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));">
 </div>
-""", unsafe_allow_html=True)
+<div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(0, 238, 255, 0.08); border: 1px solid rgba(0, 238, 255, 0.3); border-radius: 20px; padding: 4px 14px; margin-bottom: 6px;">
+<span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #00EEFF; box-shadow: 0 0 8px #00EEFF;"></span>
+<span style="color: #00EEFF; font-size: 0.72rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;">ENDURANCE COACHING & PHYSIOLOGY</span>
+</div>
+<h1 style='text-align: center; font-size: clamp(1.15rem, 3.8vw, 1.85rem); color: #FFFFFF; font-weight: 900; margin: 0; letter-spacing: -0.3px;'>
+⚡ BIENVENIDO A ALPHAX ENDURANCE COACHING APP ⚡
+</h1>
+<p style='text-align: center; color: #8E9BAE; font-size: 0.88rem; font-weight: 600; margin-top: 4px; margin-bottom: 0px;'>
+Portal de Monitoreo de Rendimiento, Fisiología y Recuperación del Atleta
+</p>
+</div>"""
+if hasattr(st, "html"):
+    st.html(banner_html)
+else:
+    st.markdown(banner_html, unsafe_allow_html=True)
 
 cookie_controller = CookieController()
 
@@ -586,26 +588,29 @@ else:
             pass
 
     # ── BARRA DE PERFIL Y ACCIONES (REFRESCAR / SALIR) ────────────────
-    col_prof, col_sync, col_logout = st.columns([2.5, 1.25, 0.95])
-    with col_prof:
-        st.markdown(f"""
-        <div style="display: flex; align-items: center; gap: 11px; padding: 2px 0;">
-            <div style="position: relative; flex-shrink: 0;">
-                <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, rgba(0,238,255,0.2), rgba(0,102,255,0.3)); border: 2px solid #00EEFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 14px rgba(0,238,255,0.4);">
-                    <img src="data:image/png;base64,{SIMBOLO_B64}" style="width: 25px; height: 25px; object-fit: contain;">
-                </div>
-                <span style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: #00FF88; border: 2px solid #07090E; box-shadow: 0 0 6px #00FF88;"></span>
-            </div>
-            <div style="line-height: 1.25; overflow: hidden;">
-                <div style="color: #FFFFFF; font-size: 1.05rem; font-weight: 800; letter-spacing: -0.2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">{atleta}</div>
-                <div style="display: flex; align-items: center; gap: 6px; margin-top: 3px;">
-                    <span style="background: rgba(0,238,255,0.12); color: #00EEFF; font-size: 0.65rem; font-weight: 800; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.8px;">⚡ ATLETA PRO</span>
-                    <span style="color: #8E9BAE; font-size: 0.72rem; font-weight: 600;">Sincronizado</span>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    prof_html = f"""<div style="display: flex; align-items: center; justify-content: space-between; gap: 11px; padding: 4px 6px; margin-bottom: 6px; background: rgba(16, 22, 34, 0.7); border: 1px solid rgba(0, 238, 255, 0.18); border-radius: 12px;">
+<div style="display: flex; align-items: center; gap: 11px;">
+<div style="position: relative; flex-shrink: 0;">
+<div style="width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, rgba(0,238,255,0.2), rgba(0,102,255,0.3)); border: 2px solid #00EEFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px rgba(0,238,255,0.4);">
+<img src="data:image/png;base64,{SIMBOLO_B64}" style="width: 24px; height: 24px; object-fit: contain;">
+</div>
+<span style="position: absolute; bottom: 0; right: 0; width: 9px; height: 9px; border-radius: 50%; background: #00FF88; border: 2px solid #07090E; box-shadow: 0 0 6px #00FF88;"></span>
+</div>
+<div style="line-height: 1.2; overflow: hidden;">
+<div style="color: #FFFFFF; font-size: 1.02rem; font-weight: 800; letter-spacing: -0.2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">{atleta}</div>
+<div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+<span style="background: rgba(0,238,255,0.12); color: #00EEFF; font-size: 0.62rem; font-weight: 800; padding: 1px 6px; border-radius: 5px; letter-spacing: 0.8px;">⚡ ATLETA PRO</span>
+<span style="color: #8E9BAE; font-size: 0.7rem; font-weight: 600;">Sincronizado</span>
+</div>
+</div>
+</div>
+</div>"""
+    if hasattr(st, "html"):
+        st.html(prof_html)
+    else:
+        st.markdown(prof_html, unsafe_allow_html=True)
         
+    col_sync, col_logout = st.columns([1, 1])
     with col_sync:
         if st.button("🔄 Refrescar", key="sync_btn", use_container_width=True, help="Refresca y sincroniza la última versión en tu teléfono"):
             st.cache_data.clear()
@@ -693,37 +698,33 @@ else:
         lac_sub_txt = "Sin prueba"
         lac_date_txt = "Pendiente"
 
-    hud_html = f"""
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 16px 0;">
-        <!-- CARD 1: SUEÑO -->
-        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(0, 238, 255, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #00EEFF, #0088FF);"></div>
-            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">💤 SUEÑO</div>
-            <div style="color: {sleep_color}; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{sleep_score_txt}</div>
-            <div style="display: inline-block; background: {sleep_bg}; color: {sleep_color}; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{sleep_cat_txt}</div>
-            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{sleep_date_txt}</div>
-        </div>
-
-        <!-- CARD 2: HEMOGRAMA -->
-        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 51, 102, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FF3366, #FF9900);"></div>
-            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">🩸 HEMOGLOBINA</div>
-            <div style="color: #FFFFFF; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{hb_val_txt}</div>
-            <div style="display: inline-block; background: rgba(255, 51, 102, 0.12); color: #FF6688; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{blood_sub_txt}</div>
-            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{blood_date_txt}</div>
-        </div>
-
-        <!-- CARD 3: LACTATO -->
-        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 215, 0, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FFD700, #00EEFF);"></div>
-            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">⚡ UMBRAL LT2</div>
-            <div style="color: #FFD700; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{lac_lt2_txt}</div>
-            <div style="display: inline-block; background: rgba(255, 215, 0, 0.12); color: #FFD700; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{lac_sub_txt}</div>
-            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{lac_date_txt}</div>
-        </div>
-    </div>
-    """
-    st.markdown(hud_html, unsafe_allow_html=True)
+    hud_html = f"""<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 16px 0;">
+<div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(0, 238, 255, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+<div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #00EEFF, #0088FF);"></div>
+<div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">💤 SUEÑO</div>
+<div style="color: {sleep_color}; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{sleep_score_txt}</div>
+<div style="display: inline-block; background: {sleep_bg}; color: {sleep_color}; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{sleep_cat_txt}</div>
+<div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{sleep_date_txt}</div>
+</div>
+<div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 51, 102, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+<div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FF3366, #FF9900);"></div>
+<div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">🩸 HEMOGLOBINA</div>
+<div style="color: #FFFFFF; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{hb_val_txt}</div>
+<div style="display: inline-block; background: rgba(255, 51, 102, 0.12); color: #FF6688; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{blood_sub_txt}</div>
+<div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{blood_date_txt}</div>
+</div>
+<div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 215, 0, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+<div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FFD700, #00EEFF);"></div>
+<div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">⚡ UMBRAL LT2</div>
+<div style="color: #FFD700; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{lac_lt2_txt}</div>
+<div style="display: inline-block; background: rgba(255, 215, 0, 0.12); color: #FFD700; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{lac_sub_txt}</div>
+<div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{lac_date_txt}</div>
+</div>
+</div>"""
+    if hasattr(st, "html"):
+        st.html(hud_html)
+    else:
+        st.markdown(hud_html, unsafe_allow_html=True)
 
     # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA (UNIFICADAS EN 3) ───
     tab_sleep, tab_bw, tab_lac = st.tabs([
