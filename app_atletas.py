@@ -897,13 +897,24 @@ else:
     with tab_bw:
         st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>🩸 HISTORIAL Y CARGA DE MARCADORES CLÍNICOS</h3>", unsafe_allow_html=True)
         
-        # Obtener y permitir verificar el perfil de género del atleta
+        # Obtener y permitir verificar el perfil de género del atleta de forma segura
         ath_gender = "Hombre"
         if member_id:
             with SessionLocal() as s_ath:
-                m_curr = s_ath.query(Member).filter(Member.id == member_id).first()
-                if m_curr and m_curr.gender:
-                    ath_gender = m_curr.gender
+                try:
+                    res_g = s_ath.execute(text("SELECT gender FROM members WHERE id = :mid"), {"mid": member_id}).scalar()
+                    if res_g:
+                        ath_gender = str(res_g).strip()
+                except Exception:
+                    try:
+                        m_curr = s_ath.query(Member).filter(Member.id == member_id).first()
+                        if m_curr:
+                            ath_gender = getattr(m_curr, "gender", None) or "Hombre"
+                    except Exception:
+                        ath_gender = "Hombre"
+        
+        if not ath_gender or ath_gender not in ["Hombre", "Mujer"]:
+            ath_gender = "Hombre"
         
         col_g1, col_g2, col_g3 = st.columns([1, 2, 1])
         with col_g2:
@@ -917,10 +928,18 @@ else:
             new_ath_gender = "Mujer" if "Mujer" in g_choice else "Hombre"
             if new_ath_gender != ath_gender and member_id:
                 with SessionLocal() as s_up:
-                    m_up = s_up.query(Member).filter(Member.id == member_id).first()
-                    if m_up:
-                        m_up.gender = new_ath_gender
+                    try:
+                        s_up.execute(text("UPDATE members SET gender = :g WHERE id = :mid"), {"g": new_ath_gender, "mid": member_id})
                         s_up.commit()
+                    except Exception:
+                        pass
+                    try:
+                        m_up = s_up.query(Member).filter(Member.id == member_id).first()
+                        if m_up and hasattr(m_up, "gender"):
+                            m_up.gender = new_ath_gender
+                            s_up.commit()
+                    except Exception:
+                        pass
                 st.toast(f"Perfil actualizado a {new_ath_gender}", icon="🧬")
                 st.rerun()
             ath_gender = new_ath_gender

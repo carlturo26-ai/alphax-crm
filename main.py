@@ -2197,7 +2197,23 @@ elif page == "🩸 Marcadores Clínicos":
         if not member_obj:
             st.error("Atleta no encontrado en el sistema.")
         else:
-            current_gender = getattr(member_obj, "gender", None) or "Hombre"
+            current_gender = "Hombre"
+            try:
+                current_gender = getattr(member_obj, "gender", None)
+            except Exception:
+                pass
+            if not current_gender:
+                s_chk = SessionLocal()
+                try:
+                    res_g = s_chk.execute(text("SELECT gender FROM members WHERE id = :mid"), {"mid": member_obj.id}).scalar()
+                    if res_g:
+                        current_gender = str(res_g).strip()
+                except Exception:
+                    pass
+                finally:
+                    s_chk.close()
+            current_gender = current_gender or "Hombre"
+
             with col_sex:
                 sel_gender = st.radio(
                     "Perfil Fisiológico (Rangos Hombre/Mujer):",
@@ -2209,16 +2225,26 @@ elif page == "🩸 Marcadores Clínicos":
                 clean_gender = "Mujer" if "Mujer" in sel_gender else "Hombre"
                 if clean_gender != current_gender:
                     s_up = SessionLocal()
-                    m_to_up = s_up.query(Member).filter(Member.id == member_obj.id).first()
-                    if m_to_up:
-                        m_to_up.gender = clean_gender
+                    try:
+                        s_up.execute(text("UPDATE members SET gender = :g WHERE id = :mid"), {"g": clean_gender, "mid": member_obj.id})
                         s_up.commit()
-                    s_up.close()
-                    member_obj.gender = clean_gender
+                    except Exception:
+                        pass
+                    try:
+                        m_to_up = s_up.query(Member).filter(Member.id == member_obj.id).first()
+                        if m_to_up and hasattr(m_to_up, "gender"):
+                            m_to_up.gender = clean_gender
+                            s_up.commit()
+                    except Exception:
+                        pass
+                    finally:
+                        s_up.close()
+                    if hasattr(member_obj, "gender"):
+                        member_obj.gender = clean_gender
                     st.toast(f"Perfil actualizado a {clean_gender}", icon="🧬")
                     st.rerun()
 
-            athlete_gender = member_obj.gender or "Hombre"
+            athlete_gender = clean_gender
             BLOODWORK_RANGES = get_bloodwork_ranges(athlete_gender)
             gender_badge = "👩 Mujer" if athlete_gender == "Mujer" else "👨 Hombre"
 
