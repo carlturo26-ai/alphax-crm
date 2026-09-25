@@ -8,6 +8,7 @@ import hashlib
 import unicodedata
 from streamlit_cookies_controller import CookieController
 from background_base64 import BACKGROUND_IMAGE_BASE64
+from logo_base64 import SIMBOLO_B64, TEXTO_BLANCO_B64
 
 try:
     from database import SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, engine
@@ -42,27 +43,144 @@ if st.query_params.get("app") != "atletas":
 
 # Estilos personalizados para la app pública (tema oscuro AlphaX)
 css_styles = f"""
-<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AlphaX Atletas">
 <meta name="application-name" content="AlphaX Atletas">
 <meta name="mobile-web-app-capable" content="yes">
 <style>
-html, body, [class*="css"], .stApp {{ font-family: 'Nunito Sans', sans-serif !important; color: #FFFFFF !important; }}
-body, .stApp {{ background-image: url("data:image/png;base64,{BACKGROUND_IMAGE_BASE64}"); }}
-div[data-baseweb="input"] > div, div[data-baseweb="base-input"] {{ background-color: #121212 !important; }}
-div[data-baseweb="select"] > div {{ background-color: #121212 !important; border-color: #00EEFF !important; }}
-div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {{ background-color: #121212 !important; color: #FFFFFF !important; }}
-div[role="option"]:hover, div[role="option"][aria-selected="true"] {{ background-color: #00EEFF !important; color: #000000 !important; }}
-.stButton > button {{ border-radius: 8px; font-weight: 700; border: 1px solid #FFFFFF; color: #FFFFFF !important; background-color: transparent !important; transition: all 0.3s ease; }}
-.stButton > button:hover {{ background-color: #FFFFFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.4); }}
-.stPlotlyChart {{ background-color: white !important; border-radius: 20px; border: 2px solid #00EEFF; padding: 0px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 238, 255, 0.4); }}
-div[data-baseweb="tab-list"] {{ display: flex !important; gap: 8px !important; padding: 8px 2px 14px 2px !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; border-bottom: 1px solid rgba(0, 238, 255, 0.2) !important; justify-content: center !important; }}
-button[data-baseweb="tab"] {{ background: rgba(18, 18, 32, 0.9) !important; border: 1.5px solid rgba(0, 238, 255, 0.25) !important; border-radius: 12px !important; padding: 10px 14px !important; font-size: 0.9rem !important; font-weight: 700 !important; color: #BBBBBB !important; text-align: center !important; min-width: 100px !important; flex: 1 1 0px !important; max-width: 220px !important; transition: all 0.25s ease-in-out !important; box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important; white-space: normal !important; line-height: 1.25 !important; }}
-button[data-baseweb="tab"]:hover {{ border-color: #00EEFF !important; color: #00EEFF !important; transform: translateY(-2px) !important; box-shadow: 0 6px 15px rgba(0, 238, 255, 0.3) !important; }}
-button[data-baseweb="tab"][aria-selected="true"] {{ background: linear-gradient(135deg, rgba(0, 238, 255, 0.25), rgba(0, 100, 255, 0.4)) !important; border: 2px solid #00EEFF !important; color: #00EEFF !important; font-weight: 800 !important; box-shadow: 0 0 16px rgba(0, 238, 255, 0.45) !important; }}
+/* Tipografía y suavizado de fuentes */
+html, body, [class*="css"], .stApp {{
+    font-family: 'Outfit', 'Nunito Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    color: #F0F4F8 !important;
+    -webkit-font-smoothing: antialiased;
+}}
+
+body, .stApp {{
+    background-color: #07090E !important;
+    background-image: 
+        radial-gradient(circle at 50% 0%, rgba(0, 238, 255, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 100% 20%, rgba(0, 102, 255, 0.08) 0%, transparent 40%),
+        url("data:image/png;base64,{BACKGROUND_IMAGE_BASE64}") !important;
+    background-attachment: fixed !important;
+    background-size: cover !important;
+}}
+
+/* Limpieza de cabecera de Streamlit */
+header[data-testid="stHeader"] {{ background: transparent !important; }}
+footer {{ visibility: hidden !important; }}
+
+/* Controles de Entrada (Inputs oscuros modernos) */
+div[data-baseweb="input"] > div, div[data-baseweb="base-input"] {{
+    background-color: rgba(18, 22, 34, 0.85) !important;
+    border: 1px solid rgba(0, 238, 255, 0.25) !important;
+    border-radius: 12px !important;
+    color: #FFFFFF !important;
+    transition: all 0.25s ease !important;
+}}
+div[data-baseweb="input"] > div:focus-within {{
+    border-color: #00EEFF !important;
+    box-shadow: 0 0 16px rgba(0, 238, 255, 0.4) !important;
+}}
+
+div[data-baseweb="select"] > div {{
+    background-color: rgba(18, 22, 34, 0.9) !important;
+    border: 1px solid rgba(0, 238, 255, 0.3) !important;
+    border-radius: 12px !important;
+    color: #FFFFFF !important;
+}}
+div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {{
+    background-color: #0F121C !important;
+    color: #FFFFFF !important;
+}}
+div[role="option"]:hover, div[role="option"][aria-selected="true"] {{
+    background: linear-gradient(90deg, #00EEFF, #0088FF) !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+}}
+
+/* Botones estilo TrainingPeaks */
+.stButton > button {{
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.4px !important;
+    border: 1px solid rgba(0, 238, 255, 0.4) !important;
+    color: #00EEFF !important;
+    background: rgba(0, 238, 255, 0.06) !important;
+    padding: 9px 18px !important;
+    transition: all 0.25s ease !important;
+    backdrop-filter: blur(8px) !important;
+}}
+.stButton > button:hover {{
+    background: linear-gradient(135deg, #00EEFF, #0088FF) !important;
+    color: #000000 !important;
+    border-color: #00EEFF !important;
+    box-shadow: 0 0 18px rgba(0, 238, 255, 0.45) !important;
+    transform: translateY(-1px) !important;
+}}
+
+/* Segmented Tab Bar - Estilo Pro Dashboard */
+div[data-baseweb="tab-list"] {{
+    display: flex !important;
+    gap: 8px !important;
+    padding: 6px 2px 14px 2px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-bottom: 1.5px solid rgba(0, 238, 255, 0.15) !important;
+    justify-content: center !important;
+}}
+button[data-baseweb="tab"] {{
+    background: rgba(15, 19, 30, 0.85) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    padding: 10px 16px !important;
+    font-size: 0.88rem !important;
+    font-weight: 700 !important;
+    color: #8E9BAE !important;
+    text-align: center !important;
+    min-width: 105px !important;
+    flex: 1 1 0px !important;
+    max-width: 220px !important;
+    transition: all 0.25s ease !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35) !important;
+    white-space: normal !important;
+    line-height: 1.25 !important;
+}}
+button[data-baseweb="tab"]:hover {{
+    border-color: rgba(0, 238, 255, 0.5) !important;
+    color: #00EEFF !important;
+    transform: translateY(-1px) !important;
+}}
+button[data-baseweb="tab"][aria-selected="true"] {{
+    background: linear-gradient(135deg, rgba(0, 238, 255, 0.22), rgba(0, 102, 255, 0.38)) !important;
+    border: 1.5px solid #00EEFF !important;
+    color: #00EEFF !important;
+    font-weight: 800 !important;
+    box-shadow: 0 0 16px rgba(0, 238, 255, 0.4) !important;
+}}
 div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{ display: none !important; }}
+
+/* Tarjetas de Gráficas Plotly */
+.stPlotlyChart {{
+    background: rgba(14, 18, 28, 0.9) !important;
+    border-radius: 18px !important;
+    border: 1.5px solid rgba(0, 238, 255, 0.22) !important;
+    padding: 6px !important;
+    overflow: hidden !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(12px) !important;
+}}
+
+/* Expanders Glassmorphism */
+div.stExpander {{
+    background: rgba(15, 19, 30, 0.75) !important;
+    border: 1px solid rgba(0, 238, 255, 0.18) !important;
+    border-radius: 14px !important;
+    backdrop-filter: blur(10px) !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4) !important;
+}}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -227,9 +345,25 @@ def format_date_es(d):
     if hasattr(d, "month"): return f"{d.day} {meses_es[d.month]}"
     return str(d)
 
-# --- INTERFAZ DE USUARIO Y BANNER PRINCIPAL ---
-st.markdown("<h1 style='text-align: center; font-size: clamp(1.3rem, 4vw, 2.2rem); color: #00EEFF; font-weight: 800; margin-top: 10px; margin-bottom: 0px;'>⚡ BIENVENIDO A ALPHAX ENDURANCE COACHING APP ⚡</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #BBBBBB; font-size: 0.95rem; font-weight: 600; margin-top: 4px; margin-bottom: 15px;'>Portal de Monitoreo de Rendimiento, Fisiología y Recuperación del Atleta</p>", unsafe_allow_html=True)
+# --- INTERFAZ DE USUARIO Y BANNER PRINCIPAL (ALPHAX PRO BRANDING) ---
+st.markdown(f"""
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 4px; margin-bottom: 16px;">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px;">
+        <img src="data:image/png;base64,{SIMBOLO_B64}" style="height: 52px; object-fit: contain; filter: drop-shadow(0 0 18px rgba(0, 238, 255, 0.75));">
+        <img src="data:image/png;base64,{TEXTO_BLANCO_B64}" style="height: 32px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8));">
+    </div>
+    <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(0, 238, 255, 0.08); border: 1px solid rgba(0, 238, 255, 0.3); border-radius: 20px; padding: 4px 14px; margin-bottom: 6px;">
+        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #00EEFF; box-shadow: 0 0 8px #00EEFF;"></span>
+        <span style="color: #00EEFF; font-size: 0.72rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;">ENDURANCE COACHING & PHYSIOLOGY</span>
+    </div>
+    <h1 style='text-align: center; font-size: clamp(1.15rem, 3.8vw, 1.85rem); color: #FFFFFF; font-weight: 900; margin: 0; letter-spacing: -0.3px;'>
+        ⚡ BIENVENIDO A ALPHAX ENDURANCE COACHING APP ⚡
+    </h1>
+    <p style='text-align: center; color: #8E9BAE; font-size: 0.88rem; font-weight: 600; margin-top: 4px; margin-bottom: 0px;'>
+        Portal de Monitoreo de Rendimiento, Fisiología y Recuperación del Atleta
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 cookie_controller = CookieController()
 
@@ -340,7 +474,15 @@ submitted = False
 
 if not st.session_state["athlete_user"]:
     # LOGIN / REGISTRO
-    st.subheader("👤 Acceso de Atleta")
+    col_acc, col_ref = st.columns([2.8, 1.2])
+    with col_acc:
+        st.subheader("👤 Acceso de Atleta")
+    with col_ref:
+        if st.button("🔄 Refrescar", key="sync_login_btn", use_container_width=True, help="Refrescar aplicación"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.query_params["_t"] = str(int(datetime.now().timestamp()))
+            st.rerun()
     tab1, tab2 = st.tabs(["Iniciar Sesión", "Crear Cuenta"])
     
     with tab1:
@@ -430,24 +572,6 @@ else:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = atleta
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown(f"**👤 Atleta:** <span style='color:#00EEFF; font-weight:bold;'>{atleta}</span>", unsafe_allow_html=True)
-    with col2:
-        if st.button("Salir", key="logout_btn"):
-            st.session_state["athlete_user"] = None
-            st.session_state["athlete_member_id"] = None
-            st.session_state["logged_out"] = True
-            cookie_controller.remove("athlete_user_cookie")
-            st.query_params.clear()
-            st.query_params["app"] = "atletas"
-            st.rerun()
-
-            
-    if st.session_state.get("last_score"):
-        st.success(st.session_state["last_score"])
-        st.session_state["last_score"] = None
-            
     # Obtener member_id
     member_id = st.session_state.get("athlete_member_id")
     if not member_id:
@@ -460,22 +584,159 @@ else:
         except Exception as e:
             st.error(f"Error al obtener información del atleta: {e}")
 
-    st.markdown("---")
-    
-    # ── BANNER GUÍA DE NAVEGACIÓN TÁCTIL / DESLIZAMIENTO ───────────────
-    st.markdown(
-        """
-        <div style="background: rgba(0, 238, 255, 0.07); border: 1px dashed rgba(0, 238, 255, 0.4); border-radius: 12px; padding: 8px 14px; margin-bottom: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center;">
-            <span style="font-size: 1.1rem;">📲</span>
-            <span style="color: #00EEFF; font-size: 0.88rem; font-weight: 700; letter-spacing: 0.3px;">
-                Toca o desliza en los 3 bloques para navegar entre tus marcadores
-            </span>
-            <span style="color: #00EEFF; font-size: 1rem; font-weight: bold;">⇄</span>
+    # Consultar datos más recientes para el Physiological HUD (Estilo TrainingPeaks)
+    latest_sleep = None
+    latest_blood = None
+    latest_lac = None
+    if member_id:
+        try:
+            with SessionLocal() as s_hud:
+                latest_sleep = s_hud.query(SleepRecord).filter(SleepRecord.member_id == member_id).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).first()
+                latest_blood = s_hud.query(BloodworkRecord).filter(BloodworkRecord.member_id == member_id).order_by(BloodworkRecord.date.desc(), BloodworkRecord.id.desc()).first()
+                latest_lac = s_hud.query(LactateTest).filter(LactateTest.member_id == member_id).order_by(LactateTest.test_date.desc(), LactateTest.id.desc()).first()
+        except Exception:
+            pass
+
+    # ── BARRA DE PERFIL Y ACCIONES (REFRESCAR / SALIR) ────────────────
+    col_prof, col_sync, col_logout = st.columns([2.5, 1.25, 0.95])
+    with col_prof:
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 11px; padding: 2px 0;">
+            <div style="position: relative; flex-shrink: 0;">
+                <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, rgba(0,238,255,0.2), rgba(0,102,255,0.3)); border: 2px solid #00EEFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 14px rgba(0,238,255,0.4);">
+                    <img src="data:image/png;base64,{SIMBOLO_B64}" style="width: 25px; height: 25px; object-fit: contain;">
+                </div>
+                <span style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: #00FF88; border: 2px solid #07090E; box-shadow: 0 0 6px #00FF88;"></span>
+            </div>
+            <div style="line-height: 1.25; overflow: hidden;">
+                <div style="color: #FFFFFF; font-size: 1.05rem; font-weight: 800; letter-spacing: -0.2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">{atleta}</div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-top: 3px;">
+                    <span style="background: rgba(0,238,255,0.12); color: #00EEFF; font-size: 0.65rem; font-weight: 800; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.8px;">⚡ ATLETA PRO</span>
+                    <span style="color: #8E9BAE; font-size: 0.72rem; font-weight: 600;">Sincronizado</span>
+                </div>
+            </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
-    
+        """, unsafe_allow_html=True)
+        
+    with col_sync:
+        if st.button("🔄 Refrescar", key="sync_btn", use_container_width=True, help="Refresca y sincroniza la última versión en tu teléfono"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.query_params["_t"] = str(int(datetime.now().timestamp()))
+            st.toast("⚡ AlphaX actualizado con éxito", icon="🔄")
+            st.rerun()
+
+    with col_logout:
+        if st.button("Salir", key="logout_btn", use_container_width=True):
+            st.session_state["athlete_user"] = None
+            st.session_state["athlete_member_id"] = None
+            st.session_state["logged_out"] = True
+            cookie_controller.remove("athlete_user_cookie")
+            st.query_params.clear()
+            st.query_params["app"] = "atletas"
+            st.rerun()
+
+    if st.session_state.get("last_score"):
+        st.success(st.session_state["last_score"])
+        st.session_state["last_score"] = None
+
+    # ── TRAININGPEAKS-STYLE PHYSIOLOGICAL SNAPSHOT HUD (3 CARDS) ──────
+    # 1. Datos Sueño
+    if latest_sleep:
+        s_val = latest_sleep.sds_score
+        sleep_score_txt = f"{s_val}<span style='font-size:0.75rem; color:#8E9BAE;'>/17</span>"
+        if s_val <= 4:
+            sleep_cat_txt = "🟢 Óptimo"
+            sleep_color = "#00FF88"
+            sleep_bg = "rgba(0, 255, 136, 0.12)"
+        elif s_val <= 7:
+            sleep_cat_txt = "🔵 Leve"
+            sleep_color = "#00EEFF"
+            sleep_bg = "rgba(0, 238, 255, 0.12)"
+        elif s_val <= 10:
+            sleep_cat_txt = "🟠 Moderado"
+            sleep_color = "#FFAA00"
+            sleep_bg = "rgba(255, 170, 0, 0.12)"
+        else:
+            sleep_cat_txt = "🔴 Severo"
+            sleep_color = "#FF3355"
+            sleep_bg = "rgba(255, 51, 85, 0.12)"
+        sleep_date_txt = format_date_es(latest_sleep.date)
+    else:
+        sleep_score_txt = "--"
+        sleep_cat_txt = "Pendiente"
+        sleep_color = "#8E9BAE"
+        sleep_bg = "rgba(142, 155, 174, 0.1)"
+        sleep_date_txt = "Sin registros"
+
+    # 2. Datos Hemograma
+    if latest_blood and latest_blood.hemoglobin:
+        hb_val_txt = f"{latest_blood.hemoglobin:.1f}<span style='font-size:0.7rem; color:#8E9BAE;'> g/dL</span>"
+        if latest_blood.ferritin:
+            blood_sub_txt = f"Ferritina: {latest_blood.ferritin:.0f}"
+        elif latest_blood.hematocrit:
+            blood_sub_txt = f"Hto: {latest_blood.hematocrit:.1f}%"
+        else:
+            blood_sub_txt = "Marcador Clínico"
+        blood_date_txt = format_date_es(latest_blood.date)
+    else:
+        hb_val_txt = "--"
+        blood_sub_txt = "Sin exámenes"
+        blood_date_txt = "Pendiente"
+
+    # 3. Datos Lactato
+    if latest_lac:
+        if latest_lac.lt2_power:
+            lac_lt2_txt = f"{latest_lac.lt2_power:.0f}<span style='font-size:0.75rem; color:#FFD700;'> W</span>"
+        elif latest_lac.lt2_hr:
+            lac_lt2_txt = f"{latest_lac.lt2_hr}<span style='font-size:0.75rem; color:#FFD700;'> lpm</span>"
+        else:
+            lac_lt2_txt = "Evaluado"
+
+        if latest_lac.lt1_power:
+            lac_sub_txt = f"LT1: {latest_lac.lt1_power:.0f} W"
+        elif latest_lac.lt1_hr:
+            lac_sub_txt = f"LT1: {latest_lac.lt1_hr} lpm"
+        else:
+            lac_sub_txt = (latest_lac.sport or "Ciclismo").capitalize()
+        lac_date_txt = format_date_es(latest_lac.test_date)
+    else:
+        lac_lt2_txt = "--"
+        lac_sub_txt = "Sin prueba"
+        lac_date_txt = "Pendiente"
+
+    hud_html = f"""
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 16px 0;">
+        <!-- CARD 1: SUEÑO -->
+        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(0, 238, 255, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #00EEFF, #0088FF);"></div>
+            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">💤 SUEÑO</div>
+            <div style="color: {sleep_color}; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{sleep_score_txt}</div>
+            <div style="display: inline-block; background: {sleep_bg}; color: {sleep_color}; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{sleep_cat_txt}</div>
+            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{sleep_date_txt}</div>
+        </div>
+
+        <!-- CARD 2: HEMOGRAMA -->
+        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 51, 102, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FF3366, #FF9900);"></div>
+            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">🩸 HEMOGLOBINA</div>
+            <div style="color: #FFFFFF; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{hb_val_txt}</div>
+            <div style="display: inline-block; background: rgba(255, 51, 102, 0.12); color: #FF6688; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{blood_sub_txt}</div>
+            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{blood_date_txt}</div>
+        </div>
+
+        <!-- CARD 3: LACTATO -->
+        <div style="background: linear-gradient(145deg, rgba(16, 22, 34, 0.9), rgba(10, 13, 22, 0.95)); border: 1.5px solid rgba(255, 215, 0, 0.28); border-radius: 13px; padding: 10px 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #FFD700, #00EEFF);"></div>
+            <div style="color: #8E9BAE; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 2px;">⚡ UMBRAL LT2</div>
+            <div style="color: #FFD700; font-size: 1.25rem; font-weight: 900; line-height: 1.1; margin: 3px 0;">{lac_lt2_txt}</div>
+            <div style="display: inline-block; background: rgba(255, 215, 0, 0.12); color: #FFD700; font-size: 0.62rem; font-weight: 800; padding: 2px 6px; border-radius: 5px; margin-top: 2px;">{lac_sub_txt}</div>
+            <div style="color: #6C7D93; font-size: 0.62rem; margin-top: 4px; font-weight: 600;">{lac_date_txt}</div>
+        </div>
+    </div>
+    """
+    st.markdown(hud_html, unsafe_allow_html=True)
+
     # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA (UNIFICADAS EN 3) ───
     tab_sleep, tab_bw, tab_lac = st.tabs([
         "💤 Sueño (ASSQ)",
@@ -502,26 +763,26 @@ else:
                         fig = px.line(
                             df_history, x="Fecha", y="Score (SDS)", markers=True,
                             title="EVOLUCIÓN DE CALIDAD DEL SUEÑO",
-                            color_discrete_sequence=["#0066FF"]
+                            color_discrete_sequence=["#00EEFF"]
                         )
-                        fig.update_layout(title=dict(x=0.5, xanchor='center', font=dict(size=18, color="#121212", weight="bold")))
+                        fig.update_layout(title=dict(x=0.5, xanchor='center', font=dict(size=16, color="#00EEFF", weight="bold")))
                         fig.update_traces(
-                            line=dict(width=3),
-                            marker=dict(symbol="circle", size=10, line=dict(width=2, color="white"))
+                            line=dict(width=3.5, color="#00EEFF"),
+                            marker=dict(symbol="circle", size=10, line=dict(width=2, color="#FFFFFF"), color="#00EEFF")
                         )
-                        fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#008000", annotation_position="inside left")
-                        fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#00509E", annotation_position="inside left")
-                        fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#CC6600", annotation_position="inside left")
-                        fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#B30000", annotation_position="inside left")
+                        fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 136, 0.12)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#00FF88", annotation_position="inside left")
+                        fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.12)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#00EEFF", annotation_position="inside left")
+                        fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 170, 0, 0.12)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#FFAA00", annotation_position="inside left")
+                        fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 51, 85, 0.14)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#FF3355", annotation_position="inside left")
                         
                         fig.update_layout(
-                            paper_bgcolor="white", 
-                            plot_bgcolor="white", 
-                            font_color="#121212",
+                            paper_bgcolor="rgba(14, 18, 28, 0.95)", 
+                            plot_bgcolor="rgba(14, 18, 28, 0.95)", 
+                            font_color="#F0F4F8",
                             dragmode=False,
-                            margin=dict(l=5, r=5, t=60, b=5),
-                            yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#E0E0E0", tickfont=dict(color="black"), ticks=""),
-                            xaxis=dict(title=dict(text="FECHA", font=dict(color="black"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="black"), type="category", ticks="")
+                            margin=dict(l=10, r=10, t=55, b=10),
+                            yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="#8E9BAE"), standoff=0), fixedrange=True, showgrid=True, gridcolor="rgba(255, 255, 255, 0.08)", tickfont=dict(color="#F0F4F8"), ticks=""),
+                            xaxis=dict(title=dict(text="FECHA", font=dict(color="#8E9BAE"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="#F0F4F8"), type="category", ticks="")
                         )
                         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                         
@@ -945,17 +1206,17 @@ else:
                                         
                             title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
                             fig.update_layout(
-                                title=dict(text=title_text, x=0.5, font=dict(size=16, color="#121212", weight="bold")),
-                                paper_bgcolor="white",
-                                plot_bgcolor="white",
-                                font_color="#121212",
+                                title=dict(text=title_text, x=0.5, font=dict(size=16, color="#00EEFF", weight="bold")),
+                                paper_bgcolor="rgba(14, 18, 28, 0.95)",
+                                plot_bgcolor="rgba(14, 18, 28, 0.95)",
+                                font_color="#F0F4F8",
                                 dragmode=False,
                                 margin=dict(l=10, r=10, t=50, b=10),
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#FFFFFF", size=10), bgcolor="rgba(15, 19, 30, 0.7)")
                             )
-                            fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="#E0E0E0", title_font=dict(color="black"), fixedrange=True)
-                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="#E0E0E0", title_font=dict(color="#0066CC"), fixedrange=True)
-                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#CC0000"), fixedrange=True)
+                            fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#8E9BAE"), tickfont=dict(color="#FFFFFF"), fixedrange=True)
+                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#00EEFF"), tickfont=dict(color="#00EEFF"), fixedrange=True)
+                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#FF3366"), tickfont=dict(color="#FF3366"), fixedrange=True)
                             
                             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:
