@@ -30,7 +30,9 @@ if not DB_PATH:
     DB_PATH = f"sqlite:///{os.path.join(DB_FOLDER, 'club_crm.db')}"
 
 if DB_PATH.startswith("postgres://"):
-    DB_PATH = DB_PATH.replace("postgres://", "postgresql://", 1)
+    DB_PATH = DB_PATH.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DB_PATH.startswith("postgresql://") and not DB_PATH.startswith("postgresql+"):
+    DB_PATH = DB_PATH.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 @st.cache_resource(show_spinner=False)
 def get_engine(db_url):

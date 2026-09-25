@@ -4,6 +4,7 @@ sqlalchemy
 openpyxl
 plotly
 psycopg2-binary
+psycopg[binary]
 xlsxwriter
 streamlit-cookies-controller
 pdfplumber
