@@ -442,37 +442,7 @@ else:
             st.query_params.clear()
             st.query_params["app"] = "atletas"
             st.rerun()
-            
-    # Mostrar enlace de acceso rápido personalizado e instrucciones para el Home
-    try:
-        host = st.context.headers.get("host")
-        proto = st.context.headers.get("x-forwarded-proto", "https")
-        if not host or "localhost" in host:
-            base_url = "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
-        else:
-            base_url = f"{proto}://{host}"
-        import urllib.parse
-        direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(atleta)}"
-        
-        st.markdown(
-            f"""
-            <div style="background: rgba(0, 238, 255, 0.05); border: 1px dashed #00EEFF; border-radius: 10px; padding: 12px; margin-top: 5px; margin-bottom: 12px;">
-                <div style="margin-bottom: 6px;">
-                    <span style="font-size: 0.9rem; color: #00EEFF; font-weight: bold;">🔗 Tu Enlace Directo Personal:</span>
-                </div>
-                <code style="word-break: break-all; color: #00EEFF; font-size: 0.8rem; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; display: block; margin-bottom: 8px;">{direct_link}</code>
-                <div style="font-size: 0.82rem; color: #DDDDDD; line-height: 1.45;">
-                    📲 <b>Para tener esta App en el Home de tu teléfono (sin contraseñas):</b><br>
-                    • <b>📱 En iPhone (Safari):</b> Toca el botón <b>Compartir</b> (cuadrado con flecha ⬆️ en la barra inferior) y elige <b>'Añadir a pantalla de inicio'</b> ➕.<br>
-                    • <b>🤖 En Android (Chrome):</b> Toca los <b>tres puntos</b> (⋮) arriba a la derecha y elige <b>'Añadir a pantalla de inicio'</b> 📲.<br>
-                    <i>(Quedará guardada con tu acceso directo para entrar en 1 toque).</i>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    except Exception:
-        pass
+
             
     if st.session_state.get("last_score"):
         st.success(st.session_state["last_score"])
