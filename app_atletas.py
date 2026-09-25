@@ -7,7 +7,6 @@ from plotly.subplots import make_subplots
 import hashlib
 import unicodedata
 from streamlit_cookies_controller import CookieController
-from background_base64 import BACKGROUND_IMAGE_BASE64
 from logo_base64 import SIMBOLO_B64, TEXTO_BLANCO_B64
 
 try:
@@ -42,66 +41,55 @@ if st.query_params.get("app") != "atletas":
     st.query_params["app"] = "atletas"
 
 # Estilos personalizados para la app pública (tema oscuro AlphaX)
-css_styles = f"""
+# Estilos personalizados para la app pública (tema oscuro AlphaX)
+css_styles = """
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="AlphaX Atletas">
-<meta name="application-name" content="AlphaX Atletas">
-<meta name="mobile-web-app-capable" content="yes">
 <style>
 /* Tipografía y suavizado de fuentes */
-html, body, [class*="css"], .stApp {{
+html, body, [class*="css"], .stApp {
     font-family: 'Outfit', 'Nunito Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     color: #F0F4F8 !important;
     -webkit-font-smoothing: antialiased;
-}}
-
-body, .stApp {{
+}
+body, .stApp {
     background-color: #07090E !important;
     background-image: 
         radial-gradient(circle at 50% 0%, rgba(0, 238, 255, 0.12) 0%, transparent 45%),
-        radial-gradient(circle at 100% 20%, rgba(0, 102, 255, 0.08) 0%, transparent 40%),
-        url("data:image/png;base64,{BACKGROUND_IMAGE_BASE64}") !important;
+        radial-gradient(circle at 100% 20%, rgba(0, 102, 255, 0.08) 0%, transparent 40%) !important;
     background-attachment: fixed !important;
-    background-size: cover !important;
-}}
-
+}
 /* Limpieza de cabecera de Streamlit */
-header[data-testid="stHeader"] {{ background: transparent !important; }}
-footer {{ visibility: hidden !important; }}
-
+header[data-testid="stHeader"] { background: transparent !important; }
+footer { visibility: hidden !important; }
 /* Controles de Entrada (Inputs oscuros modernos) */
-div[data-baseweb="input"] > div, div[data-baseweb="base-input"] {{
+div[data-baseweb="input"] > div, div[data-baseweb="base-input"] {
     background-color: rgba(18, 22, 34, 0.85) !important;
     border: 1px solid rgba(0, 238, 255, 0.25) !important;
     border-radius: 12px !important;
     color: #FFFFFF !important;
     transition: all 0.25s ease !important;
-}}
-div[data-baseweb="input"] > div:focus-within {{
+}
+div[data-baseweb="input"] > div:focus-within {
     border-color: #00EEFF !important;
     box-shadow: 0 0 16px rgba(0, 238, 255, 0.4) !important;
-}}
-
-div[data-baseweb="select"] > div {{
+}
+div[data-baseweb="select"] > div {
     background-color: rgba(18, 22, 34, 0.9) !important;
     border: 1px solid rgba(0, 238, 255, 0.3) !important;
     border-radius: 12px !important;
     color: #FFFFFF !important;
-}}
-div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {{
+}
+div[data-baseweb="menu"], div[role="listbox"], div[role="option"] {
     background-color: #0F121C !important;
     color: #FFFFFF !important;
-}}
-div[role="option"]:hover, div[role="option"][aria-selected="true"] {{
+}
+div[role="option"]:hover, div[role="option"][aria-selected="true"] {
     background: linear-gradient(90deg, #00EEFF, #0088FF) !important;
     color: #000000 !important;
     font-weight: 700 !important;
-}}
-
+}
 /* Botones estilo TrainingPeaks */
-.stButton > button {{
+.stButton > button {
     border-radius: 10px !important;
     font-weight: 700 !important;
     font-size: 0.9rem !important;
@@ -112,17 +100,16 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] {{
     padding: 9px 18px !important;
     transition: all 0.25s ease !important;
     backdrop-filter: blur(8px) !important;
-}}
-.stButton > button:hover {{
+}
+.stButton > button:hover {
     background: linear-gradient(135deg, #00EEFF, #0088FF) !important;
     color: #000000 !important;
     border-color: #00EEFF !important;
     box-shadow: 0 0 18px rgba(0, 238, 255, 0.45) !important;
     transform: translateY(-1px) !important;
-}}
-
+}
 /* Segmented Tab Bar - Estilo Pro Dashboard */
-div[data-baseweb="tab-list"] {{
+div[data-baseweb="tab-list"] {
     display: flex !important;
     gap: 8px !important;
     padding: 6px 2px 14px 2px !important;
@@ -130,8 +117,8 @@ div[data-baseweb="tab-list"] {{
     -webkit-overflow-scrolling: touch !important;
     border-bottom: 1.5px solid rgba(0, 238, 255, 0.15) !important;
     justify-content: center !important;
-}}
-button[data-baseweb="tab"] {{
+}
+button[data-baseweb="tab"] {
     background: rgba(15, 19, 30, 0.85) !important;
     border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 12px !important;
@@ -147,23 +134,22 @@ button[data-baseweb="tab"] {{
     box-shadow: 0 4px 12px rgba(0,0,0,0.35) !important;
     white-space: normal !important;
     line-height: 1.25 !important;
-}}
-button[data-baseweb="tab"]:hover {{
+}
+button[data-baseweb="tab"]:hover {
     border-color: rgba(0, 238, 255, 0.5) !important;
     color: #00EEFF !important;
     transform: translateY(-1px) !important;
-}}
-button[data-baseweb="tab"][aria-selected="true"] {{
+}
+button[data-baseweb="tab"][aria-selected="true"] {
     background: linear-gradient(135deg, rgba(0, 238, 255, 0.22), rgba(0, 102, 255, 0.38)) !important;
     border: 1.5px solid #00EEFF !important;
     color: #00EEFF !important;
     font-weight: 800 !important;
     box-shadow: 0 0 16px rgba(0, 238, 255, 0.4) !important;
-}}
-div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{ display: none !important; }}
-
+}
+div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] { display: none !important; }
 /* Tarjetas de Gráficas Plotly */
-.stPlotlyChart {{
+.stPlotlyChart {
     background: rgba(14, 18, 28, 0.9) !important;
     border-radius: 18px !important;
     border: 1.5px solid rgba(0, 238, 255, 0.22) !important;
@@ -171,19 +157,21 @@ div[data-baseweb="tab-border"], div[data-baseweb="tab-highlight"] {{ display: no
     overflow: hidden !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
     backdrop-filter: blur(12px) !important;
-}}
-
+}
 /* Expanders Glassmorphism */
-div.stExpander {{
+div.stExpander {
     background: rgba(15, 19, 30, 0.75) !important;
     border: 1px solid rgba(0, 238, 255, 0.18) !important;
     border-radius: 14px !important;
     backdrop-filter: blur(10px) !important;
     box-shadow: 0 6px 20px rgba(0,0,0,0.4) !important;
-}}
+}
 </style>
 """
-st.markdown(css_styles, unsafe_allow_html=True)
+if hasattr(st, "html"):
+    st.html(css_styles)
+else:
+    st.markdown(css_styles, unsafe_allow_html=True)
 
 # --- LÓGICA DE PUNTUACIÓN CLÍNICA (ASSQ) ---
 puntajes_horas = {
