@@ -64,6 +64,7 @@ class Member(Base):
     phone = Column(String, nullable=True) # WhatsApp Number (International Format)
     active = Column(Boolean, default=True)
     start_month = Column(String, default="ENERO") # Month the member joined the club
+    gender = Column(String, default="Hombre", nullable=True) # "Hombre" o "Mujer" (para rangos clínicos)
     notes = Column(String, nullable=True)
     
     transactions = relationship("Transaction", back_populates="member")
@@ -178,18 +179,24 @@ class BloodworkRecord(Base):
     member_id = Column(Integer, ForeignKey("members.id"))
     date = Column(Date, default=datetime.now)
     
-    # 9 marcadores clínicos para deportistas de resistencia
-    hemoglobin = Column(Float, nullable=True)       # g/dL
-    vcm = Column(Float, nullable=True)              # fL (Volumen Corpuscular Medio)
-    chcm = Column(Float, nullable=True)             # g/dL (Concentración Hb Corpuscular Media)
-    rbc = Column(Float, nullable=True)              # x10⁶/μL (Recuento Glóbulos Rojos)
-    hematocrit = Column(Float, nullable=True)       # %
-    ferritin = Column(Float, nullable=True)          # ng/mL
-    ck = Column(Float, nullable=True)               # U/L (Creatina Kinasa)
-    vitamin_b12 = Column(Float, nullable=True)      # pg/mL (Vitamina B12)
-    folic_acid = Column(Float, nullable=True)       # ng/mL (Ácido Fólico)
+    # 15 marcadores clínicos para deportistas de resistencia
+    hemoglobin = Column(Float, nullable=True)        # g/dL
+    vcm = Column(Float, nullable=True)               # fL (Volumen Corpuscular Medio)
+    chcm = Column(Float, nullable=True)              # g/dL (Concentración Hb Corpuscular Media)
+    rbc = Column(Float, nullable=True)               # x10⁶/μL (Recuento Glóbulos Rojos)
+    hematocrit = Column(Float, nullable=True)        # %
+    ferritin = Column(Float, nullable=True)           # ng/mL
+    ck = Column(Float, nullable=True)                # U/L (Creatina Kinasa)
+    vitamin_b12 = Column(Float, nullable=True)       # pg/mL (Vitamina B12)
+    folic_acid = Column(Float, nullable=True)        # ng/mL (Ácido Fólico)
+    total_cholesterol = Column(Float, nullable=True) # mg/dL (Colesterol Total)
+    hdl = Column(Float, nullable=True)               # mg/dL (Colesterol HDL)
+    ldl = Column(Float, nullable=True)               # mg/dL (Colesterol LDL)
+    triglycerides = Column(Float, nullable=True)     # mg/dL (Triglicéridos)
+    glucose = Column(Float, nullable=True)           # mg/dL (Glucemia Basal)
+    pcr_us = Column(Float, nullable=True)            # mg/L (Proteína C Reactiva Ultra Sensible)
     
-    pdf_filename = Column(String, nullable=True)    # Nombre del archivo PDF de referencia
+    pdf_filename = Column(String, nullable=True)     # Nombre del archivo PDF de referencia
     notes = Column(String, nullable=True)
     
     created_at = Column(Date, default=datetime.now)
@@ -200,15 +207,33 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     try:
         from sqlalchemy import text
+        is_sqlite = "sqlite" in str(engine.url)
+        
+        # Migración de género en tabla members
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                if is_sqlite:
+                    conn.execute(text("ALTER TABLE members ADD COLUMN gender VARCHAR DEFAULT 'Hombre';"))
+                else:
+                    conn.execute(text("ALTER TABLE members ADD COLUMN IF NOT EXISTS gender VARCHAR DEFAULT 'Hombre';"))
+        except Exception:
+            pass
+
+        # Migración de marcadores en tabla bloodwork_records
         cols_to_add = [
             ("ck", "FLOAT"),
             ("vitamin_b12", "FLOAT"),
             ("folic_acid", "FLOAT"),
+            ("total_cholesterol", "FLOAT"),
+            ("hdl", "FLOAT"),
+            ("ldl", "FLOAT"),
+            ("triglycerides", "FLOAT"),
+            ("glucose", "FLOAT"),
+            ("pcr_us", "FLOAT"),
         ]
-        is_sqlite = "sqlite" in str(engine.url)
         for col_name, col_type in cols_to_add:
             try:
-                with engine.begin() as conn:
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                     if is_sqlite:
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN {col_name} {col_type};"))
                     else:

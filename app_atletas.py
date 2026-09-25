@@ -190,36 +190,13 @@ puntajes_medicamentos = {
     "Ninguna": 0, "Una o dos veces por semana": 1, "Tres o cuatro veces por semana": 2, "Cinco a siete veces por semana": 3
 }
 
-# --- RANGOS Y HELPERS DE HEMOGRAMA ---
-BLOODWORK_RANGES_FULL = {
-    "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hemoglobina Total",                                    "emoji": "🔴", "color": "#FF5555", "bg": "rgba(255, 85, 85, 0.05)"},
-    "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "Volumen Corpuscular Medio",                            "emoji": "🟠", "color": "#FF9F43", "bg": "rgba(255, 159, 67, 0.05)"},
-    "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "Concentración de Hemoglobina Corpuscular Media",      "emoji": "🟡", "color": "#FECA57", "bg": "rgba(254, 202, 87, 0.05)"},
-    "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "Conteo de Eritrocitos (Glóbulos Rojos)",                 "emoji": "🩸", "color": "#FF6B6B", "bg": "rgba(255, 107, 107, 0.05)"},
-    "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito",                                          "emoji": "💧", "color": "#00EEFF", "bg": "rgba(0, 238, 255, 0.05)"},
-    "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina Sérica",                                     "emoji": "⚡", "color": "#B8E994", "bg": "rgba(184, 233, 148, 0.05)"},
-    "ck":          {"low": 60,   "opt_lo": 61,   "opt_hi": 400,  "high": 500,  "unit": "U/L",     "name": "Creatina Kinasa (CK)",                                "emoji": "💪", "color": "#A55EEA", "bg": "rgba(165, 94, 234, 0.05)"},
-    "vitamin_b12": {"low": 200,  "opt_lo": 400,  "opt_hi": 900,  "high": 900,  "unit": "pg/mL",   "name": "Vitamina B12 (Cobalamina)",                           "emoji": "💊", "color": "#2ED573", "bg": "rgba(46, 213, 115, 0.05)"},
-    "folic_acid":  {"low": 3,    "opt_lo": 6,    "opt_hi": 20,   "high": 20,   "unit": "ng/mL",   "name": "Ácido Fólico (Folato)",                                "emoji": "🌿", "color": "#26DE81", "bg": "rgba(38, 222, 129, 0.05)"},
-}
-
-def classify_value_ath(key, value):
-    if value is None:
-        return "—", "#666666"
-    r = BLOODWORK_RANGES_FULL[key]
-    if value < r["low"]:
-        return "BAJO", "#FF4B4B"
-    elif value < r["opt_lo"]:
-        label = "LÍMITE" if key in ["vitamin_b12", "folic_acid"] else "INTERMEDIO-BAJO"
-        return label, "#FFD700"
-    elif value <= r["opt_hi"]:
-        return "ÓPTIMO", "#00FF00"
-    elif value <= r["high"]:
-        label = "ELEVADO" if key == "ck" else "INTERMEDIO-ALTO"
-        return label, "#FFD700"
-    else:
-        label = "MUY ALTO" if key == "ck" else "ALTO"
-        return label, "#FF4B4B"
+# --- RANGOS Y HELPERS DE HEMOGRAMA Y MARCADORES CLÍNICOS ---
+from bloodwork_constants import (
+    ALL_MARKER_KEYS,
+    get_bloodwork_ranges,
+    classify_bloodwork_value,
+    get_clinical_alerts,
+)
 
 def badge_html_ath(label, color):
     return f'<span style="background:{color}22; color:{color}; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold; border:1px solid {color}44;">{label}</span>'
@@ -874,9 +851,40 @@ else:
     with tab_bw:
         st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>🩸 HISTORIAL Y CARGA DE MARCADORES CLÍNICOS</h3>", unsafe_allow_html=True)
         
+        # Obtener y permitir verificar el perfil de género del atleta
+        ath_gender = "Hombre"
+        if member_id:
+            with SessionLocal() as s_ath:
+                m_curr = s_ath.query(Member).filter(Member.id == member_id).first()
+                if m_curr and m_curr.gender:
+                    ath_gender = m_curr.gender
+        
+        col_g1, col_g2, col_g3 = st.columns([1, 2, 1])
+        with col_g2:
+            g_choice = st.radio(
+                "Perfil fisiológico para rangos de referencia:",
+                ["👨 Hombre", "👩 Mujer"],
+                index=1 if ath_gender == "Mujer" else 0,
+                horizontal=True,
+                key=f"ath_gender_toggle_{member_id}"
+            )
+            new_ath_gender = "Mujer" if "Mujer" in g_choice else "Hombre"
+            if new_ath_gender != ath_gender and member_id:
+                with SessionLocal() as s_up:
+                    m_up = s_up.query(Member).filter(Member.id == member_id).first()
+                    if m_up:
+                        m_up.gender = new_ath_gender
+                        s_up.commit()
+                st.toast(f"Perfil actualizado a {new_ath_gender}", icon="🧬")
+                st.rerun()
+            ath_gender = new_ath_gender
+
+        BLOODWORK_RANGES_FULL = get_bloodwork_ranges(ath_gender)
+        gender_badge = "👩 Mujer" if ath_gender == "Mujer" else "👨 Hombre"
+
         # Desplegable para subir nuevo examen
         with st.expander("📥 Cargar Nuevo Examen de Sangre (PDF o Imagen)", expanded=False):
-            st.write("Sube tu examen de laboratorio (en archivo PDF o foto JPG/PNG) para extraer y registrar automáticamente tus marcadores en tu historial.")
+            st.write(f"Sube tu examen de laboratorio (PDF o foto JPG/PNG) para extraer y registrar automáticamente hasta 15 biomarcadores con rangos calibrados para perfil: **{gender_badge}**.")
             
             ath_file = st.file_uploader("Selecciona el archivo PDF o Imagen del examen:", type=["pdf", "png", "jpg", "jpeg"], key="ath_bw_file_main")
             ath_pwd = st.text_input("Clave del PDF (si está protegido con contraseña):", type="password", key="ath_bw_pwd_main")
@@ -911,6 +919,12 @@ else:
                                         ck=parsed.get("ck"),
                                         vitamin_b12=parsed.get("vitamin_b12"),
                                         folic_acid=parsed.get("folic_acid"),
+                                        total_cholesterol=parsed.get("total_cholesterol"),
+                                        hdl=parsed.get("hdl"),
+                                        ldl=parsed.get("ldl"),
+                                        triglycerides=parsed.get("triglycerides"),
+                                        glucose=parsed.get("glucose"),
+                                        pcr_us=parsed.get("pcr_us"),
                                         pdf_filename=ath_file.name
                                     )
                                     session.add(new_rec)
@@ -929,19 +943,19 @@ else:
                     ).order_by(BloodworkRecord.date.desc()).all()
                     
                     if records:
-                        marker_keys = ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin", "ck", "vitamin_b12", "folic_acid"]
+                        marker_keys = ALL_MARKER_KEYS
                         
                         table_html = """
-                        <div style="overflow-x: auto;">
-                        <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
+                        <div style="overflow-x: auto; max-width: 100%;">
+                        <table style="width:100%; border-collapse:collapse; font-size:0.82rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
                         <thead>
                         <tr style="background:#181828; border-bottom:1px solid rgba(255,255,255,0.08);">
-                            <th rowspan="2" style="padding:10px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle;">Fecha</th>
+                            <th rowspan="2" style="padding:10px 12px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle; position:sticky; left:0; background:#181828; z-index:2;">Fecha</th>
                         """
                         for key in marker_keys:
                             r = BLOODWORK_RANGES_FULL[key]
                             c_color = r["color"]
-                            table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.82rem; background:{r["bg"]}; vertical-align:middle;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.72rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
+                            table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]}; vertical-align:middle; white-space:nowrap;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
                         
                         table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">Notas</th>'
                         table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">PDF</th>'
@@ -959,17 +973,17 @@ else:
                             prev_rec = records[idx + 1] if idx + 1 < len(records) else None
                             row_bg = "#161625" if idx % 2 == 0 else "#121212"
                             table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
-                            table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
+                            table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap; position:sticky; left:0; background:{row_bg}; z-index:1;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
                             
                             for key in marker_keys:
                                 r = BLOODWORK_RANGES_FULL[key]
-                                val = getattr(rec, key)
-                                prev_val = getattr(prev_rec, key) if prev_rec else None
-                                label, val_status_color = classify_value_ath(key, val)
+                                val = getattr(rec, key, None)
+                                prev_val = getattr(prev_rec, key, None) if prev_rec else None
+                                label, val_status_color = classify_bloodwork_value(key, val, ath_gender)
                                 val_str = f"{val:.1f}" if val is not None else "—"
                                 
                                 table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]}; white-space:nowrap;">'
-                                table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.9rem;">{val_str}</span> {badge_html_ath(label, val_status_color)}'
+                                table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.88rem;">{val_str}</span> {badge_html_ath(label, val_status_color)}'
                                 table_html += '</td>'
                                 
                                 table_html += f'<td style="padding:8px 6px; text-align:center; background:{r["bg"]}; white-space:nowrap;">'
@@ -987,20 +1001,9 @@ else:
                         
                         # Alertas del último examen
                         latest = records[0]
-                        alerts = []
-                        if latest.hemoglobin is not None and latest.hemoglobin < 13.5:
-                            alerts.append(("🚨", "Hemoglobina BAJA", f"Hb = {latest.hemoglobin:.1f} g/dL → Posible anemia. Revisa ferritina y consulta a tu coach.", "#FF4B4B"))
-                        elif latest.hemoglobin is not None and latest.hemoglobin > 18.0:
-                            alerts.append(("⚠️", "Hemoglobina ALTA", f"Hb = {latest.hemoglobin:.1f} g/dL → Viscosidad sanguínea elevada. Revisar hidratación.", "#FFD700"))
-
-                        if latest.ferritin is not None and latest.ferritin < 30:
-                            alerts.append(("⚡", "Ferritina BAJA", f"Ferritina = {latest.ferritin:.0f} ng/mL → Deficiencia de hierro. Reducción potencial de rendimiento.", "#FF4B4B"))
-                        
-                        if latest.ck is not None and latest.ck > 500:
-                            alerts.append(("⚠️", "CK ELEVADA (Fatiga Muscular)", f"CK = {latest.ck:.0f} U/L → Daño/fatiga muscular alta. Importante priorizar descanso.", "#FFD700"))
-                            
+                        alerts = get_clinical_alerts(latest, gender=ath_gender)
                         if alerts:
-                            st.markdown("#### 💡 Observaciones de tu Último Examen")
+                            st.markdown(f"#### 💡 Observaciones de tu Último Examen ({gender_badge})")
                             for icon, title, msg, color in alerts:
                                 st.markdown(
                                     f"""
@@ -1011,9 +1014,9 @@ else:
                                     unsafe_allow_html=True
                                 )
 
-                        # ── Gráficas Plotly de evolución ─────────────────────
+                        # ── Gráficas Plotly de evolución (5 Grupos de 3) ─────
                         st.markdown("---")
-                        st.markdown("<h4 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN TEMPORAL DE TUS MARCADORES CLÍNICOS</h4>", unsafe_allow_html=True)
+                        st.markdown(f"<h4 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN TEMPORAL DE TUS BIOMARCADORES ({gender_badge})</h4>", unsafe_allow_html=True)
                         
                         records_chrono = list(reversed(records))
                         dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
@@ -1022,6 +1025,8 @@ else:
                             ("hemoglobin", "vcm", "chcm"),
                             ("rbc", "hematocrit", "ferritin"),
                             ("ck", "vitamin_b12", "folic_acid"),
+                            ("total_cholesterol", "hdl", "ldl"),
+                            ("triglycerides", "glucose", "pcr_us"),
                         ]
                         
                         for key1, key2, key3 in marker_triplets:
@@ -1030,7 +1035,7 @@ else:
                             for col, key in [(col1, key1), (col2, key2), (col3, key3)]:
                                 with col:
                                     r = BLOODWORK_RANGES_FULL[key]
-                                    values = [getattr(rec, key) for rec in records_chrono]
+                                    values = [getattr(rec, key, None) for rec in records_chrono]
                                     values_clean = [v for v in values if v is not None]
                                     
                                     if not values_clean:
@@ -1039,10 +1044,13 @@ else:
                                     
                                     fig = go.Figure()
                                     
-                                    # Bandas de referencia
                                     y_min = min(min(values_clean) * 0.85, r["low"] * 0.9)
                                     y_max = max(max(values_clean) * 1.1, r["high"] * 1.05)
+                                    if y_min == y_max:
+                                        y_min -= 1
+                                        y_max += 1
                                     
+                                    # Bandas de referencia
                                     fig.add_hrect(y0=y_min, y1=r["low"], fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, 
                                                   annotation_text="BAJO", annotation_position="inside left", annotation_font=dict(color="#FF4B4B", size=10))
                                     fig.add_hrect(y0=r["opt_lo"], y1=r["opt_hi"], fillcolor="rgba(0, 255, 0, 0.08)", line_width=0,
@@ -1050,7 +1058,6 @@ else:
                                     fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
                                                   annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
                                     
-                                    # Línea de datos con el color único de cada marcador
                                     fig.add_trace(go.Scatter(
                                         x=dates_list,
                                         y=values,
@@ -1068,7 +1075,7 @@ else:
                                         title=dict(
                                             text=f"{r['emoji']} {r['name']} ({r['unit']})",
                                             x=0.5, xanchor='center',
-                                            font=dict(color=r["color"], size=13, weight="bold")
+                                            font=dict(color=r["color"], size=12, weight="bold")
                                         ),
                                         paper_bgcolor="#121212",
                                         plot_bgcolor="#121212",
@@ -1078,10 +1085,28 @@ else:
                                         yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
                                         margin=dict(l=10, r=10, t=50, b=10),
                                         showlegend=False,
-                                        height=280,
+                                        height=270,
                                     )
                                     
                                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+                        
+                        # Tabla de referencia al final
+                        st.markdown("---")
+                        with st.expander(f"📖 Tabla de Rangos de Referencia Completa ({gender_badge})", expanded=False):
+                            ref_html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:8px; overflow:hidden;">'
+                            ref_html += '<thead><tr style="background:#1a1a2e; border-bottom:2px solid #00EEFF;">'
+                            ref_html += '<th style="padding:8px; color:#00EEFF; text-align:left;">Biomarcador</th>'
+                            ref_html += '<th style="padding:8px; color:#FF4B4B; text-align:center;">BAJO</th>'
+                            ref_html += '<th style="padding:8px; color:#00FF00; text-align:center;">ÓPTIMO (Atletas)</th>'
+                            ref_html += '<th style="padding:8px; color:#FFD700; text-align:center;">ALTO / ELEVADO</th>'
+                            ref_html += '<th style="padding:8px; color:#888; text-align:center;">Unidad</th>'
+                            ref_html += '</tr></thead><tbody>'
+                            for key in ALL_MARKER_KEYS:
+                                r = BLOODWORK_RANGES_FULL[key]
+                                opt_str = f"{r['opt_lo']}–{r['opt_hi']}" if r['opt_lo'] != r['opt_hi'] else f"{r['opt_lo']}"
+                                ref_html += f'<tr style="border-bottom:1px solid #222;"><td style="padding:8px; color:#FFFFFF; font-weight:bold;">{r["emoji"]} {r["name"]}</td><td style="padding:8px; text-align:center; color:#FF4B4B;">&lt;{r["low"]}</td><td style="padding:8px; text-align:center; color:#00FF00;">{opt_str}</td><td style="padding:8px; text-align:center; color:#FFD700;">&gt;{r["high"]}</td><td style="padding:8px; text-align:center; color:#888;">{r["unit"]}</td></tr>'
+                            ref_html += "</tbody></table>"
+                            st.markdown(ref_html, unsafe_allow_html=True)
                     else:
                         st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la sección de arriba.")
             except Exception as e:

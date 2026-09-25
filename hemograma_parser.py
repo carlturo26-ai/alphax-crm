@@ -320,6 +320,66 @@ _MARKER_PATTERNS = [
         ],
         "ng_ml"
     ),
+    (
+        "total_cholesterol",
+        [
+            r"(?:colesterol\s+total|colesterolemia\s+total|total\s+cholesterol)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/dl|mg/dL|mmol/l)",
+            r"(?:colesterol\s+total|colesterolemia\s+total|total\s+cholesterol)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:colesterol\s+total|colesterolemia\s+total|total\s+cholesterol)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\bcolesterol\b(?!\s*(?:hdl|ldl|vldl|no\s*hdl))[\s\S]{0,100}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_dl"
+    ),
+    (
+        "hdl",
+        [
+            r"(?:colesterol\s+hdl|c-?hdl|hdl\s+colesterol|hdl\s+cholesterol|hdl)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/dl|mg/dL|mmol/l)",
+            r"(?:colesterol\s+hdl|c-?hdl|hdl\s+colesterol|hdl\s+cholesterol)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:colesterol\s+hdl|c-?hdl|hdl\s+colesterol|hdl\s+cholesterol)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\bhdl\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_dl"
+    ),
+    (
+        "ldl",
+        [
+            r"(?:colesterol\s+ldl|c-?ldl|ldl\s+colesterol|ldl\s+cholesterol|ldl)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/dl|mg/dL|mmol/l)",
+            r"(?:colesterol\s+ldl|c-?ldl|ldl\s+colesterol|ldl\s+cholesterol)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:colesterol\s+ldl|c-?ldl|ldl\s+colesterol|ldl\s+cholesterol)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\bldl\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_dl"
+    ),
+    (
+        "triglycerides",
+        [
+            r"(?:trigli[sc][eé]ridos?|triglycerides?)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/dl|mg/dL|mmol/l)",
+            r"(?:trigli[sc][eé]ridos?|triglycerides?)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:trigli[sc][eé]ridos?|triglycerides?)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\btrigli[sc][eé]ridos?\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_dl"
+    ),
+    (
+        "glucose",
+        [
+            r"(?:glucosa(?:\s+en\s+ayunas|\s+basal)?|glicemia(?:\s+en\s+ayunas|\s+basal)?|glucemia(?:\s+en\s+ayunas|\s+basal)?|glucose)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/dl|mg/dL|mmol/l)",
+            r"(?:glucosa|glicemia|glucemia|glucose)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:glucosa|glicemia|glucemia|glucose)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\b(?:glucosa|glucemia|glicemia)\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_dl"
+    ),
+    (
+        "pcr_us",
+        [
+            r"(?:prote[ií]na\s+c\s+reactiva\s+ultra\s*sensible|pcr\s+ultra\s*sensible|pcr\s*[-_]?\s*us|hs\s*[-_]?\s*crp|crp\s*[-_]?\s*hs|prote[ií]na\s+c\s+reactiva\s+de\s+alta\s+sensibilidad|prote[ií]na\s+c\s+reactiva|pcr)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/l|mg/L|mg/dl|mg/dL)",
+            r"(?:prote[ií]na\s+c\s+reactiva\s+ultra\s*sensible|pcr\s+ultra\s*sensible|pcr\s*[-_]?\s*us|hs\s*[-_]?\s*crp|crp\s*[-_]?\s*hs|prote[ií]na\s+c\s+reactiva)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:prote[ií]na\s+c\s+reactiva\s+ultra\s*sensible|pcr\s+ultra\s*sensible|pcr\s*[-_]?\s*us|hs\s*[-_]?\s*crp|crp\s*[-_]?\s*hs|prote[ií]na\s+c\s+reactiva)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\b(?:pcr-us|pcr_us|hs-crp)\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "mg_l"
+    ),
 ]
 
 
@@ -337,11 +397,17 @@ def parse_hemograma(text: str) -> dict:
         "ck": None,
         "vitamin_b12": None,
         "folic_acid": None,
+        "total_cholesterol": None,
+        "hdl": None,
+        "ldl": None,
+        "triglycerides": None,
+        "glucose": None,
+        "pcr_us": None,
         "date": None,
         "patient_name": None,
         "raw_text": text or "",
         "markers_found": 0,
-        "markers_total": 9,
+        "markers_total": 15,
     }
 
     if not text or text.startswith("[ERROR]"):

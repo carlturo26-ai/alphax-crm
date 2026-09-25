@@ -1466,31 +1466,15 @@ elif page == "ASSQ (Sueño)":
             session_int = SessionLocal()
             m_int = session_int.query(Member).filter(Member.name == selected_athlete).first()
             if m_int:
-                # Rangos para clasificación rápida
-                _BW_RANGES = {
-                    "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hb"},
-                    "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "VCM"},
-                    "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "CHCM"},
-                    "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "RBC"},
-                    "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hto"},
-                    "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina"},
-                    "ck":          {"low": 60,   "opt_lo": 61,   "opt_hi": 400,  "high": 500,  "unit": "U/L",     "name": "CK"},
-                    "vitamin_b12": {"low": 200,  "opt_lo": 400,  "opt_hi": 900,  "high": 900,  "unit": "pg/mL",  "name": "B12"},
-                    "folic_acid":  {"low": 3,    "opt_lo": 6,    "opt_hi": 20,   "high": 20,   "unit": "ng/mL",   "name": "Ac. Fólico"},
-                }
-                def _classify(key, val):
-                    if val is None: return "—", "#666"
-                    r = _BW_RANGES[key]
-                    if val < r["low"]: return "⊘", "#FF4B4B"
-                    elif val <= r["opt_hi"]: return "✓", "#00FF00"
-                    elif val <= r["high"]: return "△", "#FFD700"
-                    else: return "⊘", "#FF4B4B"
+                from bloodwork_constants import ALL_MARKER_KEYS, get_bloodwork_ranges, classify_bloodwork_value
+                ath_gender = getattr(m_int, "gender", None) or "Hombre"
+                _BW_RANGES = get_bloodwork_ranges(ath_gender)
                 
                 with st.expander("🩸 Último Hemograma + 🧪 Última Prueba de Lactato", expanded=False):
                     col_bw, col_lac = st.columns(2)
                     
                     with col_bw:
-                        st.markdown("**🩸 Último Hemograma**")
+                        st.markdown(f"**🩸 Último Hemograma** <span style='font-size:0.8rem; color:#00EEFF;'>({ath_gender})</span>", unsafe_allow_html=True)
                         try:
                             last_bw = session_int.query(BloodworkRecord).filter(
                                 BloodworkRecord.member_id == m_int.id
@@ -1498,13 +1482,14 @@ elif page == "ASSQ (Sueño)":
                             
                             if last_bw:
                                 bw_date_str = last_bw.date.strftime("%d/%m/%Y") if last_bw.date else "—"
-                                bw_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem;">'
+                                bw_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem; max-height:340px; overflow-y:auto;">'
                                 bw_html += f'<span style="color:#00EEFF; font-weight:bold;">📅 {bw_date_str}</span><br>'
-                                for key in ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin", "ck", "vitamin_b12", "folic_acid"]:
-                                    val = getattr(last_bw, key)
-                                    icon, color = _classify(key, val)
-                                    val_str = f"{val:.1f}" if val is not None else "—"
-                                    bw_html += f'<span style="color:{color};">{icon}</span> <span style="color:#aaa;">{_BW_RANGES[key]["name"]}:</span> <span style="color:#fff; font-weight:bold;">{val_str}</span> <span style="color:#666;">{_BW_RANGES[key]["unit"]}</span><br>'
+                                for key in ALL_MARKER_KEYS:
+                                    val = getattr(last_bw, key, None)
+                                    if val is not None:
+                                        label, color = classify_bloodwork_value(key, val, ath_gender)
+                                        val_str = f"{val:.1f}" if isinstance(val, (int, float)) else str(val)
+                                        bw_html += f'<span style="color:{color};">●</span> <span style="color:#aaa;">{_BW_RANGES[key]["name"]}:</span> <span style="color:#fff; font-weight:bold;">{val_str}</span> <span style="color:#666; font-size:0.75rem;">{_BW_RANGES[key]["unit"]}</span> <span style="color:{color}; font-size:0.7rem; font-weight:bold;">[{label}]</span><br>'
                                 bw_html += '</div>'
                                 st.markdown(bw_html, unsafe_allow_html=True)
                             else:
@@ -2164,41 +2149,15 @@ elif page == "Análisis de Lactato":
 elif page == "🩸 Marcadores Clínicos":
     from sqlalchemy.orm import joinedload
     import plotly.graph_objects as go
+    from bloodwork_constants import (
+        ALL_MARKER_KEYS,
+        get_bloodwork_ranges,
+        classify_bloodwork_value,
+        get_clinical_alerts,
+    )
     
     st.title("🩸 Seguimiento de Marcadores Clínicos")
-    st.markdown("Hemograma — Deportistas de Resistencia")
-    
-    # ── Rangos de referencia ─────────────────────────────────────────
-    BLOODWORK_RANGES = {
-        "hemoglobin":  {"low": 13.5, "opt_lo": 15.0, "opt_hi": 17.5, "high": 18.0, "unit": "g/dL",    "name": "Hemoglobina Total",                                    "emoji": "🔴", "color": "#FF5555", "bg": "rgba(255, 85, 85, 0.05)"},
-        "vcm":         {"low": 80,   "opt_lo": 82,   "opt_hi": 95,   "high": 100,  "unit": "fL",      "name": "Volumen Corpuscular Medio",                            "emoji": "🟠", "color": "#FF9F43", "bg": "rgba(255, 159, 67, 0.05)"},
-        "chcm":        {"low": 32,   "opt_lo": 33,   "opt_hi": 36,   "high": 36,   "unit": "g/dL",    "name": "Concentración de Hemoglobina Corpuscular Media",      "emoji": "🟡", "color": "#FECA57", "bg": "rgba(254, 202, 87, 0.05)"},
-        "rbc":         {"low": 4.5,  "opt_lo": 5.0,  "opt_hi": 5.8,  "high": 6.0,  "unit": "×10⁶/μL", "name": "Conteo de Eritrocitos (Glóbulos Rojos)",                 "emoji": "🩸", "color": "#FF6B6B", "bg": "rgba(255, 107, 107, 0.05)"},
-        "hematocrit":  {"low": 35,   "opt_lo": 40,   "opt_hi": 50,   "high": 54,   "unit": "%",       "name": "Hematocrito",                                          "emoji": "💧", "color": "#00EEFF", "bg": "rgba(0, 238, 255, 0.05)"},
-        "ferritin":    {"low": 30,   "opt_lo": 50,   "opt_hi": 150,  "high": 400,  "unit": "ng/mL",   "name": "Ferritina Sérica",                                     "emoji": "⚡", "color": "#B8E994", "bg": "rgba(184, 233, 148, 0.05)"},
-        "ck":          {"low": 60,   "opt_lo": 61,   "opt_hi": 400,  "high": 500,  "unit": "U/L",     "name": "Creatina Kinasa (CK)",                                "emoji": "💪", "color": "#A55EEA", "bg": "rgba(165, 94, 234, 0.05)"},
-        "vitamin_b12": {"low": 200,  "opt_lo": 400,  "opt_hi": 900,  "high": 900,  "unit": "pg/mL",   "name": "Vitamina B12 (Cobalamina)",                           "emoji": "💊", "color": "#2ED573", "bg": "rgba(46, 213, 115, 0.05)"},
-        "folic_acid":  {"low": 3,    "opt_lo": 6,    "opt_hi": 20,   "high": 20,   "unit": "ng/mL",   "name": "Ácido Fólico (Folato)",                                "emoji": "🌿", "color": "#26DE81", "bg": "rgba(38, 222, 129, 0.05)"},
-    }
-    
-    def classify_value(key, value):
-        """Clasifica un valor en BAJO / ÓPTIMO / ALTO / LÍMITE / ELEVADO."""
-        if value is None:
-            return "—", "#666666"
-        r = BLOODWORK_RANGES[key]
-        if value < r["low"]:
-            return "BAJO", "#FF4B4B"
-        elif value < r["opt_lo"]:
-            label = "LÍMITE" if key in ["vitamin_b12", "folic_acid"] else "INTERMEDIO-BAJO"
-            return label, "#FFD700"
-        elif value <= r["opt_hi"]:
-            return "ÓPTIMO", "#00FF00"
-        elif value <= r["high"]:
-            label = "ELEVADO" if key == "ck" else "INTERMEDIO-ALTO"
-            return label, "#FFD700"
-        else:
-            label = "MUY ALTO" if key == "ck" else "ALTO"
-            return label, "#FF4B4B"
+    st.markdown("Hemograma y Perfil Bioquímico Completo — Deportistas de Resistencia (AlphaX CRM)")
     
     def badge_html(label, color):
         return f'<span style="background:{color}22; color:{color}; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold; border:1px solid {color}44;">{label}</span>'
@@ -2226,7 +2185,7 @@ elif page == "🩸 Marcadores Clínicos":
         session.close()
     
     st.markdown("---")
-    col_sel, _ = st.columns([1, 1])
+    col_sel, col_sex = st.columns([3, 2])
     with col_sel:
         selected_athlete = st.selectbox("Selecciona un deportista:", ["-- Seleccionar --"] + atletas_nombres, key="bw_athlete_sel")
     
@@ -2238,13 +2197,38 @@ elif page == "🩸 Marcadores Clínicos":
         if not member_obj:
             st.error("Atleta no encontrado en el sistema.")
         else:
-            tab_history, tab_new = st.tabs(["📊 Historial y Evolución", "📥 Registrar Nuevo Hemograma"])
+            current_gender = getattr(member_obj, "gender", None) or "Hombre"
+            with col_sex:
+                sel_gender = st.radio(
+                    "Perfil Fisiológico (Rangos Hombre/Mujer):",
+                    ["👨 Hombre", "👩 Mujer"],
+                    index=1 if current_gender == "Mujer" else 0,
+                    horizontal=True,
+                    key=f"gender_choice_{member_obj.id}"
+                )
+                clean_gender = "Mujer" if "Mujer" in sel_gender else "Hombre"
+                if clean_gender != current_gender:
+                    s_up = SessionLocal()
+                    m_to_up = s_up.query(Member).filter(Member.id == member_obj.id).first()
+                    if m_to_up:
+                        m_to_up.gender = clean_gender
+                        s_up.commit()
+                    s_up.close()
+                    member_obj.gender = clean_gender
+                    st.toast(f"Perfil actualizado a {clean_gender}", icon="🧬")
+                    st.rerun()
+
+            athlete_gender = member_obj.gender or "Hombre"
+            BLOODWORK_RANGES = get_bloodwork_ranges(athlete_gender)
+            gender_badge = "👩 Mujer" if athlete_gender == "Mujer" else "👨 Hombre"
+
+            tab_history, tab_new = st.tabs(["📊 Historial y Evolución", "📥 Registrar Nuevo Examen"])
             
             # ═══════════════════════════════════════════════════════════
             #  TAB: HISTORIAL Y EVOLUCIÓN
             # ═══════════════════════════════════════════════════════════
             with tab_history:
-                st.subheader(f"Evolución de Marcadores — {selected_athlete}")
+                st.subheader(f"Evolución de Marcadores — {selected_athlete} ({gender_badge})")
                 
                 session = SessionLocal()
                 try:
@@ -2258,22 +2242,22 @@ elif page == "🩸 Marcadores Clínicos":
                     session.close()
                 
                 if records:
-                    marker_keys = ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin", "ck", "vitamin_b12", "folic_acid"]
+                    marker_keys = ALL_MARKER_KEYS
                     
                     # ── Tabla de historial con deltas ────────────────────
-                    st.markdown("### 📋 Historial de Hemogramas y Marcadores Clínicos")
+                    st.markdown("### 📋 Historial de Biomarcadores y Perfil Clínico")
                     
                     table_html = """
-                    <div style="overflow-x: auto;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
+                    <div style="overflow-x: auto; max-width: 100%;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
                     <thead>
                     <tr style="background:#181828; border-bottom:1px solid rgba(255,255,255,0.08);">
-                        <th rowspan="2" style="padding:10px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle;">Fecha</th>
+                        <th rowspan="2" style="padding:10px 12px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle; position:sticky; left:0; background:#181828; z-index:2;">Fecha</th>
                     """
                     for key in marker_keys:
                         r = BLOODWORK_RANGES[key]
                         c_color = r["color"]
-                        table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.82rem; background:{r["bg"]}; vertical-align:middle;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.72rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
+                        table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]}; vertical-align:middle; white-space:nowrap;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
                     
                     table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">Notas</th>'
                     table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">PDF</th>'
@@ -2288,27 +2272,23 @@ elif page == "🩸 Marcadores Clínicos":
                     table_html += "</tr></thead><tbody>"
                     
                     for idx, rec in enumerate(records):
-                        # Find previous record (next in desc order = previous in time)
                         prev_rec = records[idx + 1] if idx + 1 < len(records) else None
-                        
                         row_bg = "#161625" if idx % 2 == 0 else "#121212"
                         table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
-                        table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
+                        table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap; position:sticky; left:0; background:{row_bg}; z-index:1;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
                         
                         for key in marker_keys:
                             r = BLOODWORK_RANGES[key]
-                            val = getattr(rec, key)
-                            prev_val = getattr(prev_rec, key) if prev_rec else None
-                            label, val_status_color = classify_value(key, val)
+                            val = getattr(rec, key, None)
+                            prev_val = getattr(prev_rec, key, None) if prev_rec else None
+                            label, val_status_color = classify_bloodwork_value(key, val, athlete_gender)
                             
                             val_str = f"{val:.1f}" if val is not None else "—"
                             
-                            # Cajón 1: Valor + Badge
                             table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]}; white-space:nowrap;">'
-                            table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.9rem;">{val_str}</span> {badge_html(label, val_status_color)}'
+                            table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.88rem;">{val_str}</span> {badge_html(label, val_status_color)}'
                             table_html += '</td>'
                             
-                            # Cajón 2: Diferencia (Δ) separada
                             table_html += f'<td style="padding:8px 6px; text-align:center; background:{r["bg"]}; white-space:nowrap;">'
                             table_html += f'{delta_html(val, prev_val, default_color=r["color"])}'
                             table_html += '</td>'
@@ -2324,69 +2304,10 @@ elif page == "🩸 Marcadores Clínicos":
                     
                     # ── Alertas inteligentes y patrones clínicos ───────────
                     latest = records[0]
-                    alerts = []
-                    
-                    # Hemoglobina
-                    if latest.hemoglobin is not None and latest.hemoglobin < 13.5:
-                        alerts.append(("🚨", "Hemoglobina BAJA", f"Hb = {latest.hemoglobin:.1f} g/dL → Posible anemia. Reduce rendimiento y recuperación. Revisar ferritina y B12.", "#FF4B4B"))
-                    elif latest.hemoglobin is not None and latest.hemoglobin > 18.0:
-                        alerts.append(("⚠️", "Hemoglobina ALTA", f"Hb = {latest.hemoglobin:.1f} g/dL → Viscosidad sanguínea elevada. Revisar hidratación y altitud.", "#FFD700"))
-
-                    # Ferritina
-                    if latest.ferritin is not None and latest.ferritin < 30:
-                        alerts.append(("⚡", "Ferritina BAJA", f"Ferritina = {latest.ferritin:.0f} ng/mL → Deficiencia de hierro. Reducción inminente de rendimiento. Suplementar hierro aunque Hb esté normal.", "#FF4B4B"))
-                    
-                    # RBC & Hematocrito
-                    if latest.rbc is not None and latest.rbc > 6.0:
-                        alerts.append(("⚠️", "RBC ALTO (Policitemia)", f"RBC = {latest.rbc:.2f} ×10⁶/μL → Viscosidad alta, riesgo de trombosis. Investigar causa (altitud, deshidratación).", "#FFD700"))
-                    if latest.hematocrit is not None and latest.hematocrit > 54:
-                        alerts.append(("⚠️", "Hematocrito ALTO", f"Hto = {latest.hematocrit:.1f}% → Muy concentrado. Viscosidad elevada. Revisar hidratación y descanso.", "#FFD700"))
-                    
-                    # Creatina Kinasa (CK)
-                    if latest.ck is not None:
-                        if latest.ck > 1000:
-                            alerts.append(("🚨", "CK MUY ELEVADA (ALARMA CLINICA)", f"CK = {latest.ck:.0f} U/L → Posible sobreentrenamiento severo o rabdomiólisis. Requiere evaluación médica inmediata. Reposo absoluto.", "#FF4B4B"))
-                        elif 500 <= latest.ck <= 1000:
-                            alerts.append(("⚠️", "CK ELEVADA (Fatiga Muscular)", f"CK = {latest.ck:.0f} U/L → Daño/fatiga muscular significativa. Revisar carga de entrenamiento reciente. Realizar examen tras 48-72h de reposo.", "#FFD700"))
-                    
-                    # Vitamina B12
-                    if latest.vitamin_b12 is not None:
-                        if latest.vitamin_b12 < 200:
-                            alerts.append(("🚨", "Vitamina B12 BAJA (Deficiencia)", f"B12 = {latest.vitamin_b12:.0f} pg/mL → Deficiencia clara. Riesgo de anemia macrocítica, fatiga y alteraciones neurológicas. Suplementar y vigilar VCM.", "#FF4B4B"))
-                        elif 200 <= latest.vitamin_b12 <= 300:
-                            alerts.append(("⚠️", "Vitamina B12 LÍMITE (Zona Gris)", f"B12 = {latest.vitamin_b12:.0f} pg/mL → Nivel límite. Puede haber síntomas sin anemia manifiesta. Se recomienda optimizar nutrición/suplementación.", "#FFD700"))
-                    
-                    # Ácido Fólico
-                    if latest.folic_acid is not None:
-                        if latest.folic_acid < 3.0:
-                            alerts.append(("🚨", "Ácido Fólico BAJO (Deficiencia)", f"Folato = {latest.folic_acid:.1f} ng/mL → Deficiencia. Puede causar anemia macrocítica. Sensible a cambios dietéticos recientes. Vigilar dietas restrictivas.", "#FF4B4B"))
-                        elif 3.0 <= latest.folic_acid <= 5.9:
-                            alerts.append(("⚠️", "Ácido Fólico LÍMITE (Zona Gris)", f"Folato = {latest.folic_acid:.1f} ng/mL → Zona gris. Monitorear consumo de vegetales de hoja verde y legumbres.", "#FFD700"))
-
-                    # Patrón anemia ferropénica
-                    if (latest.hemoglobin is not None and latest.hemoglobin < 13.5 and
-                        latest.vcm is not None and latest.vcm < 80 and
-                        latest.chcm is not None and latest.chcm < 32 and
-                        latest.ferritin is not None and latest.ferritin < 30):
-                        alerts.append(("🩺", "PATRÓN: Anemia por Deficiencia de Hierro", 
-                                       "Hb↓ + VCM↓ (microcítico) + CHCM↓ (hipocrómica) + Ferritina↓ → Suplemento de hierro urgente + vitamina C. Consultar médico.", "#FF4B4B"))
-
-                    # Patrón anemia macrocítica
-                    if (latest.vcm is not None and latest.vcm > 100 and
-                        ((latest.vitamin_b12 is not None and latest.vitamin_b12 < 200) or
-                         (latest.folic_acid is not None and latest.folic_acid < 3.0))):
-                        alerts.append(("🩺", "PATRÓN: Deficiencia Macrocítica (B12 / Folato)", 
-                                       "VCM↑ (>100 fL) + B12↓ o Ácido Fólico↓ → Glóbulos rojos macróticos. Optimizar/suplementar cobalamina y folato.", "#FF4B4B"))
-                    
-                    # Patrón adaptación fisiológica
-                    if (latest.hemoglobin is not None and 15.0 <= latest.hemoglobin <= 17.5 and
-                        latest.hematocrit is not None and 38 <= latest.hematocrit <= 50 and
-                        latest.ferritin is not None and latest.ferritin >= 50):
-                        alerts.append(("✅", "PATRÓN: Adaptación Fisiológica Favorable", 
-                                       "Hb óptima + Hto normal-bajo + Ferritina adecuada → Excelente adaptación al entrenamiento de resistencia. Expansión de plasma favorable.", "#00FF00"))
+                    alerts = get_clinical_alerts(latest, gender=athlete_gender)
                     
                     if alerts:
-                        st.markdown("### 🔔 Alertas y Patrones Clínicos Detectados")
+                        st.markdown(f"### 🔔 Alertas y Patrones Clínicos ({gender_badge})")
                         for emoji, title, detail, color in alerts:
                             st.markdown(
                                 f"""
@@ -2398,9 +2319,9 @@ elif page == "🩸 Marcadores Clínicos":
                                 unsafe_allow_html=True
                             )
                     
-                    # ── Gráficas Plotly de evolución ─────────────────────
+                    # ── Gráficas Plotly de evolución (5 Grupos de 3) ─────
                     st.markdown("---")
-                    st.markdown("### 📈 Evolución Temporal de los 9 Marcadores Clínicos")
+                    st.markdown(f"### 📈 Evolución Temporal de Biomarcadores ({gender_badge})")
                     
                     records_chrono = list(reversed(records))
                     dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
@@ -2409,6 +2330,8 @@ elif page == "🩸 Marcadores Clínicos":
                         ("hemoglobin", "vcm", "chcm"),
                         ("rbc", "hematocrit", "ferritin"),
                         ("ck", "vitamin_b12", "folic_acid"),
+                        ("total_cholesterol", "hdl", "ldl"),
+                        ("triglycerides", "glucose", "pcr_us"),
                     ]
                     
                     for key1, key2, key3 in marker_triplets:
@@ -2417,7 +2340,7 @@ elif page == "🩸 Marcadores Clínicos":
                         for col, key in [(col1, key1), (col2, key2), (col3, key3)]:
                             with col:
                                 r = BLOODWORK_RANGES[key]
-                                values = [getattr(rec, key) for rec in records_chrono]
+                                values = [getattr(rec, key, None) for rec in records_chrono]
                                 values_clean = [v for v in values if v is not None]
                                 
                                 if not values_clean:
@@ -2426,10 +2349,13 @@ elif page == "🩸 Marcadores Clínicos":
                                 
                                 fig = go.Figure()
                                 
-                                # Bandas de referencia
                                 y_min = min(min(values_clean) * 0.85, r["low"] * 0.9)
                                 y_max = max(max(values_clean) * 1.1, r["high"] * 1.05)
+                                if y_min == y_max:
+                                    y_min -= 1
+                                    y_max += 1
                                 
+                                # Bandas de referencia
                                 fig.add_hrect(y0=y_min, y1=r["low"], fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, 
                                               annotation_text="BAJO", annotation_position="inside left", annotation_font=dict(color="#FF4B4B", size=10))
                                 fig.add_hrect(y0=r["opt_lo"], y1=r["opt_hi"], fillcolor="rgba(0, 255, 0, 0.08)", line_width=0,
@@ -2437,7 +2363,6 @@ elif page == "🩸 Marcadores Clínicos":
                                 fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
                                               annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
                                 
-                                # Línea de datos con el color único de cada marcador
                                 fig.add_trace(go.Scatter(
                                     x=dates_list,
                                     y=values,
@@ -2455,7 +2380,7 @@ elif page == "🩸 Marcadores Clínicos":
                                     title=dict(
                                         text=f"{r['emoji']} {r['name']} ({r['unit']})",
                                         x=0.5, xanchor='center',
-                                        font=dict(color=r["color"], size=13, weight="bold")
+                                        font=dict(color=r["color"], size=12, weight="bold")
                                     ),
                                     paper_bgcolor="#121212",
                                     plot_bgcolor="#121212",
@@ -2465,7 +2390,7 @@ elif page == "🩸 Marcadores Clínicos":
                                     yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
                                     margin=dict(l=10, r=10, t=50, b=10),
                                     showlegend=False,
-                                    height=280,
+                                    height=270,
                                 )
                                 
                                 st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
@@ -2496,20 +2421,20 @@ elif page == "🩸 Marcadores Clínicos":
                                     session.close()
                 
                 else:
-                    st.info(f"{selected_athlete} aún no tiene hemogramas registrados. Ve a la pestaña 'Registrar Nuevo Hemograma' para cargar uno.")
+                    st.info(f"{selected_athlete} aún no tiene exámenes registrados. Ve a la pestaña 'Registrar Nuevo Examen' para cargar uno.")
             
             # ═══════════════════════════════════════════════════════════
-            #  TAB: REGISTRAR NUEVO HEMOGRAMA
+            #  TAB: REGISTRAR NUEVO EXAMEN
             # ═══════════════════════════════════════════════════════════
             with tab_new:
-                st.subheader("📥 Registrar Hemograma y Marcadores")
+                st.subheader("📥 Registrar Examen de Sangre y Marcadores")
                 
                 # ── Extracción Automática por PDF/Imagen ───────────
                 with st.expander("🤖 Extracción Automática (PDF / Imagen)", expanded=True):
-                    st.info("Sube el PDF o foto del hemograma para pre-llenar los 9 marcadores automáticamente.")
+                    st.info(f"Sube el PDF o foto del examen para extraer automáticamente hasta 15 biomarcadores. Rangos calibrados para perfil: **{gender_badge}**.")
                     col_u1, col_u2 = st.columns([2, 1])
                     with col_u1:
-                        auto_file = st.file_uploader("Adjuntar archivo del hemograma (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
+                        auto_file = st.file_uploader("Adjuntar archivo del examen (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
                     with col_u2:
                         auto_pwd = st.text_input("Clave del PDF (si requiere):", type="password", key="auto_bw_pwd")
                     
@@ -2527,7 +2452,7 @@ elif page == "🩸 Marcadores Clínicos":
                                     else:
                                         st.session_state["parsed_bw_data"] = parsed_info
                                         st.session_state["parsed_bw_filename"] = auto_file.name
-                                        st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} de 9 marcadores encontrados.")
+                                        st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
                                         st.rerun()
                                 except Exception as parse_err:
                                     st.error(f"Error procesando el archivo: {parse_err}")
@@ -2543,7 +2468,6 @@ elif page == "🩸 Marcadores Clínicos":
                     with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
                         st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
 
-                # Determine default values
                 init_date = datetime.now().date()
                 if parsed_data.get("date"):
                     try:
@@ -2560,91 +2484,94 @@ elif page == "🩸 Marcadores Clínicos":
                     except (ValueError, TypeError):
                         return None
 
-                val_hb = _clean_input_val(parsed_data.get("hemoglobin"))
-                val_vcm = _clean_input_val(parsed_data.get("vcm"))
-                val_chcm = _clean_input_val(parsed_data.get("chcm"))
-                val_rbc = _clean_input_val(parsed_data.get("rbc"))
-                val_hto = _clean_input_val(parsed_data.get("hematocrit"))
-                val_fer = _clean_input_val(parsed_data.get("ferritin"))
-                val_ck = _clean_input_val(parsed_data.get("ck"))
-                val_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
-                val_fol = _clean_input_val(parsed_data.get("folic_acid"))
+                # Pre-llenados
+                v_hb = _clean_input_val(parsed_data.get("hemoglobin"))
+                v_vcm = _clean_input_val(parsed_data.get("vcm"))
+                v_chcm = _clean_input_val(parsed_data.get("chcm"))
+                v_rbc = _clean_input_val(parsed_data.get("rbc"))
+                v_hto = _clean_input_val(parsed_data.get("hematocrit"))
+                v_fer = _clean_input_val(parsed_data.get("ferritin"))
+                v_ck = _clean_input_val(parsed_data.get("ck"))
+                v_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
+                v_fol = _clean_input_val(parsed_data.get("folic_acid"))
+                v_chol = _clean_input_val(parsed_data.get("total_cholesterol"))
+                v_hdl = _clean_input_val(parsed_data.get("hdl"))
+                v_ldl = _clean_input_val(parsed_data.get("ldl"))
+                v_trig = _clean_input_val(parsed_data.get("triglycerides"))
+                v_glu = _clean_input_val(parsed_data.get("glucose"))
+                v_pcr = _clean_input_val(parsed_data.get("pcr_us"))
 
                 with st.form("form_bloodwork", clear_on_submit=False):
                     col_d1, col_d2 = st.columns(2)
                     with col_d1:
-                        bw_date = st.date_input("Fecha del hemograma:", value=init_date, key="bw_date")
+                        bw_date = st.date_input("Fecha del examen:", value=init_date, key="bw_date")
                     with col_d2:
                         attached_name = st.session_state.get("parsed_bw_filename")
-                        bw_pdf = st.file_uploader("Adjuntar PDF del hemograma (opcional):", type=["pdf"], key="bw_pdf")
+                        bw_pdf = st.file_uploader("Adjuntar PDF del examen (opcional):", type=["pdf"], key="bw_pdf")
                     
-                    st.markdown("### 🔬 Valores del Hemograma y Perfil Bioquímico (9 Marcadores)")
-                    st.info("Ingresa los valores del hemograma. Los rangos óptimos para deportistas de resistencia se indican en cada campo.")
-                    
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    
-                    with col_m1:
-                        bw_hb = st.number_input(
-                            "🔴 Hemoglobina (g/dL)", 
-                            min_value=0.0, max_value=None, value=val_hb, step=0.1,
-                            help="Óptimo deportistas: 15.0–17.5 g/dL", key="bw_hb"
-                        )
-                        bw_vcm = st.number_input(
-                            "🟠 VCM — Vol. Corp. Medio (fL)", 
-                            min_value=0.0, max_value=None, value=val_vcm, step=0.1,
-                            help="Óptimo deportistas: 82–95 fL", key="bw_vcm"
-                        )
-                        bw_chcm = st.number_input(
-                            "🟡 CHCM — Conc. Hb Corp. (g/dL)", 
-                            min_value=0.0, max_value=None, value=val_chcm, step=0.1,
-                            help="Óptimo deportistas: 33–36 g/dL", key="bw_chcm"
-                        )
-                    
-                    with col_m2:
-                        bw_rbc = st.number_input(
-                            "🩸 RBC — Conteo GR (×10⁶/μL)", 
-                            min_value=0.0, max_value=None, value=val_rbc, step=0.01,
-                            help="Óptimo deportistas: 5.0–5.8 ×10⁶/μL", key="bw_rbc"
-                        )
-                        bw_hto = st.number_input(
-                            "💧 Hematocrito (%)", 
-                            min_value=0.0, max_value=None, value=val_hto, step=0.1,
-                            help="Óptimo deportistas: 40–50%", key="bw_hto"
-                        )
-                        bw_fer = st.number_input(
-                            "⚡ Ferritina Sérica (ng/mL)", 
-                            min_value=0.0, max_value=None, value=val_fer, step=1.0,
-                            help="Óptimo deportistas: 50–150 ng/mL", key="bw_fer"
-                        )
-                    
-                    with col_m3:
-                        bw_ck = st.number_input(
-                            "💪 CK — Creatina Kinasa (U/L)", 
-                            min_value=0.0, max_value=None, value=val_ck, step=1.0,
-                            help="Óptimo deportistas: 61–400 U/L (Elevado 500-1000, Muy Alto >1000)", key="bw_ck"
-                        )
-                        bw_b12 = st.number_input(
-                            "💊 Vitamina B12 (pg/mL)", 
-                            min_value=0.0, max_value=None, value=val_b12, step=1.0,
-                            help="Óptimo deportistas: 400–900 pg/mL (Límite: 200-300)", key="bw_b12"
-                        )
-                        bw_fol = st.number_input(
-                            "🌿 Ácido Fólico (ng/mL)", 
-                            min_value=0.0, max_value=None, value=val_fol, step=0.1,
-                            help="Óptimo deportistas: 6–20 ng/mL (Límite: 3.0-5.9)", key="bw_fol"
-                        )
-                    
-                    bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación):", height=80, key="bw_notes")
-                    
-                    submitted_bw = st.form_submit_button("💾 Guardar Hemograma y Marcadores", type="primary", use_container_width=True)
-                
+                    st.markdown("### 🔴 1. Serie Roja y Transporte de Oxígeno")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        r_hb = BLOODWORK_RANGES["hemoglobin"]
+                        bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=0.0, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
+                        r_vcm = BLOODWORK_RANGES["vcm"]
+                        bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=0.0, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
+                    with c2:
+                        r_chcm = BLOODWORK_RANGES["chcm"]
+                        bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=0.0, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
+                        r_rbc = BLOODWORK_RANGES["rbc"]
+                        bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=0.0, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
+                    with c3:
+                        r_hto = BLOODWORK_RANGES["hematocrit"]
+                        bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=0.0, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
+                        r_fer = BLOODWORK_RANGES["ferritin"]
+                        bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=0.0, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
+
+                    st.markdown("### ⚡ 2. Daño Muscular y Vitaminas")
+                    c4, c5, c6 = st.columns(3)
+                    with c4:
+                        r_ck = BLOODWORK_RANGES["ck"]
+                        bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=0.0, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
+                    with c5:
+                        r_b12 = BLOODWORK_RANGES["vitamin_b12"]
+                        bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=0.0, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
+                    with c6:
+                        r_fol = BLOODWORK_RANGES["folic_acid"]
+                        bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=0.0, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
+
+                    st.markdown("### 🫀 3. Perfil Lipídico Cardiovascular")
+                    c7, c8, c9, c10 = st.columns(4)
+                    with c7:
+                        r_chol = BLOODWORK_RANGES["total_cholesterol"]
+                        bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=0.0, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
+                    with c8:
+                        r_hdl = BLOODWORK_RANGES["hdl"]
+                        bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=0.0, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
+                    with c9:
+                        r_ldl = BLOODWORK_RANGES["ldl"]
+                        bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=0.0, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
+                    with c10:
+                        r_trig = BLOODWORK_RANGES["triglycerides"]
+                        bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=0.0, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
+
+                    st.markdown("### 🍯 4. Glucemia e Inflamación Sistémica")
+                    c11, c12 = st.columns(2)
+                    with c11:
+                        r_glu = BLOODWORK_RANGES["glucose"]
+                        bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=0.0, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
+                    with c12:
+                        r_pcr = BLOODWORK_RANGES["pcr_us"]
+                        bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=0.0, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
+
+                    bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación, ayuno):", height=80, key="bw_notes")
+                    submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
+
                 if submitted_bw:
-                    # Validate at least one value
-                    if all(v is None for v in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol]):
-                        st.error("⚠️ Debes ingresar al menos un valor de los marcadores.")
+                    all_inputs = [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_pcr]
+                    if all(v is None for v in all_inputs):
+                        st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
                     else:
                         pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
-                        
                         session = SessionLocal()
                         try:
                             new_bw = BloodworkRecord(
@@ -2659,6 +2586,12 @@ elif page == "🩸 Marcadores Clínicos":
                                 ck=bw_ck,
                                 vitamin_b12=bw_b12,
                                 folic_acid=bw_fol,
+                                total_cholesterol=bw_chol,
+                                hdl=bw_hdl,
+                                ldl=bw_ldl,
+                                triglycerides=bw_trig,
+                                glucose=bw_glu,
+                                pcr_us=bw_pcr,
                                 pdf_filename=pdf_filename,
                                 notes=bw_notes if bw_notes else None,
                             )
@@ -2666,7 +2599,7 @@ elif page == "🩸 Marcadores Clínicos":
                             session.commit()
                             st.session_state.pop("parsed_bw_data", None)
                             st.session_state.pop("parsed_bw_filename", None)
-                            st.success(f"🎉 ¡Marcadores del {bw_date} para {selected_athlete} guardados exitosamente!")
+                            st.success(f"🎉 ¡Biomarcadores del {bw_date} para {selected_athlete} ({gender_badge}) guardados exitosamente!")
                             st.balloons()
                             st.rerun()
                         except Exception as e:
@@ -2674,19 +2607,19 @@ elif page == "🩸 Marcadores Clínicos":
                             st.error(f"Error al guardar: {e}")
                         finally:
                             session.close()
-                
+
                 # ── Tabla de referencia rápida ────────────────────────────
                 st.markdown("---")
-                with st.expander("📖 Tabla de Rangos de Referencia Completa (Deportistas de Resistencia)", expanded=False):
+                with st.expander(f"📖 Tabla de Rangos de Referencia Completa ({gender_badge} - Deportistas de Resistencia)", expanded=False):
                     ref_html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:8px; overflow:hidden;">'
                     ref_html += '<thead><tr style="background:#1a1a2e; border-bottom:2px solid #00EEFF;">'
-                    ref_html += '<th style="padding:8px; color:#00EEFF; text-align:left;">Parámetro</th>'
+                    ref_html += '<th style="padding:8px; color:#00EEFF; text-align:left;">Biomarcador</th>'
                     ref_html += '<th style="padding:8px; color:#FF4B4B; text-align:center;">BAJO</th>'
-                    ref_html += '<th style="padding:8px; color:#00FF00; text-align:center;">MEDIO (Óptimo)</th>'
-                    ref_html += '<th style="padding:8px; color:#FFD700; text-align:center;">ALTO</th>'
+                    ref_html += '<th style="padding:8px; color:#00FF00; text-align:center;">ÓPTIMO (Atletas)</th>'
+                    ref_html += '<th style="padding:8px; color:#FFD700; text-align:center;">ALTO / ELEVADO</th>'
                     ref_html += '<th style="padding:8px; color:#888; text-align:center;">Unidad</th>'
                     ref_html += '</tr></thead><tbody>'
-                    for key in ["hemoglobin", "vcm", "chcm", "rbc", "hematocrit", "ferritin", "ck", "vitamin_b12", "folic_acid"]:
+                    for key in ALL_MARKER_KEYS:
                         r = BLOODWORK_RANGES[key]
                         opt_str = f"{r['opt_lo']}–{r['opt_hi']}" if r['opt_lo'] != r['opt_hi'] else f"{r['opt_lo']}"
                         ref_html += f'<tr style="border-bottom:1px solid #222;"><td style="padding:8px; color:#FFFFFF; font-weight:bold;">{r["emoji"]} {r["name"]}</td><td style="padding:8px; text-align:center; color:#FF4B4B;">&lt;{r["low"]}</td><td style="padding:8px; text-align:center; color:#00FF00;">{opt_str}</td><td style="padding:8px; text-align:center; color:#FFD700;">&gt;{r["high"]}</td><td style="padding:8px; text-align:center; color:#888;">{r["unit"]}</td></tr>'
