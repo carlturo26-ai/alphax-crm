@@ -194,6 +194,7 @@ class BloodworkRecord(Base):
     ldl = Column(Float, nullable=True)               # mg/dL (Colesterol LDL)
     triglycerides = Column(Float, nullable=True)     # mg/dL (Triglicéridos)
     glucose = Column(Float, nullable=True)           # mg/dL (Glucemia Basal)
+    hba1c = Column(Float, nullable=True)             # % (Hemoglobina Glicosilada HbA1c)
     pcr_us = Column(Float, nullable=True)            # mg/L (Proteína C Reactiva Ultra Sensible)
     
     pdf_filename = Column(String, nullable=True)     # Nombre del archivo PDF de referencia
@@ -229,6 +230,7 @@ def init_db():
             ("ldl", "FLOAT"),
             ("triglycerides", "FLOAT"),
             ("glucose", "FLOAT"),
+            ("hba1c", "FLOAT"),
             ("pcr_us", "FLOAT"),
         ]
         for col_name, col_type in cols_to_add:

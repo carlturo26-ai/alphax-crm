@@ -18,6 +18,7 @@ ALL_MARKER_KEYS = [
     "ldl",
     "triglycerides",
     "glucose",
+    "hba1c",
     "pcr_us"
 ]
 
@@ -204,6 +205,18 @@ def get_bloodwork_ranges(gender="Hombre"):
             "bg": "rgba(225, 112, 85, 0.05)",
             "help": "75–95 mg/dL (Prediabetes: >100, Hipoglucemia: <70)"
         },
+        "hba1c": {
+            "low": 4.5,
+            "opt_lo": 4.8,
+            "opt_hi": 5.4,
+            "high": 5.7,
+            "unit": "%",
+            "name": "Hemoglobina Glicosilada (HbA1c)",
+            "emoji": "🧬",
+            "color": "#FF7675",
+            "bg": "rgba(255, 118, 117, 0.05)",
+            "help": "4.8–5.4% (Óptimo deportistas) | <5.7% (Normal) | 5.7–6.4% (Prediabetes) | ≥6.5% (Diabetes)"
+        },
         "pcr_us": {
             "low": 0.0,
             "opt_lo": 0.05,
@@ -264,6 +277,19 @@ def classify_bloodwork_value(key, value, gender="Hombre"):
             return "LÍMITE ALTO", "#FFD700"
         else:
             return "ELEVADO", "#FF4B4B"
+
+    # Caso especial HbA1c (Hemoglobina Glicosilada)
+    if key == "hba1c":
+        if value < r["low"]:
+            return "BAJO", "#FFD700"
+        elif value <= r["opt_hi"]:
+            return "ÓPTIMO", "#00FF00"
+        elif value < r["high"]:
+            return "NORMAL-ALTO", "#FFD700"
+        elif value < 6.5:
+            return "PREDIABETES (ELEVADA)", "#FF7675"
+        else:
+            return "DIABETES / MUY ALTA", "#FF4B4B"
 
     # Caso general
     if value < r["low"]:
@@ -394,7 +420,7 @@ def get_clinical_alerts(latest_rec, gender="Hombre"):
                 "#FFD700"
             ))
 
-    # 6. Glucemia
+    # 6. Glucemia y Hemoglobina Glicosilada (HbA1c)
     val_glu = _v("glucose")
     if val_glu is not None:
         if val_glu < 70.0:
@@ -409,6 +435,30 @@ def get_clinical_alerts(latest_rec, gender="Hombre"):
                 "⚠️", 
                 "Glucemia ELEVADA en Ayunas", 
                 f"Glucosa = {val_glu:.0f} mg/dL (> 100) → Posible alteración en el metabolismo de carbohidratos o estrés agudo.", 
+                "#FFD700"
+            ))
+
+    val_a1c = _v("hba1c")
+    if val_a1c is not None:
+        if val_a1c >= 6.5:
+            alerts.append((
+                "🚨",
+                "HbA1c MUY ELEVADA (Rango Diabetes)",
+                f"HbA1c = {val_a1c:.1f}% (≥ 6.5%) → Control glucémico crónico descompensado. Requiere evaluación médica inmediata.",
+                "#FF4B4B"
+            ))
+        elif val_a1c >= 5.7:
+            alerts.append((
+                "⚠️",
+                "HbA1c ELEVADA (Riesgo Prediabetes / Resistencia a la Insulina)",
+                f"HbA1c = {val_a1c:.1f}% (5.7%–6.4%) → Promedio glucémico de últimos 3 meses por encima de lo óptimo. Revisar timing y calidad de carbohidratos.",
+                "#FFD700"
+            ))
+        elif val_a1c < 4.5:
+            alerts.append((
+                "⚠️",
+                "HbA1c BAJA",
+                f"HbA1c = {val_a1c:.1f}% (< 4.5%) → Posible recambio eritrocitario acelerado o hipoglucemias frecuentes.",
                 "#FFD700"
             ))
 

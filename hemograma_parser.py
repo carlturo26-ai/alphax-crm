@@ -371,6 +371,16 @@ _MARKER_PATTERNS = [
         "mg_dl"
     ),
     (
+        "hba1c",
+        [
+            r"(?:hemoglobina\s+glicosilada|hemoglobina\s+glucosilada|hemoglobina\s+glicosilada\s+a1c|hemoglobina\s+a1c|hba1c|hb\s*a1c|glicohemoglobina|a1c)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*%",
+            r"(?:hemoglobina\s+glicosilada|hemoglobina\s+glucosilada|hemoglobina\s+a1c|hba1c|hb\s*a1c|glicohemoglobina|a1c)\b[\s\S]{0,250}?(?:resultado|valor)[:\s]+(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"(?:hemoglobina\s+glicosilada|hemoglobina\s+glucosilada|hba1c|hb\s*a1c|a1c)\b[^\d\n\r]*?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+            r"\b(?:hba1c|hb\s*a1c)\b[\s\S]{0,80}?(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)",
+        ],
+        "percent"
+    ),
+    (
         "pcr_us",
         [
             r"(?:prote[ií]na\s+c\s+reactiva\s+ultra\s*sensible|pcr\s+ultra\s*sensible|pcr\s*[-_]?\s*us|hs\s*[-_]?\s*crp|crp\s*[-_]?\s*hs|prote[ií]na\s+c\s+reactiva\s+de\s+alta\s+sensibilidad|prote[ií]na\s+c\s+reactiva|pcr)\b[\s\S]{0,500}?(?:resultado|valor)?[:\s]*(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?:\s*[\(\[]?\s*\d+(?:[\.,]\d+)?\s*[\-\–\—\:]\s*\d+(?:[\.,]\d+)?\s*[\)\]]?)?\s*(?:mg/l|mg/L|mg/dl|mg/dL)",
@@ -402,12 +412,13 @@ def parse_hemograma(text: str) -> dict:
         "ldl": None,
         "triglycerides": None,
         "glucose": None,
+        "hba1c": None,
         "pcr_us": None,
         "date": None,
         "patient_name": None,
         "raw_text": text or "",
         "markers_found": 0,
-        "markers_total": 15,
+        "markers_total": 16,
     }
 
     if not text or text.startswith("[ERROR]"):

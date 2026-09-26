@@ -990,6 +990,7 @@ else:
                                         ldl=parsed.get("ldl"),
                                         triglycerides=parsed.get("triglycerides"),
                                         glucose=parsed.get("glucose"),
+                                        hba1c=parsed.get("hba1c"),
                                         pcr_us=parsed.get("pcr_us"),
                                         pdf_filename=ath_file.name
                                     )
@@ -1087,18 +1088,17 @@ else:
                         records_chrono = list(reversed(records))
                         dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
                         
-                        marker_triplets = [
+                        marker_groups = [
                             ("hemoglobin", "vcm", "chcm"),
                             ("rbc", "hematocrit", "ferritin"),
                             ("ck", "vitamin_b12", "folic_acid"),
-                            ("total_cholesterol", "hdl", "ldl"),
-                            ("triglycerides", "glucose", "pcr_us"),
+                            ("total_cholesterol", "hdl", "ldl", "triglycerides"),
+                            ("glucose", "hba1c", "pcr_us"),
                         ]
                         
-                        for key1, key2, key3 in marker_triplets:
-                            col1, col2, col3 = st.columns(3)
-                            
-                            for col, key in [(col1, key1), (col2, key2), (col3, key3)]:
+                        for group in marker_groups:
+                            cols = st.columns(len(group))
+                            for col, key in zip(cols, group):
                                 with col:
                                     r = BLOODWORK_RANGES_FULL[key]
                                     values = [getattr(rec, key, None) for rec in records_chrono]

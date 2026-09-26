@@ -2352,18 +2352,17 @@ elif page == "🩸 Marcadores Clínicos":
                     records_chrono = list(reversed(records))
                     dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
                     
-                    marker_triplets = [
+                    marker_groups = [
                         ("hemoglobin", "vcm", "chcm"),
                         ("rbc", "hematocrit", "ferritin"),
                         ("ck", "vitamin_b12", "folic_acid"),
-                        ("total_cholesterol", "hdl", "ldl"),
-                        ("triglycerides", "glucose", "pcr_us"),
+                        ("total_cholesterol", "hdl", "ldl", "triglycerides"),
+                        ("glucose", "hba1c", "pcr_us"),
                     ]
                     
-                    for key1, key2, key3 in marker_triplets:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        for col, key in [(col1, key1), (col2, key2), (col3, key3)]:
+                    for group in marker_groups:
+                        cols = st.columns(len(group))
+                        for col, key in zip(cols, group):
                             with col:
                                 r = BLOODWORK_RANGES[key]
                                 values = [getattr(rec, key, None) for rec in records_chrono]
@@ -2459,6 +2458,7 @@ elif page == "🩸 Marcadores Clínicos":
                                     e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=_e_val("ldl"), step=1.0, key=f"e_ldl_{selected_rec_id}")
                                     e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=_e_val("triglycerides"), step=1.0, key=f"e_trig_{selected_rec_id}")
                                     e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=_e_val("glucose"), step=1.0, key=f"e_glu_{selected_rec_id}")
+                                    e_a1c = st.number_input("🧬 HbA1c Hemoglobina Glicosilada (%)", value=_e_val("hba1c"), step=0.1, key=f"e_a1c_{selected_rec_id}")
                                     e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=_e_val("pcr_us"), step=0.01, key=f"e_pcr_{selected_rec_id}")
                                 
                                 e_notes = st.text_area("Notas / Observaciones:", value=rec_to_edit.notes or "", height=70, key=f"e_notes_{selected_rec_id}")
@@ -2482,6 +2482,7 @@ elif page == "🩸 Marcadores Clínicos":
                                             r_db.ldl = e_ldl
                                             r_db.triglycerides = e_trig
                                             r_db.glucose = e_glu
+                                            r_db.hba1c = e_a1c
                                             r_db.pcr_us = e_pcr
                                             r_db.notes = e_notes if e_notes else None
                                             s_ed.commit()
@@ -2595,6 +2596,7 @@ elif page == "🩸 Marcadores Clínicos":
                 v_ldl = _clean_input_val(parsed_data.get("ldl"))
                 v_trig = _clean_input_val(parsed_data.get("triglycerides"))
                 v_glu = _clean_input_val(parsed_data.get("glucose"))
+                v_a1c = _clean_input_val(parsed_data.get("hba1c"))
                 v_pcr = _clean_input_val(parsed_data.get("pcr_us"))
 
                 with st.form("form_bloodwork", clear_on_submit=False):
@@ -2650,12 +2652,15 @@ elif page == "🩸 Marcadores Clínicos":
                         r_trig = BLOODWORK_RANGES["triglycerides"]
                         bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=0.0, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
 
-                    st.markdown("### 🍯 4. Glucemia e Inflamación Sistémica")
-                    c11, c12 = st.columns(2)
+                    st.markdown("### 🍯 4. Glucemia, HbA1c e Inflamación Sistémica")
+                    c11, c12, c13 = st.columns(3)
                     with c11:
                         r_glu = BLOODWORK_RANGES["glucose"]
                         bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=0.0, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
                     with c12:
+                        r_a1c = BLOODWORK_RANGES["hba1c"]
+                        bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=0.0, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
+                    with c13:
                         r_pcr = BLOODWORK_RANGES["pcr_us"]
                         bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=0.0, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
 
@@ -2663,7 +2668,7 @@ elif page == "🩸 Marcadores Clínicos":
                     submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
 
                 if submitted_bw:
-                    all_inputs = [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_pcr]
+                    all_inputs = [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]
                     if all(v is None for v in all_inputs):
                         st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
                     else:
@@ -2687,6 +2692,7 @@ elif page == "🩸 Marcadores Clínicos":
                                 ldl=bw_ldl,
                                 triglycerides=bw_trig,
                                 glucose=bw_glu,
+                                hba1c=bw_a1c,
                                 pcr_us=bw_pcr,
                                 pdf_filename=pdf_filename,
                                 notes=bw_notes if bw_notes else None,
