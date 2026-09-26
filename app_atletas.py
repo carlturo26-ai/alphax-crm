@@ -10,8 +10,9 @@ from streamlit_cookies_controller import CookieController
 from logo_base64 import SIMBOLO_B64, TEXTO_BLANCO_B64
 
 try:
-    from database import SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, engine
+    from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, engine
     from sqlalchemy import text
+    init_db()
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
             conn.execute(text("ALTER TABLE sleep_records ADD COLUMN raw_medications VARCHAR;"))

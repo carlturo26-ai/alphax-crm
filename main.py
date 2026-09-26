@@ -2435,27 +2435,31 @@ elif page == "🩸 Marcadores Clínicos":
                             st.caption(f"Actualiza o completa los 15 biomarcadores para el examen del {rec_to_edit.date.strftime('%d/%m/%Y')}.")
                             with st.form(f"form_edit_bw_{selected_rec_id}"):
                                 ed_c1, ed_c2, ed_c3 = st.columns(3)
+                                def _e_val(attr):
+                                    v = getattr(rec_to_edit, attr, None)
+                                    return float(v) if v is not None else None
+
                                 with ed_c1:
                                     st.markdown("##### 🔴 Serie Roja")
-                                    e_hb = st.number_input("🔴 Hemoglobina (g/dL)", value=float(rec_to_edit.hemoglobin) if rec_to_edit.hemoglobin is not None else None, step=0.1, key=f"e_hb_{selected_rec_id}")
-                                    e_vcm = st.number_input("🔵 VCM (fL)", value=float(rec_to_edit.vcm) if rec_to_edit.vcm is not None else None, step=0.1, key=f"e_vcm_{selected_rec_id}")
-                                    e_chcm = st.number_input("🟡 CHCM (g/dL)", value=float(rec_to_edit.chcm) if rec_to_edit.chcm is not None else None, step=0.1, key=f"e_chcm_{selected_rec_id}")
-                                    e_rbc = st.number_input("⭕ Glóbulos Rojos (×10⁶/μL)", value=float(rec_to_edit.rbc) if rec_to_edit.rbc is not None else None, step=0.01, key=f"e_rbc_{selected_rec_id}")
-                                    e_hto = st.number_input("🩸 Hematocrito (%)", value=float(rec_to_edit.hematocrit) if rec_to_edit.hematocrit is not None else None, step=0.1, key=f"e_hto_{selected_rec_id}")
-                                    e_fer = st.number_input("🧲 Ferritina Sérica (ng/mL)", value=float(rec_to_edit.ferritin) if rec_to_edit.ferritin is not None else None, step=1.0, key=f"e_fer_{selected_rec_id}")
+                                    e_hb = st.number_input("🔴 Hemoglobina (g/dL)", value=_e_val("hemoglobin"), step=0.1, key=f"e_hb_{selected_rec_id}")
+                                    e_vcm = st.number_input("🔵 VCM (fL)", value=_e_val("vcm"), step=0.1, key=f"e_vcm_{selected_rec_id}")
+                                    e_chcm = st.number_input("🟡 CHCM (g/dL)", value=_e_val("chcm"), step=0.1, key=f"e_chcm_{selected_rec_id}")
+                                    e_rbc = st.number_input("⭕ Glóbulos Rojos (×10⁶/μL)", value=_e_val("rbc"), step=0.01, key=f"e_rbc_{selected_rec_id}")
+                                    e_hto = st.number_input("🩸 Hematocrito (%)", value=_e_val("hematocrit"), step=0.1, key=f"e_hto_{selected_rec_id}")
+                                    e_fer = st.number_input("🧲 Ferritina Sérica (ng/mL)", value=_e_val("ferritin"), step=1.0, key=f"e_fer_{selected_rec_id}")
                                 with ed_c2:
                                     st.markdown("##### ⚡ Daño Muscular y Vitaminas")
-                                    e_ck = st.number_input("⚡ Creatina Kinasa CK (U/L)", value=float(rec_to_edit.ck) if rec_to_edit.ck is not None else None, step=1.0, key=f"e_ck_{selected_rec_id}")
-                                    e_b12 = st.number_input("💊 Vitamina B12 (pg/mL)", value=float(rec_to_edit.vitamin_b12) if rec_to_edit.vitamin_b12 is not None else None, step=1.0, key=f"e_b12_{selected_rec_id}")
-                                    e_fol = st.number_input("🥬 Ácido Fólico (ng/mL)", value=float(rec_to_edit.folic_acid) if rec_to_edit.folic_acid is not None else None, step=0.1, key=f"e_fol_{selected_rec_id}")
+                                    e_ck = st.number_input("⚡ Creatina Kinasa CK (U/L)", value=_e_val("ck"), step=1.0, key=f"e_ck_{selected_rec_id}")
+                                    e_b12 = st.number_input("💊 Vitamina B12 (pg/mL)", value=_e_val("vitamin_b12"), step=1.0, key=f"e_b12_{selected_rec_id}")
+                                    e_fol = st.number_input("🥬 Ácido Fólico (ng/mL)", value=_e_val("folic_acid"), step=0.1, key=f"e_fol_{selected_rec_id}")
                                 with ed_c3:
                                     st.markdown("##### 🫀 Perfil Lipídico y Glucemia")
-                                    e_chol = st.number_input("🫀 Colesterol Total (mg/dL)", value=float(rec_to_edit.total_cholesterol) if rec_to_edit.total_cholesterol is not None else None, step=1.0, key=f"e_chol_{selected_rec_id}")
-                                    e_hdl = st.number_input("🛡️ Colesterol HDL (mg/dL)", value=float(rec_to_edit.hdl) if rec_to_edit.hdl is not None else None, step=1.0, key=f"e_hdl_{selected_rec_id}")
-                                    e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=float(rec_to_edit.ldl) if rec_to_edit.ldl is not None else None, step=1.0, key=f"e_ldl_{selected_rec_id}")
-                                    e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=float(rec_to_edit.triglycerides) if rec_to_edit.triglycerides is not None else None, step=1.0, key=f"e_trig_{selected_rec_id}")
-                                    e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=float(rec_to_edit.glucose) if rec_to_edit.glucose is not None else None, step=1.0, key=f"e_glu_{selected_rec_id}")
-                                    e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=float(rec_to_edit.pcr_us) if rec_to_edit.pcr_us is not None else None, step=0.01, key=f"e_pcr_{selected_rec_id}")
+                                    e_chol = st.number_input("🫀 Colesterol Total (mg/dL)", value=_e_val("total_cholesterol"), step=1.0, key=f"e_chol_{selected_rec_id}")
+                                    e_hdl = st.number_input("🛡️ Colesterol HDL (mg/dL)", value=_e_val("hdl"), step=1.0, key=f"e_hdl_{selected_rec_id}")
+                                    e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=_e_val("ldl"), step=1.0, key=f"e_ldl_{selected_rec_id}")
+                                    e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=_e_val("triglycerides"), step=1.0, key=f"e_trig_{selected_rec_id}")
+                                    e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=_e_val("glucose"), step=1.0, key=f"e_glu_{selected_rec_id}")
+                                    e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=_e_val("pcr_us"), step=0.01, key=f"e_pcr_{selected_rec_id}")
                                 
                                 e_notes = st.text_area("Notas / Observaciones:", value=rec_to_edit.notes or "", height=70, key=f"e_notes_{selected_rec_id}")
                                 

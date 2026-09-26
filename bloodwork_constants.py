@@ -285,9 +285,13 @@ def get_clinical_alerts(latest_rec, gender="Hombre"):
     """
     Evalúa patrones clínicos y genera alertas adaptadas al sexo del atleta.
     Retorna una lista de tuplas: (emoji, titulo, detalle, color_hex).
+    Utiliza _v() con getattr para garantizar compatibilidad total sin AttributeError.
     """
     if not latest_rec:
         return []
+    
+    def _v(key):
+        return getattr(latest_rec, key, None)
     
     is_female = str(gender).strip().lower() in ["mujer", "femenino", "f", "female"]
     sex_label = "Mujer" if is_female else "Hombre"
@@ -296,155 +300,166 @@ def get_clinical_alerts(latest_rec, gender="Hombre"):
     # 1. Hemoglobina
     hb_low_threshold = 12.0 if is_female else 13.5
     hb_high_threshold = 16.0 if is_female else 18.0
-    if latest_rec.hemoglobin is not None:
-        if latest_rec.hemoglobin < hb_low_threshold:
+    val_hb = _v("hemoglobin")
+    if val_hb is not None:
+        if val_hb < hb_low_threshold:
             alerts.append((
                 "🚨", 
                 f"Hemoglobina BAJA ({sex_label})", 
-                f"Hb = {latest_rec.hemoglobin:.1f} g/dL (< {hb_low_threshold:.1f}) → Posible anemia en atleta {sex_label.lower()}. Reduce capacidad aeróbica y oxigenación. Revisar ferritina y B12.", 
+                f"Hb = {val_hb:.1f} g/dL (< {hb_low_threshold:.1f}) → Posible anemia en atleta {sex_label.lower()}. Reduce capacidad aeróbica y oxigenación. Revisar ferritina y B12.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.hemoglobin > hb_high_threshold:
+        elif val_hb > hb_high_threshold:
             alerts.append((
                 "⚠️", 
                 f"Hemoglobina ALTA ({sex_label})", 
-                f"Hb = {latest_rec.hemoglobin:.1f} g/dL (> {hb_high_threshold:.1f}) → Viscosidad sanguínea elevada. Revisar hidratación y aclimatación a altitud.", 
+                f"Hb = {val_hb:.1f} g/dL (> {hb_high_threshold:.1f}) → Viscosidad sanguínea elevada. Revisar hidratación y aclimatación a altitud.", 
                 "#FFD700"
             ))
 
     # 2. Ferritina
     fer_critical = 20.0 if is_female else 30.0
     fer_opt_min = 35.0 if is_female else 50.0
-    if latest_rec.ferritin is not None:
-        if latest_rec.ferritin < fer_critical:
+    val_fer = _v("ferritin")
+    if val_fer is not None:
+        if val_fer < fer_critical:
             alerts.append((
                 "⚡", 
                 f"Ferritina CRÍTICA ({sex_label})", 
-                f"Ferritina = {latest_rec.ferritin:.0f} ng/mL (< {fer_critical:.0f}) → Depósitos de hierro agotados. Suplementación y valoración urgente.", 
+                f"Ferritina = {val_fer:.0f} ng/mL (< {fer_critical:.0f}) → Depósitos de hierro agotados. Suplementación y valoración urgente.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.ferritin < fer_opt_min:
+        elif val_fer < fer_opt_min:
             alerts.append((
                 "⚡", 
                 f"Ferritina BAJA para Deportista ({sex_label})", 
-                f"Ferritina = {latest_rec.ferritin:.0f} ng/mL (< {fer_opt_min:.0f}) → Reserva de hierro disminuida. Rendimiento aeróbico en riesgo.", 
+                f"Ferritina = {val_fer:.0f} ng/mL (< {fer_opt_min:.0f}) → Reserva de hierro disminuida. Rendimiento aeróbico en riesgo.", 
                 "#FFD700"
             ))
 
     # 3. Hematocrito
     hto_low = 36.0 if is_female else 40.0
     hto_high = 48.0 if is_female else 52.0
-    if latest_rec.hematocrit is not None:
-        if latest_rec.hematocrit < hto_low:
+    val_hto = _v("hematocrit")
+    if val_hto is not None:
+        if val_hto < hto_low:
             alerts.append((
                 "⚠️", 
                 f"Hematocrito BAJO ({sex_label})", 
-                f"Hto = {latest_rec.hematocrit:.1f}% (< {hto_low:.1f}%) → Posible hemodilución o masa eritrocitaria baja.", 
+                f"Hto = {val_hto:.1f}% (< {hto_low:.1f}%) → Posible hemodilución o masa eritrocitaria baja.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.hematocrit > hto_high:
+        elif val_hto > hto_high:
             alerts.append((
                 "⚠️", 
                 f"Hematocrito ALTO ({sex_label})", 
-                f"Hto = {latest_rec.hematocrit:.1f}% (> {hto_high:.1f}%) → Sangre muy concentrada. Hidratarse y descansar.", 
+                f"Hto = {val_hto:.1f}% (> {hto_high:.1f}%) → Sangre muy concentrada. Hidratarse y descansar.", 
                 "#FFD700"
             ))
 
     # 4. Creatina Kinasa (CK)
     ck_high = 250.0 if is_female else 350.0
-    if latest_rec.ck is not None:
-        if latest_rec.ck > 1000.0:
+    val_ck = _v("ck")
+    if val_ck is not None:
+        if val_ck > 1000.0:
             alerts.append((
                 "🚨", 
                 "CK MUY ELEVADA (ALARMA CLÍNICA)", 
-                f"CK = {latest_rec.ck:.0f} U/L → Daño muscular agudo o sobreentrenamiento severo. Requiere reposo absoluto y supervisión médica.", 
+                f"CK = {val_ck:.0f} U/L → Daño muscular agudo o sobreentrenamiento severo. Requiere reposo absoluto y supervisión médica.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.ck > ck_high:
+        elif val_ck > ck_high:
             alerts.append((
                 "⚠️", 
                 f"CK ELEVADA — Fatiga Muscular ({sex_label})", 
-                f"CK = {latest_rec.ck:.0f} U/L (> {ck_high:.0f}) → Daño muscular por carga reciente. Priorizar descanso y recuperación activa.", 
+                f"CK = {val_ck:.0f} U/L (> {ck_high:.0f}) → Daño muscular por carga reciente. Priorizar descanso y recuperación activa.", 
                 "#FFD700"
             ))
 
     # 5. Proteína C Reactiva Ultra Sensible (PCR-us)
-    if latest_rec.pcr_us is not None:
-        if latest_rec.pcr_us > 3.0:
+    val_pcr = _v("pcr_us")
+    if val_pcr is not None:
+        if val_pcr > 3.0:
             alerts.append((
                 "🔥", 
                 "PCR-us ELEVADA (Inflamación Sistémica)", 
-                f"PCR-us = {latest_rec.pcr_us:.2f} mg/L (> 3.0) → Inflamación alta. Posible sobrecarga de entreno, infección latente o microlesión.", 
+                f"PCR-us = {val_pcr:.2f} mg/L (> 3.0) → Inflamación alta. Posible sobrecarga de entreno, infección latente o microlesión.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.pcr_us > 1.0:
+        elif val_pcr > 1.0:
             alerts.append((
                 "⚠️", 
                 "PCR-us MODERADA (Estrés de Entrenamiento)", 
-                f"PCR-us = {latest_rec.pcr_us:.2f} mg/L (1.0–3.0) → Estado inflamatorio residual de la carga física reciente.", 
+                f"PCR-us = {val_pcr:.2f} mg/L (1.0–3.0) → Estado inflamatorio residual de la carga física reciente.", 
                 "#FFD700"
             ))
 
     # 6. Glucemia
-    if latest_rec.glucose is not None:
-        if latest_rec.glucose < 70.0:
+    val_glu = _v("glucose")
+    if val_glu is not None:
+        if val_glu < 70.0:
             alerts.append((
                 "⚠️", 
                 "Glucemia BAJA (Hipoglucemia en Ayunas)", 
-                f"Glucosa = {latest_rec.glucose:.0f} mg/dL (< 70) → Riesgo de hipoglucemia y fatiga glucolítica en entrenamientos.", 
+                f"Glucosa = {val_glu:.0f} mg/dL (< 70) → Riesgo de hipoglucemia y fatiga glucolítica en entrenamientos.", 
                 "#FF4B4B"
             ))
-        elif latest_rec.glucose > 100.0:
+        elif val_glu > 100.0:
             alerts.append((
                 "⚠️", 
                 "Glucemia ELEVADA en Ayunas", 
-                f"Glucosa = {latest_rec.glucose:.0f} mg/dL (> 100) → Posible alteración en el metabolismo de carbohidratos o estrés agudo.", 
+                f"Glucosa = {val_glu:.0f} mg/dL (> 100) → Posible alteración en el metabolismo de carbohidratos o estrés agudo.", 
                 "#FFD700"
             ))
 
     # 7. Perfil Lipídico
     hdl_min = 50.0 if is_female else 40.0
-    if latest_rec.hdl is not None and latest_rec.hdl < hdl_min:
+    val_hdl = _v("hdl")
+    if val_hdl is not None and val_hdl < hdl_min:
         alerts.append((
             "⚠️", 
             f"Colesterol HDL BAJO ({sex_label})", 
-            f"HDL = {latest_rec.hdl:.0f} mg/dL (< {hdl_min:.0f}) → Nivel subóptimo de colesterol cardioprotector.", 
+            f"HDL = {val_hdl:.0f} mg/dL (< {hdl_min:.0f}) → Nivel subóptimo de colesterol cardioprotector.", 
             "#FFD700"
         ))
-    if latest_rec.ldl is not None and latest_rec.ldl > 130.0:
+    val_ldl = _v("ldl")
+    if val_ldl is not None and val_ldl > 130.0:
         alerts.append((
             "⚠️", 
             "Colesterol LDL ELEVADO", 
-            f"LDL = {latest_rec.ldl:.0f} mg/dL (> 130) → Fracción aterogénica alta. Revisar composición de grasas en la dieta.", 
+            f"LDL = {val_ldl:.0f} mg/dL (> 130) → Fracción aterogénica alta. Revisar composición de grasas en la dieta.", 
             "#FFD700"
         ))
-    if latest_rec.triglycerides is not None and latest_rec.triglycerides > 150.0:
+    val_trig = _v("triglycerides")
+    if val_trig is not None and val_trig > 150.0:
         alerts.append((
             "⚠️", 
             "Triglicéridos ELEVADOS", 
-            f"Triglicéridos = {latest_rec.triglycerides:.0f} mg/dL (> 150) → Ajustar ingesta de azúcares simples y carbohidratos refinados.", 
+            f"Triglicéridos = {val_trig:.0f} mg/dL (> 150) → Ajustar ingesta de azúcares simples y carbohidratos refinados.", 
             "#FFD700"
         ))
 
     # 8. Vitaminas B12 y Ácido Fólico
-    if latest_rec.vitamin_b12 is not None and latest_rec.vitamin_b12 < 300.0:
+    val_b12 = _v("vitamin_b12")
+    if val_b12 is not None and val_b12 < 300.0:
         alerts.append((
             "🚨", 
             "Vitamina B12 BAJA (Deficiencia)", 
-            f"B12 = {latest_rec.vitamin_b12:.0f} pg/mL (< 300) → Riesgo de anemia y fatiga neuromuscular. Considerar suplementación.", 
+            f"B12 = {val_b12:.0f} pg/mL (< 300) → Riesgo de anemia y fatiga neuromuscular. Considerar suplementación.", 
             "#FF4B4B"
         ))
-    if latest_rec.folic_acid is not None and latest_rec.folic_acid < 4.0:
+    val_fol = _v("folic_acid")
+    if val_fol is not None and val_fol < 4.0:
         alerts.append((
             "🚨", 
             "Ácido Fólico BAJO (Deficiencia)", 
-            f"Folato = {latest_rec.folic_acid:.1f} ng/mL (< 4.0) → Aumentar ingesta de vegetales verdes o suplementar.", 
+            f"Folato = {val_fol:.1f} ng/mL (< 4.0) → Aumentar ingesta de vegetales verdes o suplementar.", 
             "#FF4B4B"
         ))
 
     # 9. Patrón anemia ferropénica clásico adaptado
-    if (latest_rec.hemoglobin is not None and latest_rec.hemoglobin < hb_low_threshold and
-        latest_rec.ferritin is not None and latest_rec.ferritin < fer_opt_min):
+    if (val_hb is not None and val_hb < hb_low_threshold and
+        val_fer is not None and val_fer < fer_opt_min):
         alerts.append((
             "🩺", 
             f"PATRÓN: Anemia Ferropénica ({sex_label})", 
