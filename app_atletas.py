@@ -197,6 +197,7 @@ from bloodwork_constants import (
     get_bloodwork_ranges,
     classify_bloodwork_value,
     get_clinical_alerts,
+    generate_endurance_reference_table_html,
 )
 
 def badge_html_ath(label, color):
@@ -1156,23 +1157,10 @@ else:
                                     
                                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                         
-                        # Tabla de referencia al final
+                        # Tabla de referencia completa para deportistas de resistencia (Hombres y Mujeres)
                         st.markdown("---")
-                        with st.expander(f"📖 Tabla de Rangos de Referencia Completa ({gender_badge})", expanded=False):
-                            ref_html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem; background:#121212; border-radius:8px; overflow:hidden;">'
-                            ref_html += '<thead><tr style="background:#1a1a2e; border-bottom:2px solid #00EEFF;">'
-                            ref_html += '<th style="padding:8px; color:#00EEFF; text-align:left;">Biomarcador</th>'
-                            ref_html += '<th style="padding:8px; color:#FF4B4B; text-align:center;">BAJO</th>'
-                            ref_html += '<th style="padding:8px; color:#00FF00; text-align:center;">ÓPTIMO (Atletas)</th>'
-                            ref_html += '<th style="padding:8px; color:#FFD700; text-align:center;">ALTO / ELEVADO</th>'
-                            ref_html += '<th style="padding:8px; color:#888; text-align:center;">Unidad</th>'
-                            ref_html += '</tr></thead><tbody>'
-                            for key in ALL_MARKER_KEYS:
-                                r = BLOODWORK_RANGES_FULL[key]
-                                opt_str = f"{r['opt_lo']}–{r['opt_hi']}" if r['opt_lo'] != r['opt_hi'] else f"{r['opt_lo']}"
-                                ref_html += f'<tr style="border-bottom:1px solid #222;"><td style="padding:8px; color:#FFFFFF; font-weight:bold;">{r["emoji"]} {r["name"]}</td><td style="padding:8px; text-align:center; color:#FF4B4B;">&lt;{r["low"]}</td><td style="padding:8px; text-align:center; color:#00FF00;">{opt_str}</td><td style="padding:8px; text-align:center; color:#FFD700;">&gt;{r["high"]}</td><td style="padding:8px; text-align:center; color:#888;">{r["unit"]}</td></tr>'
-                            ref_html += "</tbody></table>"
-                            st.markdown(ref_html, unsafe_allow_html=True)
+                        with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
+                            st.markdown(generate_endurance_reference_table_html(gender=ath_gender), unsafe_allow_html=True)
                     else:
                         st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la sección de arriba.")
             except Exception as e:

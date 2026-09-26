@@ -518,3 +518,304 @@ def get_clinical_alerts(latest_rec, gender="Hombre"):
         ))
 
     return alerts
+
+
+# ══════════════════════════════════════════════════════════════════
+#  CATÁLOGO MAESTRO DE BIOMARCADORES PARA DEPORTISTAS DE RESISTENCIA
+# ══════════════════════════════════════════════════════════════════
+
+ENDURANCE_MARKERS_CATALOG = [
+    # ── 1. SERIE ROJA Y TRANSPORTE DE OXÍGENO ──
+    {
+        "key": "hemoglobin",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Hemoglobina Total",
+        "emoji": "🔴",
+        "unit": "g/dL",
+        "male_opt": "14.5 – 17.5",
+        "female_opt": "13.0 – 15.5",
+        "male_alert": "< 13.5 (Anemia) | > 18.0 (Viscosidad)",
+        "female_alert": "< 12.0 (Anemia) | > 16.0",
+        "relevance": "Transporte de oxígeno en sangre. Determinante directo del VO₂max y de la capacidad de mantener ritmos de umbral elevados."
+    },
+    {
+        "key": "vcm",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Volumen Corpuscular Medio (VCM)",
+        "emoji": "🔵",
+        "unit": "fL",
+        "male_opt": "82.0 – 96.0",
+        "female_opt": "82.0 – 96.0",
+        "male_alert": "< 80.0 (Microcitosis / Fe↓) | > 98.0 (B12/Folato↓)",
+        "female_alert": "< 80.0 (Microcitosis / Fe↓) | > 98.0 (B12/Folato↓)",
+        "relevance": "Tamaño del eritrocito. Si baja (<80) orienta a falta de hierro; si sube (>98) a déficit de B12 o reticulocitosis por altitud."
+    },
+    {
+        "key": "chcm",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Conc. Hb Corpuscular Media",
+        "emoji": "🟡",
+        "unit": "g/dL",
+        "male_opt": "33.0 – 36.0",
+        "female_opt": "33.0 – 36.0",
+        "male_alert": "< 32.0 (Hipocromía) | > 36.5",
+        "female_alert": "< 32.0 (Hipocromía) | > 36.5",
+        "relevance": "Concentración de hemoglobina por eritrocito. Garantiza la capacidad de saturación de oxígeno por célula."
+    },
+    {
+        "key": "rbc",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Glóbulos Rojos (Conteo Eritrocitario)",
+        "emoji": "⭕",
+        "unit": "×10⁶/μL",
+        "male_opt": "4.50 – 5.80",
+        "female_opt": "4.00 – 5.20",
+        "male_alert": "< 4.30 | > 6.00",
+        "female_alert": "< 3.80 | > 5.50",
+        "relevance": "Masa total de transportadores de gas. Puede mostrar hemodilución adaptativa por expansión de plasma en atletas aeróbicos."
+    },
+    {
+        "key": "hematocrit",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Hematocrito",
+        "emoji": "🩸",
+        "unit": "%",
+        "male_opt": "42.0% – 50.0%",
+        "female_opt": "38.0% – 46.0%",
+        "male_alert": "< 40.0% | > 52.0% (Viscosidad alta)",
+        "female_alert": "< 36.0% | > 48.0%",
+        "relevance": "Porcentaje de glóbulos rojos sobre el volumen sanguíneo. Vital para monitorear hidratación y respuesta a concentración en altura."
+    },
+    {
+        "key": "ferritin",
+        "category": "🔴 SERIE ROJA Y TRANSPORTE DE OXÍGENO",
+        "name": "Ferritina Sérica (Depósito de Hierro)",
+        "emoji": "🧲",
+        "unit": "ng/mL",
+        "male_opt": "50.0 – 250.0",
+        "female_opt": "40.0 – 150.0",
+        "male_alert": "< 50.0 (Subóptimo) | < 30.0 (Crítico)",
+        "female_alert": "< 35.0 (Subóptimo) | < 20.0 (Crítico)",
+        "relevance": "Reserva de hierro corporal para síntesis de hemoglobina y mioglobina. En mujeres y corredores es el primer biomarcador en caer por impacto y pérdidas."
+    },
+
+    # ── 2. DAÑO MUSCULAR Y METABOLISMO CELULAR ──
+    {
+        "key": "ck",
+        "category": "⚡ DAÑO MUSCULAR Y VITAMINAS",
+        "name": "Creatina Kinasa (CK Total)",
+        "emoji": "⚡",
+        "unit": "U/L",
+        "male_opt": "50 – 250 (Basal)",
+        "female_opt": "40 – 180 (Basal)",
+        "male_alert": "> 350 (Carga alta) | > 1000 (Riesgo lesión)",
+        "female_alert": "> 250 (Carga alta) | > 800 (Riesgo lesión)",
+        "relevance": "Marcador de microrotura y estrés muscular por impacto excéntrico o volumen. Guía la intensidad de las semanas de descarga."
+    },
+    {
+        "key": "vitamin_b12",
+        "category": "⚡ DAÑO MUSCULAR Y VITAMINAS",
+        "name": "Vitamina B12 (Cobalamina)",
+        "emoji": "💊",
+        "unit": "pg/mL",
+        "male_opt": "400 – 900",
+        "female_opt": "400 – 900",
+        "male_alert": "< 300 (Deficiencia) | < 400 (Límite)",
+        "female_alert": "< 300 (Deficiencia) | < 400 (Límite)",
+        "relevance": "Esencial para la síntesis de glóbulos rojos, sistema nervioso neuromuscular y metabolismo energético celular."
+    },
+    {
+        "key": "folic_acid",
+        "category": "⚡ DAÑO MUSCULAR Y VITAMINAS",
+        "name": "Ácido Fólico (Vitamina B9)",
+        "emoji": "🥬",
+        "unit": "ng/mL",
+        "male_opt": "6.0 – 18.0",
+        "female_opt": "6.0 – 18.0",
+        "male_alert": "< 4.0 (Deficiencia) | < 6.0 (Subóptimo)",
+        "female_alert": "< 4.0 (Deficiencia) | < 6.0 (Subóptimo)",
+        "relevance": "Coenzima imprescindible en la división celular y reparación tisular. Actúa en sinergia con la B12 en el rendimiento aeróbico."
+    },
+
+    # ── 3. PERFIL LIPÍDICO Y CARDIOVASCULAR ──
+    {
+        "key": "total_cholesterol",
+        "category": "🫀 PERFIL LIPÍDICO CARDIOVASCULAR",
+        "name": "Colesterol Total",
+        "emoji": "🫀",
+        "unit": "mg/dL",
+        "male_opt": "130 – 190",
+        "female_opt": "130 – 190",
+        "male_alert": "< 120 (Déficit esteroideo) | > 200",
+        "female_alert": "< 120 (Déficit esteroideo) | > 200",
+        "relevance": "Precursor indispensable de hormonas esteroideas (testosterona, estrógenos, cortisol). Valores < 120 mg/dL alertan de baja disponibilidad energética (RED-S)."
+    },
+    {
+        "key": "hdl",
+        "category": "🫀 PERFIL LIPÍDICO CARDIOVASCULAR",
+        "name": "Colesterol HDL (Cardioprotector)",
+        "emoji": "🛡️",
+        "unit": "mg/dL",
+        "male_opt": "50 – 85",
+        "female_opt": "60 – 95",
+        "male_alert": "< 40 (Riesgo)",
+        "female_alert": "< 50 (Riesgo)",
+        "relevance": "Transporte inverso de colesterol. Fisiológicamente más elevado en mujeres por acción de estrógenos endógenos."
+    },
+    {
+        "key": "ldl",
+        "category": "🫀 PERFIL LIPÍDICO CARDIOVASCULAR",
+        "name": "Colesterol LDL (Fracción Aterogénica)",
+        "emoji": "⚠️",
+        "unit": "mg/dL",
+        "male_opt": "50 – 100",
+        "female_opt": "50 – 100",
+        "male_alert": "> 130 (Elevado) | > 160 (Alto)",
+        "female_alert": "> 130 (Elevado) | > 160 (Alto)",
+        "relevance": "Fracción lipoproteica aterogénica. Debe vigilarse en atletas con dietas muy altas en grasas saturadas o cetogénicas."
+    },
+    {
+        "key": "triglycerides",
+        "category": "🫀 PERFIL LIPÍDICO CARDIOVASCULAR",
+        "name": "Triglicéridos",
+        "emoji": "🧪",
+        "unit": "mg/dL",
+        "male_opt": "50 – 120",
+        "female_opt": "50 – 120",
+        "male_alert": "> 150 (Elevado) | > 200 (Alto)",
+        "female_alert": "> 150 (Elevado) | > 200 (Alto)",
+        "relevance": "Sustrato de grasas circulantes. En atletas de resistencia suelen mantenerse muy bajos gracias a la continua beta-oxidación de ácidos grasos."
+    },
+
+    # ── 4. GLUCEMIA, HBA1C E INFLAMACIÓN ──
+    {
+        "key": "glucose",
+        "category": "🍯 METABOLISMO GLUCÍDICO E INFLAMACIÓN",
+        "name": "Glucemia Basal (Ayunas)",
+        "emoji": "🍯",
+        "unit": "mg/dL",
+        "male_opt": "75 – 95",
+        "female_opt": "75 – 95",
+        "male_alert": "< 70 (Hipoglucemia) | > 100 (Prediabetes)",
+        "female_alert": "< 70 (Hipoglucemia) | > 100 (Prediabetes)",
+        "relevance": "Nivel de glucosa en reposo. Evalúa la sensibilidad a la insulina y previene fatiga glucolítica matutina en entrenos intensos."
+    },
+    {
+        "key": "hba1c",
+        "category": "🍯 METABOLISMO GLUCÍDICO E INFLAMACIÓN",
+        "name": "Hemoglobina Glicosilada (HbA1c)",
+        "emoji": "🧬",
+        "unit": "%",
+        "male_opt": "4.8% – 5.4%",
+        "female_opt": "4.8% – 5.4%",
+        "male_alert": "≥ 5.7% (Prediabetes) | ≥ 6.5% (Diabetes)",
+        "female_alert": "≥ 5.7% (Prediabetes) | ≥ 6.5% (Diabetes)",
+        "relevance": "Promedio glucémico de los últimos 90 días. Descarte 'gold standard' de resistencia a la insulina o picos glucémicos crónicos inadvertidos."
+    },
+    {
+        "key": "pcr_us",
+        "category": "🍯 METABOLISMO GLUCÍDICO E INFLAMACIÓN",
+        "name": "PCR Ultra Sensible (hs-CRP)",
+        "emoji": "🔥",
+        "unit": "mg/L",
+        "male_opt": "< 1.0 (Sin inflamación)",
+        "female_opt": "< 1.0 (Sin inflamación)",
+        "male_alert": "1.0 – 3.0 (Estrés entrenamiento) | > 3.0 (Inflamación alta)",
+        "female_alert": "1.0 – 3.0 (Estrés entrenamiento) | > 3.0 (Inflamación alta)",
+        "relevance": "Reactante de fase aguda. Permite diferenciar entre una fatiga normal post-entreno (<1.0 mg/L) y un estado inflamatorio crónico o infección (>3.0 mg/L)."
+    }
+]
+
+
+def generate_endurance_reference_table_html(gender="Hombre") -> str:
+    """
+    Genera el HTML completo de la Tabla de Referencia Médica y Deportiva,
+    mostrando los rangos de Hombres y Mujeres adaptados a deportes de resistencia aeróbica,
+    con resaltado del perfil actualmente activo.
+    """
+    is_female = str(gender).strip().lower() in ["mujer", "femenino", "f", "female"]
+    active_label = "👩 Mujer" if is_female else "👨 Hombre"
+    
+    male_bg = "background: rgba(0, 238, 255, 0.12); border-left: 2px solid #00EEFF; border-right: 2px solid #00EEFF;" if not is_female else "background: rgba(255, 255, 255, 0.02);"
+    female_bg = "background: rgba(255, 118, 117, 0.15); border-left: 2px solid #FF7675; border-right: 2px solid #FF7675;" if is_female else "background: rgba(255, 255, 255, 0.02);"
+
+    html = f"""
+    <div style="background: #0E1118; border: 1.5px solid #00EEFF44; border-radius: 12px; padding: 16px; margin-top: 10px; overflow-x: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <h4 style="color: #00EEFF; margin: 0; font-size: 1.05rem;">
+                📚 GUÍA MAESTRA DE BIOMARCADORES — DEPORTISTAS DE RESISTENCIA
+            </h4>
+            <span style="background: {'rgba(255, 118, 117, 0.25)' if is_female else 'rgba(0, 238, 255, 0.2)'}; color: {'#FF7675' if is_female else '#00EEFF'}; font-weight: bold; padding: 4px 10px; border-radius: 8px; font-size: 0.82rem; border: 1px solid {'#FF7675' if is_female else '#00EEFF'};">
+                Perfil Activo: {active_label}
+            </span>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #FFFFFF; min-width: 900px;">
+            <thead>
+                <tr style="background: #141724; border-bottom: 2px solid #00EEFF;">
+                    <th style="padding: 10px; text-align: left; color: #00EEFF; width: 22%;">Biomarcador</th>
+                    <th style="padding: 10px; text-align: center; color: #00EEFF; width: 15%; {male_bg}">👨 Óptimo Atletas Hombres</th>
+                    <th style="padding: 10px; text-align: center; color: #FF7675; width: 15%; {female_bg}">👩 Óptimo Atletas Mujeres</th>
+                    <th style="padding: 10px; text-align: center; color: #FFD700; width: 18%;">⚠️ Límites / Alertas</th>
+                    <th style="padding: 10px; text-align: center; color: #888888; width: 8%;">Unidad</th>
+                    <th style="padding: 10px; text-align: left; color: #A55EEA; width: 22%;">🎯 Relevancia en Resistencia</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+
+    current_cat = None
+    for item in ENDURANCE_MARKERS_CATALOG:
+        if item["category"] != current_cat:
+            current_cat = item["category"]
+            html += f"""
+                <tr style="background: #1B2032; border-top: 1.5px solid rgba(0, 238, 255, 0.3);">
+                    <td colspan="6" style="padding: 7px 12px; font-weight: 800; font-size: 0.8rem; color: #00EEFF; letter-spacing: 0.5px;">
+                        {current_cat}
+                    </td>
+                </tr>
+            """
+        
+        m_style = male_bg
+        f_style = female_bg
+
+        html += f"""
+            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(18, 22, 34, 0.4);">
+                <td style="padding: 9px 10px; font-weight: 600;">
+                    {item['emoji']} {item['name']}
+                </td>
+                <td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #00EEFF; {m_style}">
+                    {item['male_opt']}
+                </td>
+                <td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #FF7675; {f_style}">
+                    {item['female_opt']}
+                </td>
+                <td style="padding: 9px 8px; text-align: center; font-size: 0.77rem; color: #E0E0E0;">
+                    {'H: ' + item['male_alert'] + '<br>M: ' + item['female_alert'] if item['male_alert'] != item['female_alert'] else item['male_alert']}
+                </td>
+                <td style="padding: 9px 6px; text-align: center; color: #888888; font-size: 0.78rem;">
+                    {item['unit']}
+                </td>
+                <td style="padding: 9px 10px; font-size: 0.76rem; color: #CCCCCC; line-height: 1.35;">
+                    {item['relevance']}
+                </td>
+            </tr>
+        """
+
+    html += """
+            </tbody>
+        </table>
+
+        <!-- Notas clínicas para deportistas -->
+        <div style="margin-top: 14px; padding: 12px; background: rgba(0, 238, 255, 0.04); border-left: 3px solid #00EEFF; border-radius: 8px; font-size: 0.78rem; color: #DDDDDD; line-height: 1.45;">
+            <p style="margin: 0 0 6px 0;"><strong style="color: #00EEFF;">💡 Fisiología Aeróbica Aplicada:</strong></p>
+            <ul style="margin: 0; padding-left: 18px;">
+                <li><strong style="color: #48DBFB;">Pseudoanemia del Deportista:</strong> En atletas de resistencia bien entrenados, el volumen plasmático se expande hasta un 15-20% por adaptaciones cardiovasculares. Esto diluye fisiológicamente la hemoglobina y hematocrito sin que exista una verdadera deficiencia eritrocitaria, siempre que la ferritina se mantenga óptima.</li>
+                <li><strong style="color: #FF7675;">Manejo de Ferritina en Mujeres Atletas:</strong> Debido a pérdidas menstruales y hemólisis por pisada (foot-strike hemolysis), una ferritina inferior a 35 ng/mL en mujeres suele provocar fatiga neuromuscular prematura y estancamiento del rendimiento aeróbico, incluso antes de que caiga la hemoglobina.</li>
+                <li><strong style="color: #FECA57;">Cinética de la Creatina Kinasa (CK):</strong> La elevación de CK refleja microroturas del sarcolema muscular. Su pico se alcanza entre las 24 y 48 horas post-esfuerzo intenso. Valores basales persistentemente elevados (> 250 U/L en mujeres, > 350 U/L en hombres) alertan de sobreentrenamiento y exigen periodos de descarga.</li>
+            </ul>
+        </div>
+    </div>
+    """
+    return html
+
