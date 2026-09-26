@@ -732,90 +732,76 @@ def generate_endurance_reference_table_html(gender="Hombre") -> str:
     Genera el HTML completo de la Tabla de Referencia Médica y Deportiva,
     mostrando los rangos de Hombres y Mujeres adaptados a deportes de resistencia aeróbica,
     con resaltado del perfil actualmente activo.
+    Generado sin sangrías para evitar que Markdown lo interprete como bloque de código.
     """
     is_female = str(gender).strip().lower() in ["mujer", "femenino", "f", "female"]
     active_label = "👩 Mujer" if is_female else "👨 Hombre"
+    badge_bg = "rgba(255, 118, 117, 0.25)" if is_female else "rgba(0, 238, 255, 0.2)"
+    badge_color = "#FF7675" if is_female else "#00EEFF"
+    badge_border = "#FF7675" if is_female else "#00EEFF"
     
     male_bg = "background: rgba(0, 238, 255, 0.12); border-left: 2px solid #00EEFF; border-right: 2px solid #00EEFF;" if not is_female else "background: rgba(255, 255, 255, 0.02);"
     female_bg = "background: rgba(255, 118, 117, 0.15); border-left: 2px solid #FF7675; border-right: 2px solid #FF7675;" if is_female else "background: rgba(255, 255, 255, 0.02);"
 
-    html = f"""
-    <div style="background: #0E1118; border: 1.5px solid #00EEFF44; border-radius: 12px; padding: 16px; margin-top: 10px; overflow-x: auto;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-            <h4 style="color: #00EEFF; margin: 0; font-size: 1.05rem;">
-                📚 GUÍA MAESTRA DE BIOMARCADORES — DEPORTISTAS DE RESISTENCIA
-            </h4>
-            <span style="background: {'rgba(255, 118, 117, 0.25)' if is_female else 'rgba(0, 238, 255, 0.2)'}; color: {'#FF7675' if is_female else '#00EEFF'}; font-weight: bold; padding: 4px 10px; border-radius: 8px; font-size: 0.82rem; border: 1px solid {'#FF7675' if is_female else '#00EEFF'};">
-                Perfil Activo: {active_label}
-            </span>
-        </div>
-
-        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #FFFFFF; min-width: 900px;">
-            <thead>
-                <tr style="background: #141724; border-bottom: 2px solid #00EEFF;">
-                    <th style="padding: 10px; text-align: left; color: #00EEFF; width: 22%;">Biomarcador</th>
-                    <th style="padding: 10px; text-align: center; color: #00EEFF; width: 15%; {male_bg}">👨 Óptimo Atletas Hombres</th>
-                    <th style="padding: 10px; text-align: center; color: #FF7675; width: 15%; {female_bg}">👩 Óptimo Atletas Mujeres</th>
-                    <th style="padding: 10px; text-align: center; color: #FFD700; width: 18%;">⚠️ Límites / Alertas</th>
-                    <th style="padding: 10px; text-align: center; color: #888888; width: 8%;">Unidad</th>
-                    <th style="padding: 10px; text-align: left; color: #A55EEA; width: 22%;">🎯 Relevancia en Resistencia</th>
-                </tr>
-            </thead>
-            <tbody>
-    """
-
+    rows_html = []
     current_cat = None
     for item in ENDURANCE_MARKERS_CATALOG:
         if item["category"] != current_cat:
             current_cat = item["category"]
-            html += f"""
-                <tr style="background: #1B2032; border-top: 1.5px solid rgba(0, 238, 255, 0.3);">
-                    <td colspan="6" style="padding: 7px 12px; font-weight: 800; font-size: 0.8rem; color: #00EEFF; letter-spacing: 0.5px;">
-                        {current_cat}
-                    </td>
-                </tr>
-            """
+            rows_html.append(
+                f'<tr style="background: #1B2032; border-top: 1.5px solid rgba(0, 238, 255, 0.3);">'
+                f'<td colspan="6" style="padding: 7px 12px; font-weight: 800; font-size: 0.8rem; color: #00EEFF; letter-spacing: 0.5px;">'
+                f'{current_cat}'
+                f'</td></tr>'
+            )
         
         m_style = male_bg
         f_style = female_bg
+        alert_str = ('H: ' + item['male_alert'] + '<br>M: ' + item['female_alert']) if item['male_alert'] != item['female_alert'] else item['male_alert']
 
-        html += f"""
-            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(18, 22, 34, 0.4);">
-                <td style="padding: 9px 10px; font-weight: 600;">
-                    {item['emoji']} {item['name']}
-                </td>
-                <td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #00EEFF; {m_style}">
-                    {item['male_opt']}
-                </td>
-                <td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #FF7675; {f_style}">
-                    {item['female_opt']}
-                </td>
-                <td style="padding: 9px 8px; text-align: center; font-size: 0.77rem; color: #E0E0E0;">
-                    {'H: ' + item['male_alert'] + '<br>M: ' + item['female_alert'] if item['male_alert'] != item['female_alert'] else item['male_alert']}
-                </td>
-                <td style="padding: 9px 6px; text-align: center; color: #888888; font-size: 0.78rem;">
-                    {item['unit']}
-                </td>
-                <td style="padding: 9px 10px; font-size: 0.76rem; color: #CCCCCC; line-height: 1.35;">
-                    {item['relevance']}
-                </td>
-            </tr>
-        """
+        rows_html.append(
+            f'<tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(18, 22, 34, 0.4);">'
+            f'<td style="padding: 9px 10px; font-weight: 600;">{item["emoji"]} {item["name"]}</td>'
+            f'<td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #00EEFF; {m_style}">{item["male_opt"]}</td>'
+            f'<td style="padding: 9px 8px; text-align: center; font-weight: bold; color: #FF7675; {f_style}">{item["female_opt"]}</td>'
+            f'<td style="padding: 9px 8px; text-align: center; font-size: 0.77rem; color: #E0E0E0;">{alert_str}</td>'
+            f'<td style="padding: 9px 6px; text-align: center; color: #888888; font-size: 0.78rem;">{item["unit"]}</td>'
+            f'<td style="padding: 9px 10px; font-size: 0.76rem; color: #CCCCCC; line-height: 1.35;">{item["relevance"]}</td>'
+            f'</tr>'
+        )
 
-    html += """
-            </tbody>
-        </table>
+    all_rows = "".join(rows_html)
 
-        <!-- Notas clínicas para deportistas -->
-        <div style="margin-top: 14px; padding: 12px; background: rgba(0, 238, 255, 0.04); border-left: 3px solid #00EEFF; border-radius: 8px; font-size: 0.78rem; color: #DDDDDD; line-height: 1.45;">
-            <p style="margin: 0 0 6px 0;"><strong style="color: #00EEFF;">💡 Fisiología Aeróbica Aplicada:</strong></p>
-            <ul style="margin: 0; padding-left: 18px;">
-                <li><strong style="color: #48DBFB;">Pseudoanemia del Deportista:</strong> En atletas de resistencia bien entrenados, el volumen plasmático se expande hasta un 15-20% por adaptaciones cardiovasculares. Esto diluye fisiológicamente la hemoglobina y hematocrito sin que exista una verdadera deficiencia eritrocitaria, siempre que la ferritina se mantenga óptima.</li>
-                <li><strong style="color: #FF7675;">Manejo de Ferritina en Mujeres Atletas:</strong> Debido a pérdidas menstruales y hemólisis por pisada (foot-strike hemolysis), una ferritina inferior a 35 ng/mL en mujeres suele provocar fatiga neuromuscular prematura y estancamiento del rendimiento aeróbico, incluso antes de que caiga la hemoglobina.</li>
-                <li><strong style="color: #FECA57;">Cinética de la Creatina Kinasa (CK):</strong> La elevación de CK refleja microroturas del sarcolema muscular. Su pico se alcanza entre las 24 y 48 horas post-esfuerzo intenso. Valores basales persistentemente elevados (> 250 U/L en mujeres, > 350 U/L en hombres) alertan de sobreentrenamiento y exigen periodos de descarga.</li>
-            </ul>
-        </div>
-    </div>
-    """
+    html = (
+        f'<div style="background: #0E1118; border: 1.5px solid #00EEFF44; border-radius: 12px; padding: 16px; margin-top: 10px; overflow-x: auto;">'
+        f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">'
+        f'<h4 style="color: #00EEFF; margin: 0; font-size: 1.05rem;">📚 GUÍA MAESTRA DE BIOMARCADORES — DEPORTISTAS DE RESISTENCIA</h4>'
+        f'<span style="background: {badge_bg}; color: {badge_color}; font-weight: bold; padding: 4px 10px; border-radius: 8px; font-size: 0.82rem; border: 1px solid {badge_border};">'
+        f'Perfil Activo: {active_label}'
+        f'</span>'
+        f'</div>'
+        f'<table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #FFFFFF; min-width: 900px;">'
+        f'<thead>'
+        f'<tr style="background: #141724; border-bottom: 2px solid #00EEFF;">'
+        f'<th style="padding: 10px; text-align: left; color: #00EEFF; width: 22%;">Biomarcador</th>'
+        f'<th style="padding: 10px; text-align: center; color: #00EEFF; width: 15%; {male_bg}">👨 Óptimo Atletas Hombres</th>'
+        f'<th style="padding: 10px; text-align: center; color: #FF7675; width: 15%; {female_bg}">👩 Óptimo Atletas Mujeres</th>'
+        f'<th style="padding: 10px; text-align: center; color: #FFD700; width: 18%;">⚠️ Límites / Alertas</th>'
+        f'<th style="padding: 10px; text-align: center; color: #888888; width: 8%;">Unidad</th>'
+        f'<th style="padding: 10px; text-align: left; color: #A55EEA; width: 22%;">🎯 Relevancia en el Rendimiento</th>'
+        f'</tr>'
+        f'</thead>'
+        f'<tbody>{all_rows}</tbody>'
+        f'</table>'
+        f'<div style="margin-top: 14px; padding: 12px; background: rgba(0, 238, 255, 0.04); border-left: 3px solid #00EEFF; border-radius: 8px; font-size: 0.78rem; color: #DDDDDD; line-height: 1.45;">'
+        f'<p style="margin: 0 0 6px 0;"><strong style="color: #00EEFF;">💡 Fisiología del Rendimiento Aeróbico Aplicada:</strong></p>'
+        f'<ul style="margin: 0; padding-left: 18px;">'
+        f'<li><strong style="color: #48DBFB;">Pseudoanemia del Deportista:</strong> En atletas de resistencia bien entrenados, el volumen plasmático se expande hasta un 15-20% por adaptaciones cardiovasculares. Esto diluye fisiológicamente la hemoglobina y hematocrito sin que exista una verdadera deficiencia eritrocitaria, siempre que la ferritina se mantenga óptima.</li>'
+        f'<li><strong style="color: #FF7675;">Manejo de Ferritina en Mujeres Atletas:</strong> Debido a pérdidas menstruales y hemólisis por pisada (foot-strike hemolysis), una ferritina inferior a 35 ng/mL en mujeres suele provocar fatiga neuromuscular prematura y estancamiento del rendimiento aeróbico, incluso antes de que caiga la hemoglobina.</li>'
+        f'<li><strong style="color: #FECA57;">Cinética de la Creatina Kinasa (CK):</strong> La elevación de CK refleja microroturas del sarcolema muscular. Su pico se alcanza entre las 24 y 48 horas post-esfuerzo intenso. Valores basales persistentemente elevados (> 250 U/L en mujeres, > 350 U/L en hombres) alertan de sobreentrenamiento y exigen periodos de descarga.</li>'
+        f'</ul>'
+        f'</div>'
+        f'</div>'
+    )
     return html
 

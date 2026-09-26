@@ -2714,7 +2714,11 @@ elif page == "🩸 Marcadores Clínicos":
                 # ── Tabla de referencia rápida (Hombres y Mujeres Atletas) ──
                 st.markdown("---")
                 with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
-                    st.markdown(generate_endurance_reference_table_html(gender=athlete_gender), unsafe_allow_html=True)
+                    ref_html = generate_endurance_reference_table_html(gender=athlete_gender)
+                    try:
+                        st.html(ref_html)
+                    except AttributeError:
+                        st.markdown(ref_html, unsafe_allow_html=True)
 
 
 

@@ -1160,7 +1160,11 @@ else:
                         # Tabla de referencia completa para deportistas de resistencia (Hombres y Mujeres)
                         st.markdown("---")
                         with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
-                            st.markdown(generate_endurance_reference_table_html(gender=ath_gender), unsafe_allow_html=True)
+                            ref_html = generate_endurance_reference_table_html(gender=ath_gender)
+                            try:
+                                st.html(ref_html)
+                            except AttributeError:
+                                st.markdown(ref_html, unsafe_allow_html=True)
                     else:
                         st.info("Aún no tienes exámenes de sangre registrados. Puedes cargar uno en la sección de arriba.")
             except Exception as e:
