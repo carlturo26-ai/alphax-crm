@@ -751,15 +751,23 @@ else:
     else:
         st.markdown(hud_html, unsafe_allow_html=True)
 
-    # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA (UNIFICADAS EN 3) ───
-    tab_sleep, tab_bw, tab_lac = st.tabs([
-        "💤 Sueño (ASSQ)",
+    # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA ──────────────────────
+    tab_wolfy, tab_bw, tab_lac, tab_sleep = st.tabs([
+        "🐺 Wolfy AI Coach",
         "🩸 Hemogramas",
-        "🧪 Pruebas de Lactato"
+        "🧪 Pruebas de Lactato",
+        "💤 Sueño (ASSQ)"
     ])
 
     # ══════════════════════════════════════════════════════════════════
-    #  PESTAÑA 1: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)
+    #  PESTAÑA 1: WOLFY AI COACH (MENTOR DEPORTIVO Y ASISTENTE ALPHAX)
+    # ══════════════════════════════════════════════════════════════════
+    with tab_wolfy:
+        import wolfy_bot
+        wolfy_bot.render_wolfy_tab(member_id)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  PESTAÑA 2: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)
     # ══════════════════════════════════════════════════════════════════
     with tab_sleep:
         st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: bold;'>📈 EVOLUCIÓN Y ESTADO DE SUEÑO (ASSQ)</h3>", unsafe_allow_html=True)

@@ -199,7 +199,7 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "🩸 Marcadores Clínicos"])
+    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "🩸 Marcadores Clínicos", "🐺 Wolfy AI Coach"])
 
 
     
@@ -2735,6 +2735,21 @@ elif page == "🩸 Marcadores Clínicos":
                         st.html(ref_html)
                     except AttributeError:
                         st.markdown(ref_html, unsafe_allow_html=True)
+
+elif page == "🐺 Wolfy AI Coach":
+    session = SessionLocal()
+    try:
+        active_athletes = session.query(Member).order_by(Member.name).all()
+        ath_dict = {f"{m.name} ({m.gender or 'Hombre'} - {m.group or 'AlphaX'})": m.id for m in active_athletes}
+        if ath_dict:
+            sel_ath_label = st.selectbox("🎯 Seleccionar atleta para el análisis de Wolfy:", list(ath_dict.keys()), key="wolfy_admin_athlete")
+            selected_member_id = ath_dict[sel_ath_label]
+            import wolfy_bot
+            wolfy_bot.render_wolfy_tab(selected_member_id)
+        else:
+            st.info("No hay atletas registrados en el CRM.")
+    finally:
+        session.close()
 
 
 
