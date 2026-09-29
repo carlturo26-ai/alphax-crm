@@ -232,13 +232,25 @@ def _extract_with_ocr_pdf(file_bytes: bytes, password: str = None) -> str:
                 return "[ERROR] PDF protegido con contraseña. Ingresa la clave."
 
         all_text = []
+        from PIL import ImageEnhance
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
+            # Preprocesamiento de imagen para nitidez de números (evita que el 8 se lea como 5)
             try:
-                text = pytesseract.image_to_string(img, lang="spa")
+                img_gray = img.convert("L")
+                enhancer = ImageEnhance.Contrast(img_gray)
+                img_proc = enhancer.enhance(1.8)
             except Exception:
-                text = pytesseract.image_to_string(img)
+                img_proc = img
+
+            try:
+                text = pytesseract.image_to_string(img_proc, lang="spa")
+            except Exception:
+                try:
+                    text = pytesseract.image_to_string(img_proc)
+                except Exception:
+                    text = pytesseract.image_to_string(img)
             if text:
                 all_text.append(text)
         doc.close()
@@ -600,18 +612,16 @@ MARKER_SPECS = [
             r"prote[ií]na\s+c\s+reactiva\s+ultra\s*sensible",
             r"prote[ií]na\s+c\s+reactiva\s+de\s+alta\s+sensibilidad",
             r"prote[ií]na\s+c\s+reactiva\s+cuantitativa\s+(?:ultra\s*sensible|alta\s+sensibilidad)",
-            r"prote[ií]na\s+c\s+reactiva\s+cuantitativa",
             r"pcr\s+ultra\s*sensible",
             r"pcr\s*[-_]?\s*us\b",
             r"pcr\s*[-_]?\s*as\b",
-            r"pcr\s+cuantitativa",
             r"hs[-_\s]?crp\b",
             r"crp[-_\s]?hs\b",
             r"high\s+sensitivity\s+c[-_\s]?reactive\s+protein",
-            r"prote[ií]na\s+c\s+reactiva",
-            r"\bpcr\b"
+            r"prote[ií]na\s+c\s+reactiva\s+cuantitativa(?!\s*semicuantitativa)",
+            r"\bpcr\s+cuantitativa\b(?!\s*semicuantitativa)"
         ],
-        r"(?:prote[ií]nas\s+totales|proteinuria|orina|electroforesis)",
+        r"(?:semicuantitativa|cualitativa|aglutinaci[oó]n|l[aá]tex|t[ií]tulo|diluci[oó]n|negativ[oa]|positiv[oa]|prote[ií]nas?\s+totales?|proteinuria|orina|electroforesis)",
         (0.01, 50.0),
         lambda v, u: v * 10.0 if "mg/dl" in u.lower() else v
     )
@@ -799,6 +809,22 @@ def parse_hemograma(text: str) -> dict:
     if result["ck"] and result["ck"] < 15.0:
         result["ck"] = None
         found = sum(1 for k in result if k in [s[0] for s in MARKER_SPECS] and result[k] is not None)
+
+    # ── Validación de dígitos OCR en Hematocrito (Fórmula de Wintrobe: Hto ≈ VCM * RBC / 10)
+    # En escaneos, el dígito '8' suele ser confundido por OCR como '5' (ej. 48.4 leído como 45.4)
+    if result["hematocrit"] and result["vcm"] and result["rbc"]:
+        expected_hto = (result["vcm"] * result["rbc"]) / 10.0
+        if abs(result["hematocrit"] - expected_hto) > 1.5:
+            s_hto = str(result["hematocrit"])
+            for old_char in ["5", "3"]:
+                if old_char in s_hto:
+                    try:
+                        cand_hto = float(s_hto.replace(old_char, "8", 1))
+                        if abs(cand_hto - expected_hto) < 0.6:
+                            result["hematocrit"] = round(cand_hto, 2)
+                            break
+                    except Exception:
+                        pass
 
     result["markers_found"] = found
     return result

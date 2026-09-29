@@ -2550,6 +2550,9 @@ elif page == "🩸 Marcadores Clínicos":
                                     else:
                                         st.session_state["parsed_bw_data"] = parsed_info
                                         st.session_state["parsed_bw_filename"] = auto_file.name
+                                        # Limpiar keys de sesión de widgets para que carguen los nuevos valores parseados
+                                        for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr"]:
+                                            st.session_state.pop(k, None)
                                         st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
                                         st.rerun()
                                 except Exception as parse_err:
@@ -2558,10 +2561,12 @@ elif page == "🩸 Marcadores Clínicos":
                 parsed_data = st.session_state.get("parsed_bw_data", {})
                 
                 if parsed_data:
-                    st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos antes de guardar.")
+                    st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos o vaciar cualquier casilla antes de guardar.")
                     if st.button("🗑️ Limpiar autocompletado"):
                         st.session_state.pop("parsed_bw_data", None)
                         st.session_state.pop("parsed_bw_filename", None)
+                        for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
+                            st.session_state.pop(k, None)
                         st.rerun()
                     with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
                         st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
@@ -2612,65 +2617,74 @@ elif page == "🩸 Marcadores Clínicos":
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         r_hb = BLOODWORK_RANGES["hemoglobin"]
-                        bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=0.0, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
+                        bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=None, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
                         r_vcm = BLOODWORK_RANGES["vcm"]
-                        bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=0.0, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
+                        bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=None, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
                     with c2:
                         r_chcm = BLOODWORK_RANGES["chcm"]
-                        bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=0.0, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
+                        bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=None, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
                         r_rbc = BLOODWORK_RANGES["rbc"]
-                        bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=0.0, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
+                        bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=None, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
                     with c3:
                         r_hto = BLOODWORK_RANGES["hematocrit"]
-                        bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=0.0, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
+                        bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=None, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
                         r_fer = BLOODWORK_RANGES["ferritin"]
-                        bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=0.0, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
+                        bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=None, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
 
                     st.markdown("### ⚡ 2. Daño Muscular y Vitaminas")
                     c4, c5, c6 = st.columns(3)
                     with c4:
                         r_ck = BLOODWORK_RANGES["ck"]
-                        bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=0.0, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
+                        bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=None, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
                     with c5:
                         r_b12 = BLOODWORK_RANGES["vitamin_b12"]
-                        bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=0.0, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
+                        bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=None, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
                     with c6:
                         r_fol = BLOODWORK_RANGES["folic_acid"]
-                        bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=0.0, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
+                        bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=None, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
 
                     st.markdown("### 🫀 3. Perfil Lipídico Cardiovascular")
                     c7, c8, c9, c10 = st.columns(4)
                     with c7:
                         r_chol = BLOODWORK_RANGES["total_cholesterol"]
-                        bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=0.0, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
+                        bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=None, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
                     with c8:
                         r_hdl = BLOODWORK_RANGES["hdl"]
-                        bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=0.0, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
+                        bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=None, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
                     with c9:
                         r_ldl = BLOODWORK_RANGES["ldl"]
-                        bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=0.0, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
+                        bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=None, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
                     with c10:
                         r_trig = BLOODWORK_RANGES["triglycerides"]
-                        bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=0.0, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
+                        bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=None, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
 
                     st.markdown("### 🍯 4. Glucemia, HbA1c e Inflamación Sistémica")
                     c11, c12, c13 = st.columns(3)
                     with c11:
                         r_glu = BLOODWORK_RANGES["glucose"]
-                        bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=0.0, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
+                        bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=None, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
                     with c12:
                         r_a1c = BLOODWORK_RANGES["hba1c"]
-                        bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=0.0, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
+                        bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=None, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
                     with c13:
                         r_pcr = BLOODWORK_RANGES["pcr_us"]
-                        bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=0.0, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
+                        bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=None, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
 
                     bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación, ayuno):", height=80, key="bw_notes")
                     submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
 
                 if submitted_bw:
-                    all_inputs = [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]
-                    if all(v is None for v in all_inputs):
+                    def _val_or_none(x):
+                        if x is None:
+                            return None
+                        try:
+                            f = float(x)
+                            return f if f > 0 else None
+                        except (ValueError, TypeError):
+                            return None
+
+                    clean_inputs = [_val_or_none(x) for x in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]]
+                    if all(v is None for v in clean_inputs):
                         st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
                     else:
                         pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
@@ -2679,22 +2693,22 @@ elif page == "🩸 Marcadores Clínicos":
                             new_bw = BloodworkRecord(
                                 member_id=member_obj.id,
                                 date=bw_date,
-                                hemoglobin=bw_hb,
-                                vcm=bw_vcm,
-                                chcm=bw_chcm,
-                                rbc=bw_rbc,
-                                hematocrit=bw_hto,
-                                ferritin=bw_fer,
-                                ck=bw_ck,
-                                vitamin_b12=bw_b12,
-                                folic_acid=bw_fol,
-                                total_cholesterol=bw_chol,
-                                hdl=bw_hdl,
-                                ldl=bw_ldl,
-                                triglycerides=bw_trig,
-                                glucose=bw_glu,
-                                hba1c=bw_a1c,
-                                pcr_us=bw_pcr,
+                                hemoglobin=_val_or_none(bw_hb),
+                                vcm=_val_or_none(bw_vcm),
+                                chcm=_val_or_none(bw_chcm),
+                                rbc=_val_or_none(bw_rbc),
+                                hematocrit=_val_or_none(bw_hto),
+                                ferritin=_val_or_none(bw_fer),
+                                ck=_val_or_none(bw_ck),
+                                vitamin_b12=_val_or_none(bw_b12),
+                                folic_acid=_val_or_none(bw_fol),
+                                total_cholesterol=_val_or_none(bw_chol),
+                                hdl=_val_or_none(bw_hdl),
+                                ldl=_val_or_none(bw_ldl),
+                                triglycerides=_val_or_none(bw_trig),
+                                glucose=_val_or_none(bw_glu),
+                                hba1c=_val_or_none(bw_a1c),
+                                pcr_us=_val_or_none(bw_pcr),
                                 pdf_filename=pdf_filename,
                                 notes=bw_notes if bw_notes else None,
                             )
@@ -2702,6 +2716,8 @@ elif page == "🩸 Marcadores Clínicos":
                             session.commit()
                             st.session_state.pop("parsed_bw_data", None)
                             st.session_state.pop("parsed_bw_filename", None)
+                            for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
+                                st.session_state.pop(k, None)
                             st.success(f"🎉 ¡Biomarcadores del {bw_date} para {selected_athlete} ({gender_badge}) guardados exitosamente!")
                             st.balloons()
                             st.rerun()
