@@ -63,7 +63,10 @@ def extract_text_from_image(file_bytes: bytes) -> str:
         import pytesseract
 
         img = Image.open(io.BytesIO(file_bytes))
-        text = pytesseract.image_to_string(img, lang="spa")
+        try:
+            text = pytesseract.image_to_string(img, lang="spa")
+        except Exception:
+            text = pytesseract.image_to_string(img)
         return text
     except ImportError:
         return "[ERROR] Pillow o pytesseract no están instalados."
@@ -133,7 +136,10 @@ def _extract_with_ocr_pdf(file_bytes: bytes, password: str = None) -> str:
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
-            text = pytesseract.image_to_string(img, lang="spa")
+            try:
+                text = pytesseract.image_to_string(img, lang="spa")
+            except Exception:
+                text = pytesseract.image_to_string(img)
             if text:
                 all_text.append(text)
         doc.close()
