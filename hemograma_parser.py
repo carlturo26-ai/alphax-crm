@@ -86,6 +86,23 @@ def _clean_document_noise(text: str) -> str:
     return "\n".join(cleaned)
 
 
+def _strip_reference_ranges(text_segment: str) -> str:
+    """
+    Elimina los rangos de referencia (ej. '39.00 - 51.00', '80.00 - 95.00', '< 200', '(13.0 - 17.0)')
+    de un fragmento de texto para evitar que el número del rango de referencia sea interpretado
+    como el resultado del paciente.
+    """
+    if not text_segment:
+        return ""
+    # 1. Rangos con guión o palabra 'a' / 'hasta': ej. "39.00 - 51.00", "80.00 - 95.00", "4.40 - 6.60"
+    cleaned = re.sub(r"(?:(?:\d+(?:[\.,]\d+)?)\s*(?:[-–—]|a|hasta)\s*(?:\d+(?:[\.,]\d+)?))", " ", text_segment)
+    # 2. Rangos entre paréntesis: ej. "(13.00 - 17.00)" o "(< 200)" o "(39.0 - 51.0)"
+    cleaned = re.sub(r"\(\s*(?:>|<|>=|<=)?\s*\d+(?:[\.,]\d+)?(?:\s*[-–—]\s*\d+(?:[\.,]\d+)?)?\s*\)", " ", cleaned)
+    # 3. Etiquetas de referencia tipo 'VALOR DE REFERENCIA: ...' hasta final de línea
+    cleaned = re.sub(r"(?:valor(?:es)?\s+de\s+referencia|val\.?\s*ref\.?|v\.?r\.?|ref(?:erencia)?)\s*[:=]?\s*.*$", " ", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
 def _stitch_multipage_text(pages: list) -> str:
     """
     Une páginas de un PDF resolviendo el corte de página donde el nombre del examen
@@ -232,27 +249,41 @@ def _extract_with_ocr_pdf(file_bytes: bytes, password: str = None) -> str:
                 return "[ERROR] PDF protegido con contraseña. Ingresa la clave."
 
         all_text = []
-        from PIL import ImageEnhance
         for page in doc:
-            pix = page.get_pixmap(dpi=300)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-            # Preprocesamiento de imagen para nitidez de números (evita que el 8 se lea como 5)
-            try:
-                img_gray = img.convert("L")
-                enhancer = ImageEnhance.Contrast(img_gray)
-                img_proc = enhancer.enhance(1.8)
-            except Exception:
-                img_proc = img
-
-            try:
-                text = pytesseract.image_to_string(img_proc, lang="spa")
-            except Exception:
+            # Si el PDF contiene una imagen escaneada embebida directa (ej. PNG del escáner), usarla directamente
+            img_to_ocr = None
+            img_list = page.get_images()
+            if img_list:
                 try:
-                    text = pytesseract.image_to_string(img_proc)
+                    xref = img_list[0][0]
+                    base_image = doc.extract_image(xref)
+                    img_to_ocr = Image.open(io.BytesIO(base_image["image"]))
                 except Exception:
-                    text = pytesseract.image_to_string(img)
-            if text:
-                all_text.append(text)
+                    img_to_ocr = None
+
+            if img_to_ocr is None:
+                pix = page.get_pixmap(dpi=200)
+                img_to_ocr = Image.open(io.BytesIO(pix.tobytes("png")))
+
+            # Intentar OCR con --psm 6 (mantiene filas de tablas horizontales) y modo estándar
+            page_text = ""
+            for config_str in ["--psm 6", ""]:
+                try:
+                    t = pytesseract.image_to_string(img_to_ocr, lang="spa", config=config_str) if config_str else pytesseract.image_to_string(img_to_ocr, lang="spa")
+                    if t and len(t.strip()) > len(page_text.strip()):
+                        page_text = t
+                        if "hemat" in t.lower() and ("volumen" in t.lower() or "pvc" in t.lower() or "vcm" in t.lower()):
+                            break
+                except Exception:
+                    try:
+                        t = pytesseract.image_to_string(img_to_ocr)
+                        if t and len(t.strip()) > len(page_text.strip()):
+                            page_text = t
+                    except Exception:
+                        pass
+
+            if page_text:
+                all_text.append(page_text)
         doc.close()
         return "\n\n".join(all_text)
     except Exception as e:
@@ -627,8 +658,8 @@ MARKER_SPECS = [
     )
 ]
 
-# Patrón para capturar número y unidad (evitando capturar partes de fechas como 2026-03-01)
-VAL_UNIT_PATTERN = r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)*)(?![\-\/]\d)(?:\s*(%|g/dl|g/l|fl|u3|mill/mm3|millones/ul|x10\^6/ul|m/ul|u/l|ui/l|ng/ml|ug/l|mcg/l|pg/ml|pmol/l|mg/dl|mg/l|mmol/l))?"
+# Patrón para capturar número y unidad (evitando capturar partes de fechas o rangos numéricos como 39.00 - 51.00)
+VAL_UNIT_PATTERN = r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)*)(?!\s*[-–—\/]\s*\d)(?:\s*(%|g/dl|g/l|fl|u3|mill/mm3|millones/ul|x10\^6/ul|m/ul|u/l|ui/l|ng/ml|ug/l|mcg/l|pg/ml|pmol/l|mg/dl|mg/l|mmol/l))?"
 
 
 def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds: tuple, scale_fn):
@@ -654,7 +685,9 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
                 if exclusion_pat and (re.search(exclusion_pat, line_clean, flags=re.IGNORECASE) or re.search(exclusion_pat, line_no_acc, flags=re.IGNORECASE)):
                     continue
 
-                after_alias = line_clean[m_alias.end():] if re.search(alias, line_clean, flags=re.IGNORECASE) else line_no_acc[m_alias.end():]
+                raw_after = line_clean[m_alias.end():] if re.search(alias, line_clean, flags=re.IGNORECASE) else line_no_acc[m_alias.end():]
+                # Eliminar rangos de referencia (ej. 39.00 - 51.00) para no confundir el rango con el resultado
+                after_alias = _strip_reference_ranges(raw_after)
                 m_val = re.search(VAL_UNIT_PATTERN, after_alias, flags=re.IGNORECASE)
                 if m_val:
                     num_str, unit_str = m_val.group(1), m_val.group(2) or ""
@@ -683,7 +716,8 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
                            for other_alias in other_spec[1] if other_spec[0] != alias):
                         break
 
-                    m_val_next = re.search(VAL_UNIT_PATTERN, next_line, flags=re.IGNORECASE)
+                    next_no_ref = _strip_reference_ranges(next_line)
+                    m_val_next = re.search(VAL_UNIT_PATTERN, next_no_ref, flags=re.IGNORECASE)
                     if m_val_next:
                         num_str, unit_str = m_val_next.group(1), m_val_next.group(2) or ""
                         try:
@@ -696,11 +730,12 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
                         except Exception:
                             pass
 
-    # Pase 3: Búsqueda de proximidad en texto corrido (original y sin tildes)
-    text_no_acc = _strip_accents(text)
+    # Pase 3: Búsqueda de proximidad en texto corrido (original y sin tildes, con rangos de referencia eliminados)
+    text_clean_no_ref = _strip_reference_ranges(text)
+    text_clean_no_acc = _strip_accents(text_clean_no_ref)
     for alias in aliases:
         pat_prox = rf"(?:{alias})[^\w\n\r]{{0,60}}?(?:resultado|valor)?[:\s\-=]*{VAL_UNIT_PATTERN}"
-        for target_txt in (text, text_no_acc):
+        for target_txt in (text_clean_no_ref, text_clean_no_acc):
             for m in re.finditer(pat_prox, target_txt, flags=re.IGNORECASE):
                 full_match = m.group(0)
                 if exclusion_pat and re.search(exclusion_pat, full_match, flags=re.IGNORECASE):
@@ -779,7 +814,9 @@ def parse_hemograma(text: str) -> dict:
                 # Descartar si es plaquetario, CHCM, HCM o ancho de distribución
                 if re.search(r"(?:plaquetario|\bvpm\b|\bhcm\b|\bchcm\b|\brdw\b|\bide\b|\bade\b|concentraci)", line_no_acc, re.IGNORECASE):
                     continue
-                m_nums = re.findall(r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)", line_c)
+                # Quitar rangos de referencia antes de buscar números en el fallback (ej. 80.00 - 95.00)
+                line_c_no_ref = _strip_reference_ranges(line_c)
+                m_nums = re.findall(r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)", line_c_no_ref)
                 for num_s in m_nums:
                     try:
                         v = _clean_val_str(num_s)
@@ -810,18 +847,93 @@ def parse_hemograma(text: str) -> dict:
         result["ck"] = None
         found = sum(1 for k in result if k in [s[0] for s in MARKER_SPECS] and result[k] is not None)
 
-    # ── Validación de dígitos OCR en Hematocrito (Fórmula de Wintrobe: Hto ≈ VCM * RBC / 10)
-    # En escaneos, el dígito '8' suele ser confundido por OCR como '5' (ej. 48.4 leído como 45.4)
-    if result["hematocrit"] and result["vcm"] and result["rbc"]:
-        expected_hto = (result["vcm"] * result["rbc"]) / 10.0
-        if abs(result["hematocrit"] - expected_hto) > 1.5:
-            s_hto = str(result["hematocrit"])
-            for old_char in ["5", "3"]:
-                if old_char in s_hto:
+    # ── Reconciliación Fisiológica Bidireccional de Hematocrito y VCM (Ecuación de Wintrobe: Hto = VCM * RBC / 10) ──
+    # Si tenemos Glóbulos Rojos (RBC), reconciliar y verificar candidatos en el documento:
+    if result["rbc"]:
+        rbc_val = result["rbc"]
+
+        # 1. Si VCM es conocido y coherente:
+        if result["vcm"] and 70.0 <= result["vcm"] <= 120.0:
+            expected_hto = (result["vcm"] * rbc_val) / 10.0  # Ej: 96.0 * 5.05 / 10 = 48.48
+
+            # Si el hematocrito obtenido discrepa mucho con el esperado fisiológico (o tomó el rango 39.0):
+            if result["hematocrit"] is None or abs(result["hematocrit"] - expected_hto) > 1.2:
+                found_cand = None
+                # Buscar en el documento algún número que coincida con el Hto esperado (ej. 48.4 o 48.8)
+                for cand_match in re.finditer(r"\b(\d{2}[\.,]\d{1,2})\b", text):
                     try:
-                        cand_hto = float(s_hto.replace(old_char, "8", 1))
-                        if abs(cand_hto - expected_hto) < 0.6:
-                            result["hematocrit"] = round(cand_hto, 2)
+                        cand_v = _clean_val_str(cand_match.group(1))
+                        if abs(cand_v - expected_hto) <= 0.6:
+                            found_cand = round(cand_v, 2)
+                            break
+                    except Exception:
+                        pass
+
+                if found_cand is not None:
+                    if result["hematocrit"] is None:
+                        found += 1
+                    result["hematocrit"] = found_cand
+                elif result["hematocrit"]:
+                    # Probar si un dígito fue confundido por OCR (ej. 45.4 -> 48.4)
+                    s_hto = str(result["hematocrit"])
+                    for old_char in ["5", "3"]:
+                        if old_char in s_hto:
+                            try:
+                                cand_hto = float(s_hto.replace(old_char, "8", 1))
+                                if abs(cand_hto - expected_hto) <= 0.6:
+                                    result["hematocrit"] = round(cand_hto, 2)
+                                    break
+                            except Exception:
+                                pass
+
+        # 2. Si Hematocrito es conocido y coherente:
+        if result["hematocrit"] and 30.0 <= result["hematocrit"] <= 60.0:
+            expected_vcm = (result["hematocrit"] * 10.0) / rbc_val  # Ej: 48.4 * 10 / 5.05 = 95.84
+
+            # Si VCM discrepa mucho con el esperado fisiológico (o tomó el rango 80.0):
+            if result["vcm"] is None or abs(result["vcm"] - expected_vcm) > 2.5:
+                found_vcm = None
+                # Buscar en el documento algún número que coincida con el VCM esperado (ej. 96.0)
+                for cand_match in re.finditer(r"\b(\d{2,3}[\.,]\d{1,2})\b", text):
+                    try:
+                        cand_v = _clean_val_str(cand_match.group(1))
+                        if abs(cand_v - expected_vcm) <= 1.2:
+                            found_vcm = round(cand_v, 2)
+                            break
+                    except Exception:
+                        pass
+
+                if found_vcm is not None:
+                    if result["vcm"] is None:
+                        found += 1
+                    result["vcm"] = found_vcm
+
+        # 3. Si tanto VCM como Hematocrito faltan o tomaron los límites de referencia (39.0 y 80.0):
+        if (result["vcm"] is None or result["vcm"] == 80.0) and (result["hematocrit"] is None or result["hematocrit"] == 39.0):
+            assigned = {v for k, v in result.items() if v is not None and isinstance(v, (int, float)) and k not in ("vcm", "hematocrit")}
+            text_no_ref = _strip_reference_ranges(text)
+            cand_vcm_found = None
+            for cand_match in re.finditer(r"\b(\d{2,3}(?:[\.,]\d{1,2})?)\b", text_no_ref):
+                try:
+                    c_val = _clean_val_str(cand_match.group(1))
+                    if 78.0 <= c_val <= 110.0 and c_val not in assigned and c_val != 80.0:
+                        cand_vcm_found = round(c_val, 2)
+                        break
+                except Exception:
+                    pass
+
+            if cand_vcm_found is not None:
+                if result["vcm"] is None:
+                    found += 1
+                result["vcm"] = cand_vcm_found
+                expected_hto = (cand_vcm_found * rbc_val) / 10.0
+                for cand_match in re.finditer(r"\b(\d{2}(?:[\.,]\d{1,2})?)\b", text_no_ref):
+                    try:
+                        c_hto = _clean_val_str(cand_match.group(1))
+                        if abs(c_hto - expected_hto) <= 1.0 and c_hto != 39.0:
+                            if result["hematocrit"] is None:
+                                found += 1
+                            result["hematocrit"] = round(c_hto, 2)
                             break
                     except Exception:
                         pass
