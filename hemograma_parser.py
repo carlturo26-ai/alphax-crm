@@ -23,7 +23,14 @@ Características avanzadas:
 
 import io
 import re
+import unicodedata
 from datetime import datetime
+
+def _strip_accents(s: str) -> str:
+    """Elimina tildes para comparación insensible a acentos: ej. Hematócrito -> Hematocrito."""
+    if not s:
+        return ""
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
 SPANISH_MONTHS = {
     "ene": "01", "enero": "01",
@@ -245,8 +252,14 @@ def _extract_with_ocr_pdf(file_bytes: bytes, password: str = None) -> str:
 # ═══════════════════════════════════════════════════════════════════
 
 def _clean_val_str(s: str) -> float:
-    """Limpia cadenas como '14,7' o '1.450' y convierte a float."""
-    clean = s.replace(",", ".").strip()
+    """Limpia cadenas como '14,7', '48.4' o '5.050.000' y convierte a float."""
+    clean = s.strip()
+    if clean.count(".") > 1:
+        clean = clean.replace(".", "")
+    elif clean.count(",") > 1:
+        clean = clean.replace(",", "")
+    else:
+        clean = clean.replace(",", ".")
     return float(clean)
 
 
@@ -369,7 +382,9 @@ MARKER_SPECS = [
             r"volumen\s+corpuscular\s+medio(?:\s*\(?\s*vcm\s*\)?)?",
             r"volumen\s+corpuscular\s+media",
             r"vol\.?\s*corp\.?\s*medio",
-            r"promedio\s+volumen\s+corpuscular",
+            r"promedio\s+(?:de\s+)?volumen\s+corpuscular(?:\s*\(?\s*pvc\s*\)?)?",
+            r"promedio\s+vol\.?\s*corp\.?",
+            r"\bp\.?v\.?c\.?\b",
             r"\b(?:v\.?c\.?m\.?|m\.?c\.?v\.?)\b"
         ],
         r"(?:hcm|chcm|rdw|ide|ade|plaquetario|vpm)",
@@ -386,6 +401,7 @@ MARKER_SPECS = [
             r"conc\.?\s*(?:de\s*)?hb\.?\s*corp\.?\s*media",
             r"conc\.?\s*corp\.?\s*media\s*(?:de\s*)?hb",
             r"promedio\s+concentraci[oó]n\s+(?:de\s+)?hb\.?\s+corp\.?(?:\s+media)?",
+            r"prom\.?\s*concentraci[oó]n\s+(?:de\s+)?(?:hemoglobina|hb)(?:\s+corpuscular|\s+corpus)?",
             r"\b(?:c\.?h\.?c\.?m\.?|m\.?c\.?h\.?c\.?|ccmh|chmc)\b"
         ],
         r"(?:^\s*hcm\b|^\s*mch\b|\bpg\b)",  # NUNCA aceptar HCM en pg
@@ -411,11 +427,11 @@ MARKER_SPECS = [
     (
         "hematocrit",
         [
-            r"hematocrito(?:\s*\(?\s*(?:hto|hct)\s*\)?)?",
-            r"hematocrito\s+total",
-            r"volumen\s+hematocrito",
-            r"cuadro\s+hem[aá]tico\s*[-:]?\s*hematocrito",
-            r"hemograma\s*[-:]?\s*hematocrito",
+            r"hemat[oó]crito(?:\s*\(?\s*(?:hto|hct)\s*\)?)?",
+            r"hemat[oó]crito\s+total",
+            r"volumen\s+hemat[oó]crito",
+            r"cuadro\s+hem[aá]tico\s*[-:]?\s*hemat[oó]crito",
+            r"hemograma\s*[-:]?\s*hemat[oó]crito",
             r"\b(?:h\.?t\.?o\.?|h\.?c\.?t\.?)\b"
         ],
         r"(?:indice|relaci[oó]n)",
@@ -599,12 +615,12 @@ MARKER_SPECS = [
 ]
 
 # Patrón para capturar número y unidad (evitando capturar partes de fechas como 2026-03-01)
-VAL_UNIT_PATTERN = r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)(?![\-\/]\d)(?:\s*(%|g/dl|g/l|fl|u3|mill/mm3|millones/ul|x10\^6/ul|m/ul|u/l|ui/l|ng/ml|ug/l|mcg/l|pg/ml|pmol/l|mg/dl|mg/l|mmol/l))?"
+VAL_UNIT_PATTERN = r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)*)(?![\-\/]\d)(?:\s*(%|g/dl|g/l|fl|u3|mill/mm3|millones/ul|x10\^6/ul|m/ul|u/l|ui/l|ng/ml|ug/l|mcg/l|pg/ml|pmol/l|mg/dl|mg/l|mmol/l))?"
 
 
 def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds: tuple, scale_fn):
     """
-    Busca un marcador usando una estrategia escalonada:
+    Busca un marcador usando una estrategia escalonada e insensible a tildes:
       1. Misma línea (formato tabular).
       2. Líneas 1-3 posteriores (formato vertical o informe por bloques).
       3. Proximidad en texto continuo limpio (evitando capturar fechas u otros analitos).
@@ -617,13 +633,15 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
         line_clean = line.strip()
         if not line_clean:
             continue
+        line_no_acc = _strip_accents(line_clean)
+
         for alias in aliases:
-            m_alias = re.search(alias, line_clean, flags=re.IGNORECASE)
+            m_alias = re.search(alias, line_clean, flags=re.IGNORECASE) or re.search(alias, line_no_acc, flags=re.IGNORECASE)
             if m_alias:
-                if exclusion_pat and re.search(exclusion_pat, line_clean, flags=re.IGNORECASE):
+                if exclusion_pat and (re.search(exclusion_pat, line_clean, flags=re.IGNORECASE) or re.search(exclusion_pat, line_no_acc, flags=re.IGNORECASE)):
                     continue
 
-                after_alias = line_clean[m_alias.end():]
+                after_alias = line_clean[m_alias.end():] if re.search(alias, line_clean, flags=re.IGNORECASE) else line_no_acc[m_alias.end():]
                 m_val = re.search(VAL_UNIT_PATTERN, after_alias, flags=re.IGNORECASE)
                 if m_val:
                     num_str, unit_str = m_val.group(1), m_val.group(2) or ""
@@ -645,8 +663,9 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
                     next_line = lines[i + offset].strip()
                     if not next_line:
                         continue
+                    next_no_acc = _strip_accents(next_line)
                     # Si la siguiente línea contiene otro examen de la lista, detener la búsqueda vertical
-                    if any(re.search(other_alias, next_line, flags=re.IGNORECASE)
+                    if any((re.search(other_alias, next_line, flags=re.IGNORECASE) or re.search(other_alias, next_no_acc, flags=re.IGNORECASE))
                            for other_spec in MARKER_SPECS
                            for other_alias in other_spec[1] if other_spec[0] != alias):
                         break
@@ -664,23 +683,25 @@ def _extract_single_marker(text: str, aliases: list, exclusion_pat: str, bounds:
                         except Exception:
                             pass
 
-    # Pase 3: Búsqueda de proximidad en texto corrido
+    # Pase 3: Búsqueda de proximidad en texto corrido (original y sin tildes)
+    text_no_acc = _strip_accents(text)
     for alias in aliases:
         pat_prox = rf"(?:{alias})[^\w\n\r]{{0,60}}?(?:resultado|valor)?[:\s\-=]*{VAL_UNIT_PATTERN}"
-        for m in re.finditer(pat_prox, text, flags=re.IGNORECASE):
-            full_match = m.group(0)
-            if exclusion_pat and re.search(exclusion_pat, full_match, flags=re.IGNORECASE):
-                continue
-            num_str, unit_str = m.group(1), m.group(2) or ""
-            try:
-                v = _clean_val_str(num_str)
-                if 1950 <= v <= 2040 and not unit_str:
+        for target_txt in (text, text_no_acc):
+            for m in re.finditer(pat_prox, target_txt, flags=re.IGNORECASE):
+                full_match = m.group(0)
+                if exclusion_pat and re.search(exclusion_pat, full_match, flags=re.IGNORECASE):
                     continue
-                v_scaled = scale_fn(v, unit_str)
-                if min_b <= v_scaled <= max_b:
-                    return round(v_scaled, 2)
-            except Exception:
-                pass
+                num_str, unit_str = m.group(1), m.group(2) or ""
+                try:
+                    v = _clean_val_str(num_str)
+                    if 1950 <= v <= 2040 and not unit_str:
+                        continue
+                    v_scaled = scale_fn(v, unit_str)
+                    if min_b <= v_scaled <= max_b:
+                        return round(v_scaled, 2)
+                except Exception:
+                    pass
 
     return None
 
