@@ -188,6 +188,101 @@ st.markdown(css_styles, unsafe_allow_html=True)
 # Inicializar DB
 init_db()
 
+import urllib.parse
+
+def get_base_alphax_url():
+    """Retorna la URL base de la aplicación según el contexto (Streamlit Cloud o local)."""
+    try:
+        host = st.context.headers.get("host")
+        proto = st.context.headers.get("x-forwarded-proto", "https")
+        if not host or "localhost" in host or "127.0.0.1" in host:
+            return "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
+        return f"{proto}://{host}"
+    except Exception:
+        return "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
+
+def render_athlete_links_box(athletes_names=None, title="📲 Enlaces App de Atletas", expanded=False, key_prefix="general"):
+    """
+    Renderiza el generador de enlaces para la App de Atletas de AlphaX:
+    1. Enlace General (para todo el equipo / redes / WhatsApp)
+    2. Enlace Personalizado (acceso directo por atleta sin clave)
+    3. Código QR para escaneo rápido
+    """
+    base_url = get_base_alphax_url()
+    general_link = f"{base_url}/?app=atletas"
+    
+    with st.expander(title, expanded=expanded):
+        tab_gen, tab_ind, tab_qr = st.tabs(["🌐 Enlace General", "👤 Enlace Personalizado", "📱 Código QR"])
+        
+        with tab_gen:
+            st.markdown("**Enlace General para Atletas:**")
+            st.caption("Comparte este enlace a todo el grupo de WhatsApp o deportistas. Desde aquí podrán registrarse o iniciar sesión con su cuenta:")
+            st.code(general_link, language="text")
+            
+            wa_gen_msg = f"🐺 ¡Hola equipo AlphaX! Ingresen a nuestra App de Atletas (analítica, lactato, Wolfy AI y sueño) aquí: {general_link}"
+            wa_gen_url = f"https://wa.me/?text={urllib.parse.quote(wa_gen_msg)}"
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(
+                    f"""
+                    <a href="{wa_gen_url}" target="_blank" style="text-decoration: none;">
+                        <button style="width:100%; background-color:#25D366; color:white; border:none; padding:8px 10px; border-radius:8px; font-weight:bold; cursor:pointer; font-size:0.8rem; display:flex; align-items:center; justify-content:center; gap:6px;">
+                            📲 Compartir WhatsApp
+                        </button>
+                    </a>
+                    """,
+                    unsafe_allow_html=True
+                )
+            with col_b:
+                st.markdown(
+                    f"""
+                    <a href="{general_link}" target="_blank" style="text-decoration: none;">
+                        <button style="width:100%; background-color:#00EEFF; color:#050505; border:none; padding:8px 10px; border-radius:8px; font-weight:bold; cursor:pointer; font-size:0.8rem; display:flex; align-items:center; justify-content:center; gap:6px;">
+                            ⚡ Abrir App
+                        </button>
+                    </a>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+        with tab_ind:
+            st.markdown("**Enlace Directo por Atleta (Sin Contraseña):**")
+            st.caption("Genera un link específico para que un deportista ingrese directamente a su perfil sin clave:")
+            
+            if not athletes_names:
+                try:
+                    s_db = SessionLocal()
+                    athletes_names = [m.name for m in s_db.query(Member).filter(Member.active == True).order_by(Member.name).all()]
+                    s_db.close()
+                except Exception:
+                    athletes_names = []
+                    
+            sel_ath = st.selectbox("Seleccionar Deportista:", ["-- Seleccionar --"] + (athletes_names or []), key=f"{key_prefix}_sel_ath")
+            if sel_ath != "-- Seleccionar --":
+                indiv_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(sel_ath)}"
+                st.code(indiv_link, language="text")
+                
+                wa_ind_msg = f"¡Hola {sel_ath}! Ingresa a tu App AlphaX para revisar tus análisis, Wolfy AI y reporte de descanso aquí 🐺: {indiv_link}"
+                wa_ind_url = f"https://wa.me/?text={urllib.parse.quote(wa_ind_msg)}"
+                
+                st.markdown(
+                    f"""
+                    <a href="{wa_ind_url}" target="_blank" style="text-decoration: none;">
+                        <button style="background-color:#25D366; color:white; border:none; padding:8px 14px; border-radius:8px; font-weight:bold; cursor:pointer; font-size:0.85rem;">
+                            📲 Enviar a {sel_ath} por WhatsApp
+                        </button>
+                    </a>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+        with tab_qr:
+            st.markdown("**Código QR para escanear:**")
+            st.caption("Escanea con la cámara del celular para abrir el portal:")
+            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={urllib.parse.quote(general_link)}&color=00eeff&bgcolor=050505"
+            st.markdown(f'<div style="text-align:center; padding:10px;"><img src="{qr_url}" style="border: 2px solid #00EEFF; border-radius: 12px; max-width: 180px;" alt="QR App Atletas"><br><small style="color:#00EEFF; font-weight:bold;">Escanea para entrar a AlphaX Atletas</small></div>', unsafe_allow_html=True)
+
 # Sidebar
 with st.sidebar:
     # Use relative path so it resolves correctly on both local Mac and Streamlit Cloud
@@ -200,6 +295,9 @@ with st.sidebar:
     
     st.markdown("---")
     page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "🩸 Marcadores Clínicos", "🐺 Wolfy AI Coach"])
+
+    # Acceso rápido a enlaces de la App de Atletas desde el sidebar
+    render_athlete_links_box(title="📲 Enlaces App de Atletas", expanded=False, key_prefix="sb_links")
 
 
     
@@ -765,6 +863,9 @@ if page == "Dashboard":
 elif page == "Socios":
     st.header("👥 Gestión de Socios")
     session = SessionLocal()
+
+    # Enlaces de la App para Atletas (General, Directo y QR)
+    render_athlete_links_box(title="📲 Enlaces de Acceso para Atletas (General, Directo y QR)", expanded=False, key_prefix="socios_links")
 
     # Months list for dropdowns
     months_order = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
@@ -1359,50 +1460,7 @@ elif page == "ASSQ (Sueño)":
     st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
 
     # --- GENERADOR DE ENLACES DE ACCESO RÁPIDO ---
-    with st.expander("🔗 Generador de Enlaces de Acceso Rápido para Atletas", expanded=True):
-        st.markdown("Genera un enlace personalizado para enviar a un deportista para que ingrese a registrar su sueño sin contraseña:")
-        selected_coach_athlete = st.selectbox("Selecciona un deportista para generar su enlace:", ["-- Seleccionar --"] + atletas_nombres, key="coach_athlete_sel")
-        if selected_coach_athlete != "-- Seleccionar --":
-            try:
-                host = st.context.headers.get("host")
-                proto = st.context.headers.get("x-forwarded-proto", "https")
-                if not host or "localhost" in host or "127.0.0.1" in host:
-                    base_url = "https://alphax-crm-hqowhgixskwx9mmsrzf32r.streamlit.app"
-                else:
-                    base_url = f"{proto}://{host}"
-                import urllib.parse
-                athlete_direct_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(selected_coach_athlete)}"
-                
-                st.code(athlete_direct_link, language="text")
-                
-                # WhatsApp message pre-filled
-                wa_msg = f"¡Hola! Por favor registra tu reporte de sueño ASSQ aquí 💤: {athlete_direct_link}"
-                wa_url = f"https://wa.me/?text={urllib.parse.quote(wa_msg)}"
-                
-                st.markdown(
-                    f"""
-                    <a href="{wa_url}" target="_blank" style="text-decoration: none;">
-                        <button style="
-                            background-color: #25D366; 
-                            color: white; 
-                            border: none; 
-                            padding: 10px 20px; 
-                            border-radius: 8px; 
-                            font-weight: bold; 
-                            cursor: pointer; 
-                            display: flex; 
-                            align-items: center; 
-                            gap: 8px;
-                            transition: background-color 0.3s;
-                        " onmouseover="this.style.backgroundColor='#128C7E'" onmouseout="this.style.backgroundColor='#25D366'">
-                            📲 Enviar por WhatsApp
-                        </button>
-                    </a>
-                    """,
-                    unsafe_allow_html=True
-                )
-            except Exception as e:
-                st.error(f"Error generando enlace: {e}")
+    render_athlete_links_box(athletes_names=atletas_nombres, title="🔗 Enlaces de Acceso para Atletas (General, Directo y QR)", expanded=True, key_prefix="assq_links")
 
     st.markdown("---")
     st.subheader("📈 Análisis Individual de Atleta")
