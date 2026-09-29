@@ -383,11 +383,14 @@ MARKER_SPECS = [
             r"volumen\s+corpuscular\s+media",
             r"vol\.?\s*corp\.?\s*medio",
             r"promedio\s+(?:de\s+)?volumen\s+corpuscular(?:\s*\(?\s*pvc\s*\)?)?",
+            r"pvc\s*\(?\s*promedio\s+(?:de\s+)?volumen\s+corpuscular\s*\)?",
+            r"\bp\.?v\.?c\.?\b\s*\(?.*?\)?",
             r"promedio\s+vol\.?\s*corp\.?",
+            r"\bvolumen\s+corpuscular\b(?!\s*(?:media\s*de\s*hb|concentraci))",
             r"\bp\.?v\.?c\.?\b",
             r"\b(?:v\.?c\.?m\.?|m\.?c\.?v\.?)\b"
         ],
-        r"(?:hcm|chcm|rdw|ide|ade|plaquetario|vpm)",
+        r"(?:\bhcm\b|\bchcm\b|\brdw\b|\bide\b|\bade\b|plaquetario|\bvpm\b)",
         (60.0, 125.0),
         lambda v, u: v
     ),
@@ -756,6 +759,28 @@ def parse_hemograma(text: str) -> dict:
         if val is not None:
             result[key] = val
             found += 1
+
+    # ── Fallback especializado para VCM (cuando OCR distorsiona las siglas o layout) ──
+    if result["vcm"] is None:
+        for line in (cleaned + "\n" + text).splitlines():
+            line_c = line.strip()
+            line_no_acc = _strip_accents(line_c)
+            if re.search(r"(?:volumen|corpuscular|\bpvc\b|\bvcm\b|\bmcv\b|promedio\s+de\s+vol)", line_no_acc, re.IGNORECASE):
+                # Descartar si es plaquetario, CHCM, HCM o ancho de distribución
+                if re.search(r"(?:plaquetario|\bvpm\b|\bhcm\b|\bchcm\b|\brdw\b|\bide\b|\bade\b|concentraci)", line_no_acc, re.IGNORECASE):
+                    continue
+                m_nums = re.findall(r"(?:>|<|>=|<=)?\s*(\d+(?:[\.,]\d+)?)", line_c)
+                for num_s in m_nums:
+                    try:
+                        v = _clean_val_str(num_s)
+                        if 65.0 <= v <= 120.0:
+                            result["vcm"] = round(v, 2)
+                            found += 1
+                            break
+                    except Exception:
+                        pass
+                if result["vcm"] is not None:
+                    break
 
     # 4. Validaciones de coherencia clínica cruzada para evitar trocamientos:
     # ── Colesterol Total vs HDL: Total siempre debe ser mayor que HDL
