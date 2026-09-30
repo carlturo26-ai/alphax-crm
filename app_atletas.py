@@ -764,7 +764,7 @@ else:
     # ══════════════════════════════════════════════════════════════════
     with tab_wolfy:
         import wolfy_bot
-        wolfy_bot.render_wolfy_tab(member_id)
+        wolfy_bot.render_wolfy_tab(member_id, is_admin=False)
 
     # ══════════════════════════════════════════════════════════════════
     #  PESTAÑA 2: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)

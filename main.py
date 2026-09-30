@@ -2803,7 +2803,7 @@ elif page == "🐺 Wolfy AI Coach":
             sel_ath_label = st.selectbox("🎯 Seleccionar atleta para el análisis de Wolfy:", list(ath_dict.keys()), key="wolfy_admin_athlete")
             selected_member_id = ath_dict[sel_ath_label]
             import wolfy_bot
-            wolfy_bot.render_wolfy_tab(selected_member_id)
+            wolfy_bot.render_wolfy_tab(selected_member_id, is_admin=True)
         else:
             st.info("No hay atletas registrados en el CRM.")
     finally:

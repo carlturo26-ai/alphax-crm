@@ -204,6 +204,41 @@ class BloodworkRecord(Base):
     
     member = relationship("Member")
 
+class ClubSetting(Base):
+    __tablename__ = "club_settings"
+    
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+    updated_at = Column(Date, default=datetime.now)
+
+def get_club_setting(key: str, default: str = "") -> str:
+    """Obtiene una configuración global del club desde la base de datos central."""
+    try:
+        with SessionLocal() as session:
+            setting = session.query(ClubSetting).filter(ClubSetting.key == key).first()
+            if setting and setting.value:
+                return setting.value.strip()
+    except Exception as e:
+        print(f"Error reading club setting {key}: {e}")
+    return default
+
+def set_club_setting(key: str, value: str) -> bool:
+    """Guarda o actualiza una configuración global del club en la base de datos central."""
+    try:
+        with SessionLocal() as session:
+            setting = session.query(ClubSetting).filter(ClubSetting.key == key).first()
+            if not setting:
+                setting = ClubSetting(key=key, value=value.strip())
+                session.add(setting)
+            else:
+                setting.value = value.strip()
+                setting.updated_at = datetime.now()
+            session.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving club setting {key}: {e}")
+        return False
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     try:

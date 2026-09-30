@@ -11,7 +11,7 @@ import base64
 import requests
 import streamlit as st
 from datetime import datetime
-from database import SessionLocal, Member, BloodworkRecord, LactateTest, SleepRecord
+from database import SessionLocal, Member, BloodworkRecord, LactateTest, SleepRecord, get_club_setting, set_club_setting
 from bloodwork_constants import get_bloodwork_ranges, classify_bloodwork_value
 
 
@@ -20,12 +20,17 @@ from bloodwork_constants import get_bloodwork_ranges, classify_bloodwork_value
 # ═════════════════════════════════════════════════════════════════════
 
 def save_gemini_api_key(key: str) -> bool:
-    """Guarda la API Key de Gemini en session_state y la persiste en el archivo .env."""
+    """Guarda la API Key de Gemini centralmente en Neon Postgres para todos los atletas del club."""
     key = key.strip()
     if not key:
         return False
     st.session_state["gemini_api_key_override"] = key
     os.environ["GEMINI_API_KEY"] = key
+    
+    # 1. Guardar en Base de Datos Neon Postgres (Aplica a TODOS los atletas del club automáticamente)
+    db_saved = set_club_setting("gemini_api_key", key)
+    
+    # 2. Persistir también en archivo .env si es posible
     try:
         env_path = os.path.join(os.path.dirname(__file__), ".env")
         lines = []
@@ -48,17 +53,31 @@ def save_gemini_api_key(key: str) -> bool:
             
         with open(env_path, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
-        return True
     except Exception:
-        return True
+        pass
+    return db_saved
 
 def get_gemini_api_key() -> str:
-    """Busca la API Key de Gemini en session_state, Streamlit Secrets, .env o variables de entorno."""
-    # 1. Sesión interactiva
+    """
+    Busca la API Key de Gemini:
+    1. Base de datos central (Neon Postgres) -> Configuración global de todo el club AlphaX.
+    2. Session State / Override en memoria.
+    3. Streamlit Cloud Secrets (st.secrets).
+    4. Variable de entorno / archivo .env.
+    """
+    # 1. Sesión interactiva en memoria
     if st.session_state.get("gemini_api_key_override"):
         return st.session_state["gemini_api_key_override"].strip()
     
-    # 2. Streamlit Cloud Secrets
+    # 2. Base de datos central Neon Postgres (Global para todos los atletas)
+    try:
+        db_key = get_club_setting("gemini_api_key")
+        if db_key:
+            return db_key
+    except Exception:
+        pass
+
+    # 3. Streamlit Cloud Secrets
     try:
         if "GEMINI_API_KEY" in st.secrets:
             k = st.secrets["GEMINI_API_KEY"].strip()
@@ -67,12 +86,12 @@ def get_gemini_api_key() -> str:
     except Exception:
         pass
         
-    # 3. Variable de entorno
+    # 4. Variable de entorno
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if key:
         return key
 
-    # 4. Lectura directa de .env
+    # 5. Lectura directa de .env
     try:
         env_path = os.path.join(os.path.dirname(__file__), ".env")
         if os.path.exists(env_path):
@@ -505,8 +524,8 @@ Actualmente estoy funcionando en **modo local básico** porque aún no se ha ing
 #  RENDERIZADO PRINCIPAL DE LA PESTAÑA WOLFY
 # ═════════════════════════════════════════════════════════════════════
 
-def render_wolfy_tab(member_id: int):
-    """Renderiza la interfaz completa de Wolfy AI Coach dentro del Portal de Atletas."""
+def render_wolfy_tab(member_id: int, is_admin: bool = False):
+    """Renderiza la interfaz completa de Wolfy AI Coach dentro del Portal de Atletas o CRM."""
     
     # 1. Obtener contexto del deportista
     athlete_ctx = build_athlete_context(member_id)
@@ -528,7 +547,7 @@ def render_wolfy_tab(member_id: int):
     if api_key:
         status_badge = '<span style="background: rgba(0,255,0,0.15); color: #00FF00; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(0,255,0,0.3);">🟢 Gemini Neuronal Activo (IA Libre)</span>'
     else:
-        status_badge = '<span style="background: rgba(255,180,0,0.15); color: #FFA500; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(255,180,0,0.3);">🟡 Modo Base Fisiológica (Falta Gemini Key)</span>'
+        status_badge = '<span style="background: rgba(255,180,0,0.15); color: #FFA500; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(255,180,0,0.3);">🧠 Base Fisiológica AlphaX</span>'
 
     header_html = f"""
     <div style="background: linear-gradient(135deg, rgba(16, 22, 34, 0.95), rgba(10, 13, 22, 0.98)); border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
@@ -553,31 +572,29 @@ def render_wolfy_tab(member_id: int):
     else:
         st.markdown(header_html, unsafe_allow_html=True)
 
-    # 3. Alerta y activador si falta la API Key de Gemini
-    if not api_key:
-        with st.expander("🔑 Haz clic aquí para activar el chat de IA libre de Wolfy con Google Gemini (Gratis en 30 seg)", expanded=True):
-            st.markdown(
-                """
-                **¿Por qué Wolfy necesita esta clave?**
-                Para responder **cualquier pregunta libre** (nutrición abierta, carreras, dudas avanzadas, calambres, etc.) como un chat de IA real, Wolfy se conecta al motor de **Google Gemini**.
-                
-                1. Obtén tu clave 100% gratuita en 👉 [**Google AI Studio (Click para obtener API Key)**](https://aistudio.google.com/app/apikey).
-                2. Inicia sesión con cualquier cuenta de Google, pulsa en **"Create API key"** y cópiala.
-                3. Pégala aquí abajo y pulsa **Activar Wolfy AI**:
-                """
-            )
+    # 3. Panel de Configuración Central (Solo visible para el Coach / Administrador en el CRM)
+    if is_admin:
+        with st.expander("⚙️ Clave Central de Google Gemini (Para todo el Club AlphaX)", expanded=(not api_key)):
+            if api_key:
+                st.success(f"✅ **Clave de Gemini Activa para todo el Club AlphaX:** `...{api_key[-6:] if len(api_key)>6 else '***'}`\n\nTodos los deportistas tienen acceso libre a Wolfy IA en sus teléfonos sin tener que configurar nada.")
+            else:
+                st.warning("🔑 **Configura la API Key de Gemini una sola vez para todo el club:**\nAl guardarla aquí, se almacena en la base de datos central de AlphaX y queda habilitada automáticamente para **todos los atletas** en sus teléfonos.")
+                st.markdown("Obtén tu clave gratuita en 👉 [**Google AI Studio (Click aquí)**](https://aistudio.google.com/app/apikey).")
+
             col_k1, col_k2 = st.columns([3, 1])
             with col_k1:
-                input_k = st.text_input("Ingresar GEMINI_API_KEY:", type="password", key="quick_gemini_input", placeholder="AIzaSy...")
+                input_k = st.text_input("Ingresar GEMINI_API_KEY para todo el club:", type="password", key="admin_gemini_input", placeholder="AIzaSy...")
             with col_k2:
                 st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-                if st.button("🚀 Activar Wolfy AI", use_container_width=True, key="btn_save_key"):
+                if st.button("💾 Guardar para Todos", use_container_width=True, key="btn_save_key"):
                     if input_k.strip():
-                        save_gemini_api_key(input_k.strip())
-                        st.success("✅ ¡Google Gemini conectado con éxito! Ahora Wolfy responderá cualquier pregunta libre.")
-                        st.rerun()
+                        if save_gemini_api_key(input_k.strip()):
+                            st.success("✅ ¡Clave de Gemini guardada en la base de datos central! Activa para todos los atletas.")
+                            st.rerun()
+                        else:
+                            st.error("No se pudo guardar en la base de datos.")
                     else:
-                        st.error("Por favor ingresa tu clave.")
+                        st.error("Por favor ingresa una clave válida.")
 
     # 4. Inicializar historial de chat en session_state
     chat_key = f"wolfy_chat_{member_id}"
