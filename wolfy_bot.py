@@ -19,23 +19,72 @@ from bloodwork_constants import get_bloodwork_ranges, classify_bloodwork_value
 #  CONFIGURACIÓN DE LA API KEY DE GEMINI
 # ═════════════════════════════════════════════════════════════════════
 
+def save_gemini_api_key(key: str) -> bool:
+    """Guarda la API Key de Gemini en session_state y la persiste en el archivo .env."""
+    key = key.strip()
+    if not key:
+        return False
+    st.session_state["gemini_api_key_override"] = key
+    os.environ["GEMINI_API_KEY"] = key
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), ".env")
+        lines = []
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        
+        found = False
+        new_lines = []
+        for line in lines:
+            if line.strip().startswith("GEMINI_API_KEY="):
+                new_lines.append(f'GEMINI_API_KEY="{key}"\n')
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            if lines and not lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f'GEMINI_API_KEY="{key}"\n')
+            
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True
+    except Exception:
+        return True
+
 def get_gemini_api_key() -> str:
-    """Busca la API Key de Gemini en session_state, Streamlit Secrets o variables de entorno."""
-    # 1. Sesión interactiva (si el usuario la ingresó temporalmente en la app)
+    """Busca la API Key de Gemini en session_state, Streamlit Secrets, .env o variables de entorno."""
+    # 1. Sesión interactiva
     if st.session_state.get("gemini_api_key_override"):
         return st.session_state["gemini_api_key_override"].strip()
     
     # 2. Streamlit Cloud Secrets
     try:
         if "GEMINI_API_KEY" in st.secrets:
-            return st.secrets["GEMINI_API_KEY"].strip()
+            k = st.secrets["GEMINI_API_KEY"].strip()
+            if k:
+                return k
     except Exception:
         pass
         
-    # 3. Variable de entorno / archivo .env
+    # 3. Variable de entorno
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if key:
         return key
+
+    # 4. Lectura directa de .env
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    clean = line.strip()
+                    if clean.startswith("GEMINI_API_KEY="):
+                        val = clean.split("=", 1)[1].strip().strip('"').strip("'")
+                        if val:
+                            return val
+    except Exception:
+        pass
 
     return ""
 
@@ -284,7 +333,7 @@ def call_gemini_chat(messages: list, system_prompt: str, api_key: str) -> str:
 
 def generate_local_wolfy_response(user_query: str, athlete_ctx: dict) -> str:
     """
-    Genera respuestas inteligentes inmediatas basadas en la fisiología de AlphaX
+    Genera respuestas inteligentes basadas en la fisiología de AlphaX
     y los datos reales del atleta cuando no hay API Key de Gemini configurada.
     """
     q = user_query.lower()
@@ -292,9 +341,10 @@ def generate_local_wolfy_response(user_query: str, athlete_ctx: dict) -> str:
     gender = athlete_ctx.get("gender", "Hombre")
     bw = athlete_ctx.get("bloodwork") or {}
     lac = athlete_ctx.get("lactate") or {}
+    sleep = athlete_ctx.get("sleep") or {}
 
-    # 1. Pregunta sobre Transporte de Oxígeno / Hemoglobina / Ferritina / Hematocrito
-    if any(w in q for w in ["oxigeno", "oxígeno", "hemoglobina", "ferritina", "hematocrito", "hierro", "sangre"]):
+    # 1. Transporte de Oxígeno / Hemoglobina / Ferritina / Hematocrito / VCM
+    if any(w in q for w in ["oxigeno", "oxígeno", "hemoglobina", "ferritina", "hematocrito", "hierro", "sangre", "vcm", "chcm", "eritrocito", "eritrocitos", "globulos rojos", "glóbulos rojos", "anemia"]):
         hb = bw.get("hemoglobin")
         hto = bw.get("hematocrit")
         fer = bw.get("ferritin")
@@ -306,69 +356,149 @@ def generate_local_wolfy_response(user_query: str, athlete_ctx: dict) -> str:
             resp.append(f"- **Hemoglobina Total**: `{hb} g/dL`")
             resp.append(f"- **Hematocrito**: `{hto}%`")
             if vcm is not None:
-                resp.append(f"- **VCM (Volumen Corpuscular Medio)**: `{vcm} fL`")
+                resp.append(f"- **VCM (Volumen Corpuscular Medio)**: `{vcm} fL` (Indica el tamaño de tus glóbulos rojos. 80-96 fL es normocítico óptimo).")
             if fer is not None:
                 resp.append(f"- **Ferritina Sérica**: `{fer} ng/mL`")
                 if fer < 35.0:
-                    resp.append(f"\n⚠️ **Ojo con tus depósitos de hierro:** Tu ferritina está en `{fer} ng/mL`. Para un atleta de resistencia ({gender}), buscamos idealmente valores superiores a **35-50 ng/mL**. Cuando está baja, aunque la hemoglobina parezca aceptable, tu capacidad de regenerar glóbulos rojos tras cargas altas se ve mermada.")
+                    resp.append(f"\n⚠️ **Ojo con tus depósitos de hierro:** Tu ferritina está en `{fer} ng/mL`. Para un deportista de resistencia ({gender}), el objetivo ideal es superior a **35-50 ng/mL**. Si está baja, aunque la hemoglobina parezca normal, te costará más tolerar cargas altas de volumen.")
                 else:
-                    resp.append(f"\n✅ **Buenos depósitos de hierro:** Tu ferritina de `{fer} ng/mL` respalda una adecuada síntesis de hemoglobina y transporte de $O_2$ a los músculos.")
+                    resp.append(f"\n✅ **Buenos depósitos de hierro:** Tu ferritina de `{fer} ng/mL` asegura una adecuada regeneración de hemoglobina.")
             
-            resp.append("\n💡 **Concepto AlphaX:** En deportistas aeróbicos es común la *pseudoanemia por hemodilución*: al entrenar mucho, tu plasma sanguíneo se expande hasta un 15-20%, haciendo que la hemoglobina y el hematocrito se vean ligeramente más bajos de forma natural, pero con una sangre más fluida para el corazón.")
+            resp.append("\n💡 **Concepto AlphaX:** En atletas aeróbicos es muy frecuente la *pseudoanemia por hemodilución*: al entrenar resistencia, el plasma sanguíneo aumenta hasta un 15-20%, haciendo que la hemoglobina parezca ligeramente baja cuando en realidad tienes mayor volumen total de oxígeno en circulación.")
         else:
-            resp.append("Aún no tienes exámenes de sangre registrados en tu perfil. Sube tu último análisis en la pestaña **🩸 Hemogramas** y podré analizar tu hemoglobina, ferritina y glóbulos rojos al instante.")
+            resp.append("Aún no tienes exámenes de sangre registrados en tu perfil. Sube tu último análisis en la pestaña **🩸 Hemogramas** y podré analizar tu transporte de $O_2$ al instante.")
             
         return "\n".join(resp)
 
-    # 2. Pregunta sobre Daño Muscular / Creatina Quinasa (CK) / Cansancio
-    if any(w in q for w in ["ck", "creatina quinasa", "creatina kinasa", "muscular", "dolor", "agujetas", "fatiga", "recuperacion", "recuperación"]):
+    # 2. Daño Muscular / Creatina Quinasa (CK) / Fatiga / Dolor
+    if any(w in q for w in ["ck", "creatina quinasa", "creatina kinasa", "muscular", "dolor", "agujetas", "fatiga", "recuperacion", "recuperación", "cansancio", "sobreentrenamiento"]):
         ck = bw.get("ck")
         resp = [f"🐺 **Hablemos de daño muscular y recuperación ({name}):**\n"]
         if ck is not None:
             resp.append(f"Tu última **Creatina Quinasa (CK)** registrada es de `{ck} U/L`.")
             if ck > 300:
-                resp.append(f"⚡ **Nivel elevado:** La CK es una enzima que se fuga a la sangre cuando hay micro-roturas en las fibras musculares (muy común tras series intensas, bajadas pronunciadas o fondos largos).")
-                resp.append(f"🎯 **Acción AlphaX:** Hoy prioriza hidratación abundante, descanso activo (caminata suave o rodillo en Z1 muy liviano) y buen aporte de proteínas y electrolitos. Si la CK pasa de 800-1000 U/L, no hagas sesiones de alta intensidad hasta que descienda.")
+                resp.append(f"⚡ **Nivel elevado:** La CK es una enzima que se fuga a la sangre cuando hay micro-roturas musculares tras sesiones duras (fondos largos, series o trabajo de fuerza excéntrica).")
+                resp.append(f"🎯 **Acción AlphaX:** Hoy prioriza hidratación con electrolitos, descanso activo (caminar o rodillo liviano en Z1) y buen descanso nocturno. Si supera 800 U/L, evita series de alta intensidad hasta que baje.")
             else:
-                resp.append(f"✅ **Excelente recuperación:** Tu CK está en rangos seguros, lo que indica que no tienes una sobrecarga muscular excesiva acumulada.")
+                resp.append(f"✅ **Excelente asimilación:** Tu CK está en rangos controlados, lo que indica que no presentas sobrecarga muscular acumulada severa.")
         else:
-            resp.append("La **Creatina Quinasa (CK)** es el mejor semáforo biológico para saber si tus músculos ya asimilaron el entrenamiento duro previo o si aún están inflamados.")
+            resp.append("La **Creatina Quinasa (CK)** es el marcador reina para saber si tus músculos ya asimilaron el entrenamiento duro previo o si aún están inflamados.")
             
         return "\n".join(resp)
 
-    # 3. Pregunta sobre Lactato y Umbrales (LT1 / LT2)
-    if any(w in q for w in ["lactato", "umbral", "lt1", "lt2", "zonas", "ftp", "ritmos"]):
+    # 3. Lactato, Umbrales y Zonas de Entrenamiento (LT1 / LT2 / FTP)
+    if any(w in q for w in ["lactato", "umbral", "lt1", "lt2", "zonas", "ftp", "ritmos", "potencia", "vatios", "watts"]):
         resp = [f"🐺 **Tus Umbrales Fisiológicos de Lactato:**\n"]
         if lac.get("lt1_power") or lac.get("lt2_power"):
             resp.append(f"En tu última prueba de **{lac.get('sport', 'Resistencia')}**:")
-            resp.append(f"- **LT1 (Umbral Aeróbico)**: `{lac.get('lt1_power')} W/Pace` (FC: ~{lac.get('lt1_hr')} bpm). Es el ritmo donde quemas máxima grasa y puedes mantenerte horas sin fatiga severa.")
-            resp.append(f"- **LT2 (Umbral Anaeróbico / MLSS)**: `{lac.get('lt2_power')} W/Pace` (FC: ~{lac.get('lt2_hr')} bpm). Es el ritmo de máximo estado estable de lactato.")
+            resp.append(f"- **LT1 (Umbral Aeróbico)**: `{lac.get('lt1_power')} W/Pace` (FC: ~{lac.get('lt1_hr')} bpm). Es el ritmo donde quemas máxima grasa y construyes tu base mitocondrial sin acumular fatiga ácida.")
+            resp.append(f"- **LT2 (Umbral Anaeróbico / MLSS)**: `{lac.get('lt2_power')} W/Pace` (FC: ~{lac.get('lt2_hr')} bpm). Es el ritmo máximo sostenible durante ~45-60 min.")
         else:
-            resp.append("El lactato no es un 'desecho', ¡es un combustible premium para tu corazón y fibras lentas!")
-            resp.append("- **LT1 (Z2)**: Base aeróbica pura.")
-            resp.append("- **LT2 (Z4)**: Ritmo de umbral funcional.")
+            resp.append("El lactato no es un 'desecho', es un combustible premium que el corazón y las fibras tipo I usan como energía.")
+            resp.append("- **LT1 (Zona 2)**: Ritmo conversacional de base aeróbica.")
+            resp.append("- **LT2 (Zona 4)**: Ritmo de tempo/umbral funcional.")
         resp.append("\nPuedes ver tus curvas completas y tabla de zonas en la pestaña **🧪 Pruebas de Lactato**.")
         return "\n".join(resp)
 
-    # 4. Pregunta sobre la App AlphaX
-    if any(w in q for w in ["app", "crm", "como uso", "cómo uso", "subir", "descargar", "pantalla", "pestaña"]):
-        return f"""🐺 **Guía Rápida de la App AlphaX para Atletas:**
+    # 4. Sueño, Descanso y Recuperación (ASSQ / SDS)
+    if any(w in q for w in ["sueño", "dormir", "descanso", "insomnio", "assq", "sds", "siesta", "melatonina", "horas"]):
+        sds = sleep.get("sds_score")
+        cat = sleep.get("category")
+        hrs = sleep.get("hours")
+        resp = [f"🐺 **Análisis de Sueño y Recuperación AlphaX ({name}):**\n"]
+        if sds is not None:
+            resp.append(f"- **Puntuación SDS (ASSQ)**: `{sds}/17` ({cat})")
+            if hrs: resp.append(f"- **Horas habituales**: `{hrs}`")
+            if sds >= 8:
+                resp.append(f"\n⚠️ **Atención:** Tu puntaje refleja dificultad de descanso. La hormona del crecimiento (GH) y la síntesis de glucógeno se dan principalmente en el sueño profundo (fases N3 y REM).")
+                resp.append(f"💡 **Recomendación AlphaX:** Mantén la habitación a oscuras y fresca (~19°C), evita pantallas 45 min antes de acostarte y cuida la cena rica en magnesio y triptófano.")
+            else:
+                resp.append(f"\n✅ **¡Excelente recuperación nocturna!** Tu puntaje indica un descanso reparador para asimilar los entrenamientos.")
+        else:
+            resp.append("El sueño es el 80% de tu regeneración celular. Registra tu cuestionario semanal en la pestaña **💤 ASSQ (Sueño)** para monitorear tu recuperación.")
+        return "\n".join(resp)
 
-1. **💤 Sueño (ASSQ):** Aquí llenas tu cuestionario de sueño y ves la gráfica histórica de calidad de descanso.
-2. **🩸 Hemogramas:** Muestra tus 15 marcadores sanguíneos con un radar gráfico interactivo, semáforos óptimos de resistencia y alertas personalizadas.
-3. **🧪 Pruebas de Lactato:** Contiene tu curva de lactato vs potencia/FC y tus zonas de entrenamiento individualizadas (Z1 a Z5).
-4. **🐺 Wolfy AI Coach:** ¡Aquí estoy yo para resolverte cualquier duda sobre tu rendimiento, tu salud y tus entrenamientos!"""
+    # 5. Nutrición Deportiva / Carbohidratos / Comida / Desayuno
+    if any(w in q for w in ["nutricion", "nutrición", "comer", "comida", "desayuno", "almuerzo", "cena", "carbohidrato", "carbohidratos", "geles", "glucogeno", "glucógeno", "proteina", "proteína", "ayuno", "peso", "dieta"]):
+        return f"""🐺 **Estrategia Nutricional AlphaX para Atletas:**
 
-    # Respuesta por defecto inteligente
-    return f"""🐺 **¡Hola, {name}! Soy Wolfy, tu mentor fisiológico en AlphaX.**
+1. **Antes de entrenar (2-3 h antes):** Carbohidratos de fácil asimilación (avena, banano, arroz o tostadas con mermelada) con poca grasa y fibra para evitar molestias gástricas.
+2. **Durante sesiones > 75-90 min:** Consumir entre **30 g y 60-90 g de carbohidratos/hora** (geles, isotónico, barritas) según tu tolerancia digestiva entrenada.
+3. **Ventana de recuperación (post-entreno):** Combina carbohidratos para reponer glucógeno con **20-30 g de proteína** de alta calidad (whey, huevos, pechuga) para reparación muscular.
+4. **Hidratación:** Asegura sodio en sesiones con alta sudoración (400-800 mg de sodio por hora)."""
 
-Puedo ayudarte con:
-* 🩸 **Tus exámenes de sangre:** Analizo tu hemoglobina, hematocrito, ferritina, CK y glucosa con enfoque deportivo.
-* 🧪 **Tus umbrales de lactato:** Explicación de tus zonas Z1-Z5, LT1 y LT2.
-* 💤 **Recuperación y sueño:** Estrategias para asimilar mejor las cargas.
-* 📱 **Uso de la App AlphaX:** Cómo interpretar tus métricas y reportes.
+    # 6. Hidratación y Electrolitos
+    if any(w in q for w in ["hidratacion", "hidratación", "agua", "sudor", "sales", "electrolitos", "sodio", "calambre", "calambres", "isotonico", "isotónico"]):
+        return f"""🐺 **Hidratación y Electrolitos en Resistencia:**
 
-*Pruébame preguntándome:* **"¿Cómo está mi transporte de oxígeno?"** o **"¿Qué significa tener la CK alta?"**."""
+* **El peligro de beber solo agua:** Beber litros de agua sola sin sales en tiradas largas puede causar *hiponatremia* (baja de sodio en sangre), pesadez estomacal y calambres.
+* **Tasa de reposición:** Consume entre 500 y 750 ml de líquido por hora de esfuerzo, agregando entre 400 y 800 mg de sodio según tu tasa de sudoración y la temperatura ambiente.
+* **Si tienes calambres recurrentes:** Suelen deberse a fatiga neuromuscular o pérdida excesiva de sodio y magnesio. ¡No olvides tus cápsulas de sales en entrenos de más de 90 minutos!"""
+
+    # 7. Perfil Lipídico / Colesterol / Triglicéridos
+    if any(w in q for w in ["colesterol", "trigliceridos", "triglicéridos", "hdl", "ldl", "lipidos", "lípidos", "grasa"]):
+        tc = bw.get("total_cholesterol")
+        hdl = bw.get("hdl")
+        ldl = bw.get("ldl")
+        tg = bw.get("triglycerides")
+        resp = [f"🐺 **Perfil Lipídico en Deportistas ({name}):**\n"]
+        if tc is not None or hdl is not None:
+            if tc is not None: resp.append(f"- **Colesterol Total**: `{tc} mg/dL`")
+            if hdl is not None: resp.append(f"- **HDL (Protector)**: `{hdl} mg/dL` (Ideal > 50 mg/dL)")
+            if ldl is not None: resp.append(f"- **LDL**: `{ldl} mg/dL` (Ideal < 115 mg/dL en deportistas)")
+            if tg is not None: resp.append(f"- **Triglicéridos**: `{tg} mg/dL` (Ideal < 100 mg/dL)")
+            resp.append("\n💡 **Nota AlphaX:** En atletas de alto volumen, el HDL suele ser elevado (lo cual es un excelente factor cardioprotector). Los triglicéridos bajos confirman buena sensibilidad a la insulina.")
+        else:
+            resp.append("El perfil lipídico en deportistas permite evaluar la salud endotelial y la flexibilidad metabólica. Puedes subir tu examen en la pestaña **🩸 Hemogramas**.")
+        return "\n".join(resp)
+
+    # 8. Glucosa / Metabolismo / HbA1c
+    if any(w in q for w in ["glucosa", "azucar", "azúcar", "diabetes", "insulina", "hba1c"]):
+        glu = bw.get("glucose")
+        hba1c = bw.get("hba1c")
+        resp = [f"🐺 **Marcadores Metabólicos y Glucosa ({name}):**\n"]
+        if glu is not None:
+            resp.append(f"- **Glucosa en Ayunas**: `{glu} mg/dL` (Óptimo AlphaX: 70 - 99 mg/dL)")
+            if hba1c is not None: resp.append(f"- **Hemoglobina Glicosilada (HbA1c)**: `{hba1c}%` (Ideal < 5.6%)")
+            resp.append("\n💡 En resistencia, una buena sensibilidad a la insulina garantiza que el glucógeno se almacene eficientemente en los músculos en lugar de convertirse en grasa corporal.")
+        else:
+            resp.append("La glucosa en ayunas y la HbA1c reflejan la estabilidad de tu combustible energético.")
+        return "\n".join(resp)
+
+    # 9. Frecuencia Cardíaca / Pulso / HRV
+    if any(w in q for w in ["pulso", "frecuencia cardiaca", "frecuencia cardíaca", "bpm", "fc max", "fc reposo", "hrv", "variabilidad"]):
+        return f"""🐺 **Frecuencia Cardíaca y Fisiología AlphaX:**
+
+* **FC en Reposo:** A medida que mejora tu condición aeróbica, tu corazón bombea más sangre por latido (volumen sistólico), reduciendo tu FC basal matutina (habitual entre 40-55 bpm en fondistas).
+* **Alerta de fatiga:** Si tu FC basal al despertar sube 5-8 bpm por encima de tu promedio durante varios días consecutivos, es señal temprana de fatiga del sistema nervioso o deshidratación.
+* **Variabilidad Cardíaca (HRV):** Una HRV alta indica un sistema parasimpático dominante y excelente capacidad de asimilar carga ese día."""
+
+    # 10. Guía de la App AlphaX
+    if any(w in q for w in ["app", "crm", "como uso", "cómo uso", "subir", "descargar", "pantalla", "pestaña", "menu", "menú"]):
+        return f"""🐺 **Guía de la App AlphaX para Atletas:**
+
+1. **🐺 Wolfy AI Coach:** ¡Tu mentor interactivo! Pregúntame sobre tus analíticas, umbrales o nutrición.
+2. **🩸 Hemogramas:** Muestra tus 15 biomarcadores con semáforos deportivos, radar metabólico y alertas de salud.
+3. **🧪 Pruebas de Lactato:** Visualiza tu curva de lactato, potencia, pulso y tus 5 zonas de entrenamiento.
+4. **💤 ASSQ (Sueño):** Registra tu reporte de descanso para detectar a tiempo la sobrecarga."""
+
+    # 11. Respuesta de Orientación cuando no hay API Key de Gemini
+    return f"""🐺 **¡Hola, {name}!** 
+
+Tu pregunta es muy interesante: *"{user_query}"*.
+
+Actualmente estoy funcionando en **modo local básico** porque aún no se ha ingresado una clave de **Google Gemini**. Por eso respondo con mi base de datos interna sobre fisiología deportiva, pero para responderte **cualquier pregunta libre con razonamiento de Inteligencia Artificial abierta** (como ChatGPT o Gemini):
+
+👉 **Solo debes conectar la clave gratuita de Google Gemini:**
+1. Es **100% gratuita** y se obtiene en 30 segundos en [Google AI Studio (Click aquí)](https://aistudio.google.com/app/apikey).
+2. Pégala en el recuadro **"Activar Wolfy AI"** que tienes arriba y haz clic en **Guardar**.
+
+*Mientras tanto, puedes preguntarme sobre:*
+* 🩸 **Transporte de $O_2$:** *"¿Cómo está mi hemoglobina y ferritina?"*
+* ⚡ **Daño muscular:** *"¿Qué significa mi Creatina Quinasa (CK)?"*
+* 🧪 **Umbrales:** *"¿Cuáles son mis umbrales de lactato LT1 y LT2?"*
+* 💤 **Recuperación:** *"¿Cómo está mi score de sueño ASSQ?"*
+* 🥑 **Nutrición:** *"¿Qué debo comer antes y después de un fondo?"*"""
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -394,10 +524,14 @@ def render_wolfy_tab(member_id: int):
             avatar_b64 = ""
 
     avatar_img_tag = f'<img src="data:image/png;base64,{avatar_b64}" style="width: 72px; height: 72px; border-radius: 50%; border: 2.5px solid #00EEFF; box-shadow: 0 0 16px rgba(0,238,255,0.4); object-fit: cover;">' if avatar_b64 else '🐺'
-    status_badge = '<span style="background: rgba(0,255,0,0.15); color: #00FF00; padding: 3px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; border: 1px solid rgba(0,255,0,0.3);">🟢 Gemini Neuronal Activo</span>' if api_key else '<span style="background: rgba(0,238,255,0.15); color: #00EEFF; padding: 3px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: bold; border: 1px solid rgba(0,238,255,0.3);">🧠 AlphaX Base Fisiológica</span>'
+    
+    if api_key:
+        status_badge = '<span style="background: rgba(0,255,0,0.15); color: #00FF00; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(0,255,0,0.3);">🟢 Gemini Neuronal Activo (IA Libre)</span>'
+    else:
+        status_badge = '<span style="background: rgba(255,180,0,0.15); color: #FFA500; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; border: 1px solid rgba(255,180,0,0.3);">🟡 Modo Base Fisiológica (Falta Gemini Key)</span>'
 
     header_html = f"""
-    <div style="background: linear-gradient(135deg, rgba(16, 22, 34, 0.95), rgba(10, 13, 22, 0.98)); border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+    <div style="background: linear-gradient(135deg, rgba(16, 22, 34, 0.95), rgba(10, 13, 22, 0.98)); border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
         <div style="display: flex; align-items: center; gap: 16px;">
             {avatar_img_tag}
             <div>
@@ -419,18 +553,44 @@ def render_wolfy_tab(member_id: int):
     else:
         st.markdown(header_html, unsafe_allow_html=True)
 
-    # 3. Inicializar historial de chat en session_state
+    # 3. Alerta y activador si falta la API Key de Gemini
+    if not api_key:
+        with st.expander("🔑 Haz clic aquí para activar el chat de IA libre de Wolfy con Google Gemini (Gratis en 30 seg)", expanded=True):
+            st.markdown(
+                """
+                **¿Por qué Wolfy necesita esta clave?**
+                Para responder **cualquier pregunta libre** (nutrición abierta, carreras, dudas avanzadas, calambres, etc.) como un chat de IA real, Wolfy se conecta al motor de **Google Gemini**.
+                
+                1. Obtén tu clave 100% gratuita en 👉 [**Google AI Studio (Click para obtener API Key)**](https://aistudio.google.com/app/apikey).
+                2. Inicia sesión con cualquier cuenta de Google, pulsa en **"Create API key"** y cópiala.
+                3. Pégala aquí abajo y pulsa **Activar Wolfy AI**:
+                """
+            )
+            col_k1, col_k2 = st.columns([3, 1])
+            with col_k1:
+                input_k = st.text_input("Ingresar GEMINI_API_KEY:", type="password", key="quick_gemini_input", placeholder="AIzaSy...")
+            with col_k2:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                if st.button("🚀 Activar Wolfy AI", use_container_width=True, key="btn_save_key"):
+                    if input_k.strip():
+                        save_gemini_api_key(input_k.strip())
+                        st.success("✅ ¡Google Gemini conectado con éxito! Ahora Wolfy responderá cualquier pregunta libre.")
+                        st.rerun()
+                    else:
+                        st.error("Por favor ingresa tu clave.")
+
+    # 4. Inicializar historial de chat en session_state
     chat_key = f"wolfy_chat_{member_id}"
     if chat_key not in st.session_state:
         st.session_state[chat_key] = [
             {
                 "role": "assistant",
-                "content": f"¡Aúpa, **{athlete_ctx['athlete_name']}**! 🐺 Soy **Wolfy**, tu compañero de inteligencia artificial en **AlphaX**.\n\nConozco tus métricas fisiológicas y estoy aquí para resolver cualquier duda sobre tus **exámenes de sangre**, tus **umbrales de lactato**, tu **recuperación** o sobre el funcionamiento de la **App AlphaX**.\n\n¿Qué te gustaría analizar hoy?"
+                "content": f"¡Aúpa, **{athlete_ctx['athlete_name']}**! 🐺 Soy **Wolfy**, tu compañero de inteligencia artificial en **AlphaX**.\n\nConozco tus métricas fisiológicas y estoy listo para resolver cualquier duda sobre tus **exámenes de sangre**, tus **umbrales de lactato**, tu **recuperación** o tus entrenamientos.\n\n¿Qué te gustaría analizar hoy?"
             }
         ]
 
-    # 4. Botones de Preguntas Rápidas (Pills)
-    st.markdown("<div style='color: #8E9BAE; font-size: 0.78rem; font-weight: bold; text-transform: uppercase; margin-bottom: 6px;'>💡 Preguntas rápidas sugeridas:</div>", unsafe_allow_html=True)
+    # 5. Botones de Preguntas Rápidas (Pills)
+    st.markdown("<div style='color: #8E9BAE; font-size: 0.78rem; font-weight: bold; text-transform: uppercase; margin-bottom: 6px;'>💡 Preguntas sugeridas para empezar:</div>", unsafe_allow_html=True)
     c_q1, c_q2, c_q3, c_q4 = st.columns(4)
     
     quick_query = None
@@ -444,10 +604,10 @@ def render_wolfy_tab(member_id: int):
         if st.button("🧪 Umbrales de Lactato", use_container_width=True, key="btn_q3"):
             quick_query = "¿Cómo interpreto mis umbrales de lactato LT1 y LT2 según mi última prueba?"
     with c_q4:
-        if st.button("📱 Guía App AlphaX", use_container_width=True, key="btn_q4"):
-            quick_query = "¿Cómo puedo aprovechar al máximo las gráficas y reportes de la app AlphaX?"
+        if st.button("🥑 Nutrición e Hidratación", use_container_width=True, key="btn_q4"):
+            quick_query = "¿Qué estrategia de nutrición e hidratación debo seguir para una sesión de resistencia larga?"
 
-    # 5. Renderizar mensajes previos del chat
+    # 6. Renderizar mensajes previos del chat
     avatar_user = "🏃"
     avatar_wolfy = avatar_path if os.path.exists(avatar_path) else "🐺"
 
@@ -455,8 +615,8 @@ def render_wolfy_tab(member_id: int):
         with st.chat_message(msg["role"], avatar=avatar_wolfy if msg["role"] == "assistant" else avatar_user):
             st.markdown(msg["content"])
 
-    # 6. Capturar nueva entrada (input del usuario o botón rápido)
-    user_prompt = st.chat_input("Escribe tu duda fisiológica o sobre la app AlphaX...") or quick_query
+    # 7. Capturar nueva entrada (input del usuario o botón rápido)
+    user_prompt = st.chat_input("Escribe cualquier pregunta a Wolfy (exámenes, nutrición, lactato, entreno)...") or quick_query
 
     if user_prompt:
         # Agregar mensaje del usuario al chat
@@ -466,7 +626,7 @@ def render_wolfy_tab(member_id: int):
 
         # Generar respuesta de Wolfy
         with st.chat_message("assistant", avatar=avatar_wolfy):
-            with st.spinner("Wolfy analizando fisiología y métricas..."):
+            with st.spinner("Wolfy razonando con ciencia AlphaX..."):
                 response_text = None
                 
                 # Intentar llamar a Google Gemini si hay clave configurada
@@ -484,18 +644,19 @@ def render_wolfy_tab(member_id: int):
                 st.markdown(response_text)
                 st.session_state[chat_key].append({"role": "assistant", "content": response_text})
 
-    # 7. Controles inferiores (Limpiar historial y configuración de API)
+    # 8. Controles inferiores (Limpiar historial y configuración de API)
     st.markdown("---")
     col_ctrl1, col_ctrl2 = st.columns([3, 1])
     with col_ctrl1:
-        with st.expander("⚙️ Configuración del Motor Gemini (Opcional)", expanded=False):
-            st.caption("Wolfy funciona automáticamente con su base de conocimiento de AlphaX. Si deseas conectarlo a Google Gemini para razonamiento ilimitado, ingresa tu clave o agrégala a los Secrets de Streamlit.")
-            current_override = st.session_state.get("gemini_api_key_override", "")
-            new_key = st.text_input("Ingresar GEMINI_API_KEY personalizada:", value=current_override, type="password", key="input_gemini_key")
-            if new_key != current_override:
-                st.session_state["gemini_api_key_override"] = new_key
-                st.success("¡Clave de Gemini actualizada para esta sesión!")
-                st.rerun()
+        if api_key:
+            with st.expander("⚙️ Clave de Gemini conectada", expanded=False):
+                st.caption(f"Clave actual en uso: `...{api_key[-6:] if len(api_key)>6 else '***'}`")
+                new_key = st.text_input("Cambiar clave GEMINI_API_KEY:", type="password", key="input_gemini_key_change")
+                if st.button("Actualizar Clave"):
+                    if new_key.strip():
+                        save_gemini_api_key(new_key.strip())
+                        st.success("¡Clave actualizada!")
+                        st.rerun()
     with col_ctrl2:
         if st.button("🧹 Limpiar Chat", use_container_width=True, type="secondary"):
             st.session_state.pop(chat_key, None)
