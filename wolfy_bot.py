@@ -297,9 +297,14 @@ def call_gemini_chat(messages: list, system_prompt: str, api_key: str) -> str:
     if not api_key:
         return None
 
-    # Formatear historial para la API de Gemini
-    # Modelos recomendados: gemini-1.5-flash (ultrarrápido y eficiente) o gemini-2.0-flash
-    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    # Modelos recomendados y activos de Google Gemini
+    models = [
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-2.5-flash"
+    ]
     
     contents = []
     for msg in messages:
@@ -331,16 +336,17 @@ def call_gemini_chat(messages: list, system_prompt: str, api_key: str) -> str:
                 candidates = data.get("candidates", [])
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return parts[0].get("text", "")
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
             elif resp.status_code in [400, 403]:
-                # Error de clave o cuota en este endpoint
+                # Error de clave inválida o cuota
                 err_json = resp.json() if resp.text else {}
                 err_msg = err_json.get("error", {}).get("message", resp.text)
-                return f"⚠️ **Error de API Gemini ({resp.status_code})**: {err_msg}. Verifica tu `GEMINI_API_KEY`."
+                return f"⚠️ **Error de API Gemini ({resp.status_code})**: {err_msg}. Verifica la clave configurada."
+            # En caso de 404 (modelo no disponible) o 503 (saturación temporal), continúa al siguiente modelo
         except requests.exceptions.Timeout:
             continue
-        except Exception as e:
+        except Exception:
             continue
 
     return None
@@ -350,10 +356,10 @@ def call_gemini_chat(messages: list, system_prompt: str, api_key: str) -> str:
 #  MOTOR FISIOLÓGICO DE RESPALDO (Sin costo de API)
 # ═════════════════════════════════════════════════════════════════════
 
-def generate_local_wolfy_response(user_query: str, athlete_ctx: dict) -> str:
+def generate_local_wolfy_response(user_query: str, athlete_ctx: dict, has_api_key: bool = False) -> str:
     """
     Genera respuestas inteligentes basadas en la fisiología de AlphaX
-    y los datos reales del atleta cuando no hay API Key de Gemini configurada.
+    y los datos reales del atleta cuando no hay API Key de Gemini configurada o hay una intermitencia.
     """
     q = user_query.lower()
     name = athlete_ctx.get("athlete_name", "atleta")
@@ -501,16 +507,25 @@ def generate_local_wolfy_response(user_query: str, athlete_ctx: dict) -> str:
 3. **🧪 Pruebas de Lactato:** Visualiza tu curva de lactato, potencia, pulso y tus 5 zonas de entrenamiento.
 4. **💤 ASSQ (Sueño):** Registra tu reporte de descanso para detectar a tiempo la sobrecarga."""
 
-    # 11. Respuesta de Orientación cuando no hay API Key de Gemini
+    # 11. Respuesta de Orientación
+    if has_api_key:
+        return f"""🐺 **¡Hola, {name}!** 
+
+Tu pregunta es muy interesante: *"{user_query}"*.
+
+Estoy experimentando una breve intermitencia en el enlace con los servidores de Google Gemini. Mientras se reconecta, puedes consultarme sobre cualquiera de tus métricas fisiológicas:
+
+* 🩸 **Transporte de $O_2$:** *"¿Cómo está mi hemoglobina y ferritina?"*
+* ⚡ **Daño muscular:** *"¿Qué significa mi Creatina Quinasa (CK)?"*
+* 🧪 **Umbrales:** *"¿Cuáles son mis umbrales de lactato LT1 y LT2?"*
+* 💤 **Recuperación:** *"¿Cómo está mi score de sueño ASSQ?"*
+* 🥑 **Nutrición:** *"¿Qué debo comer antes y después de un fondo?"*"""
+
     return f"""🐺 **¡Hola, {name}!** 
 
 Tu pregunta es muy interesante: *"{user_query}"*.
 
-Actualmente estoy funcionando en **modo local básico** porque aún no se ha ingresado una clave de **Google Gemini**. Por eso respondo con mi base de datos interna sobre fisiología deportiva, pero para responderte **cualquier pregunta libre con razonamiento de Inteligencia Artificial abierta** (como ChatGPT o Gemini):
-
-👉 **Solo debes conectar la clave gratuita de Google Gemini:**
-1. Es **100% gratuita** y se obtiene en 30 segundos en [Google AI Studio (Click aquí)](https://aistudio.google.com/app/apikey).
-2. Pégala en el recuadro **"Activar Wolfy AI"** que tienes arriba y haz clic en **Guardar**.
+Actualmente estoy funcionando en **modo fisiológico AlphaX**. Para habilitar razonamiento abierto con Inteligencia Artificial generativa, tu coach AlphaX activará la clave central en el panel de administración del CRM.
 
 *Mientras tanto, puedes preguntarme sobre:*
 * 🩸 **Transporte de $O_2$:** *"¿Cómo está mi hemoglobina y ferritina?"*
@@ -656,16 +671,16 @@ def render_wolfy_tab(member_id: int, is_admin: bool = False):
                 
                 # Si no hay clave o falló la conexión externa, usar el motor de conocimiento local AlphaX
                 if not response_text:
-                    response_text = generate_local_wolfy_response(user_prompt, athlete_ctx)
+                    response_text = generate_local_wolfy_response(user_prompt, athlete_ctx, has_api_key=bool(api_key))
                 
                 st.markdown(response_text)
                 st.session_state[chat_key].append({"role": "assistant", "content": response_text})
 
-    # 8. Controles inferiores (Limpiar historial y configuración de API)
+    # 8. Controles inferiores (Limpiar historial y configuración de API para Admin)
     st.markdown("---")
     col_ctrl1, col_ctrl2 = st.columns([3, 1])
     with col_ctrl1:
-        if api_key:
+        if api_key and is_admin:
             with st.expander("⚙️ Clave de Gemini conectada", expanded=False):
                 st.caption(f"Clave actual en uso: `...{api_key[-6:] if len(api_key)>6 else '***'}`")
                 new_key = st.text_input("Cambiar clave GEMINI_API_KEY:", type="password", key="input_gemini_key_change")
