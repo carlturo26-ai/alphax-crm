@@ -8,6 +8,8 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
+    if "wolfy_bot" in sys.modules:
+        del sys.modules["wolfy_bot"]
     if "app_atletas" in sys.modules:
         del sys.modules["app_atletas"]
     import app_atletas
@@ -35,6 +37,8 @@ try:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = athlete_cookie
         import sys
+        if "wolfy_bot" in sys.modules:
+            del sys.modules["wolfy_bot"]
         if "app_atletas" in sys.modules:
             del sys.modules["app_atletas"]
         import app_atletas

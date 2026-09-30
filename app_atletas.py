@@ -926,7 +926,13 @@ else:
     #  PESTAÑA 1: WOLFY AI COACH (MENTOR DEPORTIVO Y ASISTENTE ALPHAX)
     # ══════════════════════════════════════════════════════════════════
     with tab_wolfy:
-        import wolfy_bot
+        import sys
+        import importlib
+        if "wolfy_bot" in sys.modules:
+            import wolfy_bot
+            importlib.reload(wolfy_bot)
+        else:
+            import wolfy_bot
         wolfy_bot.render_wolfy_tab(member_id, is_admin=False)
 
     # ══════════════════════════════════════════════════════════════════

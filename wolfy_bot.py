@@ -613,6 +613,15 @@ def render_wolfy_tab(member_id: int, is_admin: bool = False):
 
     # 4. Inicializar historial de chat en session_state
     chat_key = f"wolfy_chat_{member_id}"
+    if chat_key in st.session_state and isinstance(st.session_state[chat_key], list):
+        # Purgar cualquier mensaje previo que haya quedado con el fallback antiguo de modo local
+        st.session_state[chat_key] = [
+            m for m in st.session_state[chat_key] 
+            if "modo local básico" not in m.get("content", "") and "Google AI Studio" not in m.get("content", "")
+        ]
+        if not st.session_state[chat_key]:
+            del st.session_state[chat_key]
+
     if chat_key not in st.session_state:
         st.session_state[chat_key] = [
             {
