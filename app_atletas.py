@@ -8,9 +8,10 @@ import hashlib
 import unicodedata
 from streamlit_cookies_controller import CookieController
 from logo_base64 import SIMBOLO_B64, TEXTO_BLANCO_B64
+import urllib.parse
 
 try:
-    from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, engine
+    from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, Transaction, engine
     from sqlalchemy import text
     init_db()
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -25,6 +26,99 @@ try:
 except Exception as e:
     st.error(f"💀 Error de Importación de DB: {e}")
     st.stop()
+
+def get_athlete_membership_status(member_id: int) -> dict:
+    """
+    Calcula el estado de pago de la mensualidad del atleta:
+    - is_paid (bool): True si no debe ningún mes hasta el mes actual
+    - status_level (str): 'green' (al día), 'yellow' (pendiente día <= 10), 'red' (crítico día > 10 o meses atrasados)
+    - status_label (str): '✅ Activo', '⚠️ Pendiente de Pago de Mensualidad', '🚨 Pago de Mensualidad Vencido'
+    - unpaid_months (list): lista de meses adeudados
+    - current_month (str): mes actual en español
+    - current_day (int): día del mes actual
+    - current_year (int): año actual
+    """
+    months_list = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
+                   "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+    now = datetime.now()
+    curr_month_idx = now.month - 1
+    curr_month = months_list[curr_month_idx]
+    curr_year = now.year
+    curr_day = now.day
+
+    unpaid_months = []
+    
+    if not member_id:
+        return {
+            "is_paid": True,
+            "status_level": "green",
+            "status_label": "✅ Activo",
+            "unpaid_months": [],
+            "current_month": curr_month,
+            "current_day": curr_day,
+            "current_year": curr_year
+        }
+
+    try:
+        with SessionLocal() as session:
+            member = session.query(Member).filter(Member.id == member_id).first()
+            if member:
+                m_start = getattr(member, 'start_month', 'ENERO') or 'ENERO'
+                start_idx = months_list.index(m_start) if m_start in months_list else 0
+                
+                # Obtener pagos registrados como 'PAID' en el año actual
+                paid_txs = {
+                    t.month for t in session.query(Transaction).filter(
+                        Transaction.member_id == member_id,
+                        Transaction.year == curr_year,
+                        Transaction.status == 'PAID'
+                    ).all()
+                }
+                
+                # Meses adeudados desde el mes de ingreso del atleta hasta el mes en curso
+                if start_idx <= curr_month_idx:
+                    unpaid_months = [
+                        months_list[i] for i in range(start_idx, curr_month_idx + 1)
+                        if months_list[i] not in paid_txs
+                    ]
+    except Exception as e:
+        print(f"Error checking membership payment: {e}")
+
+    # 1. Si no debe ningún mes -> AL DÍA (Verde)
+    if not unpaid_months:
+        return {
+            "is_paid": True,
+            "status_level": "green",
+            "status_label": "✅ Activo",
+            "unpaid_months": [],
+            "current_month": curr_month,
+            "current_day": curr_day,
+            "current_year": curr_year
+        }
+    
+    # 2. Si debe meses anteriores a este mes, O si ya pasó del día 10 del mes en curso -> CRÍTICO (Rojo)
+    has_past_debt = any(m != curr_month for m in unpaid_months)
+    if has_past_debt or curr_day > 10:
+        return {
+            "is_paid": False,
+            "status_level": "red",
+            "status_label": "🚨 Pago de Mensualidad Vencido",
+            "unpaid_months": unpaid_months,
+            "current_month": curr_month,
+            "current_day": curr_day,
+            "current_year": curr_year
+        }
+    else:
+        # 3. Solo debe el mes actual y estamos dentro del plazo (día <= 10) -> PENDIENTE (Amarillo)
+        return {
+            "is_paid": False,
+            "status_level": "yellow",
+            "status_label": "⚠️ Pendiente de Pago de Mensualidad",
+            "unpaid_months": unpaid_months,
+            "current_month": curr_month,
+            "current_day": curr_day,
+            "current_year": curr_year
+        }
 
 # --- CONFIGURACIÓN DE LA PÁGINA (Optimizada para móvil) ---
 try:
@@ -612,8 +706,17 @@ else:
         except Exception:
             pass
 
+    # ── ESTADO DE PAGO DE MENSUALIDAD (AL DÍA, PENDIENTE O CRÍTICO) ──
+    pay_status = get_athlete_membership_status(member_id)
+    if pay_status["status_level"] == "green":
+        badge_html = """<span style="background: rgba(0, 255, 136, 0.16); color: #00FF88; border: 1.5px solid rgba(0, 255, 136, 0.5); font-size: 0.72rem; font-weight: 800; padding: 4px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 10px rgba(0, 255, 136, 0.25);">✅ Activo</span>"""
+    elif pay_status["status_level"] == "yellow":
+        badge_html = """<span style="background: rgba(255, 170, 0, 0.18); color: #FFAA00; border: 1.5px solid rgba(255, 170, 0, 0.6); font-size: 0.68rem; font-weight: 800; padding: 4px 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 10px rgba(255, 170, 0, 0.25);">⚠️ Pendiente de Pago</span>"""
+    else:
+        badge_html = """<span style="background: rgba(255, 51, 85, 0.22); color: #FF3355; border: 1.5px solid #FF3355; font-size: 0.68rem; font-weight: 800; padding: 4px 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 0 14px rgba(255, 51, 85, 0.4);">🚨 Pago Vencido</span>"""
+
     # ── BARRA DE PERFIL Y ACCIONES (REFRESCAR / SALIR) ────────────────
-    prof_html = f"""<div style="display: flex; align-items: center; justify-content: space-between; gap: 11px; padding: 4px 6px; margin-bottom: 6px; background: rgba(16, 22, 34, 0.7); border: 1px solid rgba(0, 238, 255, 0.18); border-radius: 12px;">
+    prof_html = f"""<div style="display: flex; align-items: center; justify-content: space-between; gap: 11px; padding: 8px 10px; margin-bottom: 6px; background: rgba(16, 22, 34, 0.85); border: 1px solid rgba(0, 238, 255, 0.2); border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
 <div style="display: flex; align-items: center; gap: 11px;">
 <div style="position: relative; flex-shrink: 0;">
 <div style="width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, rgba(0,238,255,0.2), rgba(0,102,255,0.3)); border: 2px solid #00EEFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px rgba(0,238,255,0.4);">
@@ -628,6 +731,9 @@ else:
 <span style="color: #8E9BAE; font-size: 0.7rem; font-weight: 600;">Sincronizado</span>
 </div>
 </div>
+</div>
+<div style="flex-shrink: 0; text-align: right;">
+{badge_html}
 </div>
 </div>"""
     if hasattr(st, "html"):
@@ -653,6 +759,63 @@ else:
             st.query_params.clear()
             st.query_params["app"] = "atletas"
             st.rerun()
+
+    # ── AVISO DESTACADO DE MENSUALIDAD AL ENTRAR (SOLO SI NO ESTÁ AL DÍA) ──
+    if not pay_status["is_paid"]:
+        wa_unpaid_text = ", ".join(pay_status["unpaid_months"]) if pay_status["unpaid_months"] else pay_status["current_month"]
+        wa_pay_msg = f"¡Hola AlphaX! Adjunto mi comprobante de pago de la mensualidad ({wa_unpaid_text}) - {atleta} 🐺"
+        wa_pay_url = f"https://wa.me/?text={urllib.parse.quote(wa_pay_msg)}"
+        
+        if pay_status["status_level"] == "yellow":
+            notice_html = f"""
+            <div style="background: linear-gradient(135deg, rgba(255, 170, 0, 0.12), rgba(18, 22, 34, 0.95)); border: 1.5px solid #FFAA00; border-radius: 14px; padding: 14px 16px; margin: 10px 0 14px 0; box-shadow: 0 4px 18px rgba(255, 170, 0, 0.15);">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    <span style="font-size: 1.6rem; line-height: 1;">⚠️</span>
+                    <div style="flex-grow: 1;">
+                        <div style="color: #FFAA00; font-size: 0.95rem; font-weight: 900; letter-spacing: 0.3px;">
+                            RECORDATORIO DE PAGO: MENSUALIDAD {pay_status['current_month']}
+                        </div>
+                        <div style="color: #E2E8F0; font-size: 0.84rem; margin-top: 4px; line-height: 1.4;">
+                            Hola <b>{atleta}</b>, te recordamos que el plazo oportuno para el pago de tu mensualidad de <b>{pay_status['current_month']}</b> vence el <b>día 10</b> de este mes (estamos a día {pay_status['current_day']}). ¡Agradecemos tu gestión a tiempo para mantener tus entrenamientos al 100%!
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <a href="{wa_pay_url}" target="_blank" style="text-decoration: none;">
+                                <button style="background-color: #25D366; color: white; border: none; padding: 7px 14px; border-radius: 7px; font-weight: 800; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 3px 10px rgba(37, 211, 102, 0.3);">
+                                    📲 Reportar Pago por WhatsApp
+                                </button>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """
+        else: # Red (Vencido)
+            notice_html = f"""
+            <div style="background: linear-gradient(135deg, rgba(255, 51, 85, 0.18), rgba(22, 14, 20, 0.98)); border: 2px solid #FF3355; border-radius: 14px; padding: 14px 16px; margin: 10px 0 14px 0; box-shadow: 0 0 22px rgba(255, 51, 85, 0.28);">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    <span style="font-size: 1.6rem; line-height: 1;">🚨</span>
+                    <div style="flex-grow: 1;">
+                        <div style="color: #FF3355; font-size: 0.98rem; font-weight: 900; letter-spacing: 0.4px; text-transform: uppercase;">
+                            AVISO CRÍTICO: MENSUALIDAD PENDIENTE DE PAGO
+                        </div>
+                        <div style="color: #FFFFFF; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
+                            Estimado/a <b>{atleta}</b>, registras mensualidad pendiente de <b>{wa_unpaid_text}</b>. La fecha límite del <b>día 10</b> ya fue superada. Por favor realiza tu pago lo antes posible para no presentar interrupciones en tu planificación y acompañamiento deportivo.
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <a href="{wa_pay_url}" target="_blank" style="text-decoration: none;">
+                                <button style="background-color: #FF3355; color: white; border: none; padding: 8px 16px; border-radius: 7px; font-weight: 800; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 14px rgba(255, 51, 85, 0.4);">
+                                    📲 Enviar Comprobante por WhatsApp
+                                </button>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """
+        if hasattr(st, "html"):
+            st.html(notice_html)
+        else:
+            st.markdown(notice_html, unsafe_allow_html=True)
 
     if st.session_state.get("last_score"):
         st.success(st.session_state["last_score"])
