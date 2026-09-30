@@ -478,6 +478,8 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
                             cookie_controller.set("athlete_user_cookie", "", max_age=0)
                         except Exception:
                             pass
+                        st.query_params.pop("athlete", None)
+                        st.query_params.pop("email", None)
                     else:
                         st.session_state["athlete_user"] = target_member.name
                         st.session_state["athlete_member_id"] = target_member.id
