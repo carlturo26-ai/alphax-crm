@@ -158,9 +158,7 @@ def force_schema_update(db_engine):
 
 
 # Estilos personalizados (CSS Hack para branding AlphaX)
-css_styles = """
-<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
-<style>
+css_styles = """<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet"><style>
 /* GLOBAL RESET: Dark Mode Standard */
 html, body, [class*="css"], .stApp { font-family: 'Nunito Sans', sans-serif !important; background-color: #050505 !important; color: #FFFFFF !important; }
 /* Make all grey text bright cyan */
@@ -176,48 +174,19 @@ div[role="option"]:hover, div[role="option"][aria-selected="true"] { background-
 /* BUTTONS */
 .stButton > button { border-radius: 8px; font-weight: 700; border: 1px solid #00EEFF; color: #00EEFF !important; background-color: transparent !important; transition: all 0.3s ease; }
 .stButton > button:hover { background-color: #00EEFF !important; color: #000000 !important; box-shadow: 0 0 15px rgba(0, 238, 255, 0.4); }
-
 /* CUSTOM GLIDE DATA GRID FONT SIZE AND WEIGHT */
-div[data-testid="stDataEditor"] button, 
-div[data-testid="stDataEditor"] div, 
-div[data-testid="stDataEditor"] span { 
-    font-size: 1.1rem !important; 
-    font-weight: 800 !important; 
-    color: #FFFFFF !important;
-}
-
+div[data-testid="stDataEditor"] button, div[data-testid="stDataEditor"] div, div[data-testid="stDataEditor"] span { font-size: 1.1rem !important; font-weight: 800 !important; color: #FFFFFF !important; }
 /* NAVEGACIÓN PRINCIPAL (Sidebar Radio Buttons) - Letras más grandes y claras */
-section[data-testid="stSidebar"] div[data-testid="stRadio"] > label {
-    font-size: 1.25rem !important;
-    font-weight: 900 !important;
-    color: #00EEFF !important;
-    letter-spacing: 0.5px !important;
-    margin-bottom: 8px !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label {
-    padding: 6px 10px !important;
-    margin-bottom: 4px !important;
-    border-radius: 8px !important;
-    transition: background 0.2s ease;
-}
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
-    background-color: rgba(0, 238, 255, 0.08) !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label p,
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label span {
-    font-size: 1.18rem !important;
-    font-weight: 700 !important;
-    color: #FFFFFF !important;
-    letter-spacing: 0.3px !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label[data-checked="true"] p,
-section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p {
-    color: #00EEFF !important;
-    font-weight: 800 !important;
-}
-</style>
-"""
-st.markdown(css_styles, unsafe_allow_html=True)
+section[data-testid="stSidebar"] div[data-testid="stRadio"] > label { font-size: 1.25rem !important; font-weight: 900 !important; color: #00EEFF !important; letter-spacing: 0.5px !important; margin-bottom: 8px !important; }
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label { padding: 6px 10px !important; margin-bottom: 4px !important; border-radius: 8px !important; transition: background 0.2s ease; }
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:hover { background-color: rgba(0, 238, 255, 0.08) !important; }
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label p, section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label span { font-size: 1.18rem !important; font-weight: 700 !important; color: #FFFFFF !important; letter-spacing: 0.3px !important; }
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label[data-checked="true"] p, section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p { color: #00EEFF !important; font-weight: 800 !important; }
+</style>"""
+try:
+    st.html(css_styles)
+except AttributeError:
+    st.markdown(css_styles, unsafe_allow_html=True)
 
 # Inicializar DB
 init_db()
