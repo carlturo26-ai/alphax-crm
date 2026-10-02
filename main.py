@@ -602,9 +602,15 @@ if page == "Dashboard":
             df_rev_grouped, x="month", y="amount", 
             color_discrete_sequence=["#33C1FF"], text_auto='.2s'
         )
-        fig_rev.update_traces(hovertemplate='Mes: %{x}<br>Total: $%{y:,.0f}<extra></extra>')
-        fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
-        st.plotly_chart(fig_rev, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+        fig_rev.update_traces(hovertemplate='<b>%{x}</b><br>Total Ingresos: <b>$%{y:,.0f}</b><extra></extra>')
+        fig_rev.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white",
+            hovermode="closest", dragmode=False,
+            hoverlabel=dict(bgcolor="#121212", font_size=13, font_family="Nunito Sans", bordercolor="#00EEFF")
+        )
+        fig_rev.update_xaxes(fixedrange=True)
+        fig_rev.update_yaxes(fixedrange=True)
+        st.plotly_chart(fig_rev, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False, 'doubleClick': False})
         
     with col_c2:
         st.markdown("### 📉 Evolución Gastos (Por Categoría)")
@@ -614,9 +620,15 @@ if page == "Dashboard":
                 text_auto='.2s', color_discrete_sequence=px.colors.qualitative.Pastel,
                 barmode='stack'
             )
-            fig_exp.update_traces(hovertemplate='Mes: %{x}<br>Categoría: %{color}<br>Total: $%{y:,.0f}<extra></extra>')
-            fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
-            st.plotly_chart(fig_exp, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+            fig_exp.update_traces(hovertemplate='<b>%{x}</b><br>Categoría: %{fullData.name}<br>Gasto: <b>$%{y:,.0f}</b><extra></extra>')
+            fig_exp.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white",
+                hovermode="closest", dragmode=False,
+                hoverlabel=dict(bgcolor="#121212", font_size=13, font_family="Nunito Sans", bordercolor="#00EEFF")
+            )
+            fig_exp.update_xaxes(fixedrange=True)
+            fig_exp.update_yaxes(fixedrange=True)
+            st.plotly_chart(fig_exp, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False, 'doubleClick': False})
         else:
             st.info("No hay gastos registrados aún.")
 
@@ -626,9 +638,15 @@ if page == "Dashboard":
         df_net, x="month", y="Neto", text_auto='.2s',
         color="Tipo", color_discrete_map={"Ganancia": "#33C1FF", "Pérdida": "#FF4B4B"}
     )
-    fig_net.update_traces(hovertemplate='Mes: %{x}<br>Neto: $%{y:,.0f}<extra></extra>')
-    fig_net.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
-    st.plotly_chart(fig_net, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+    fig_net.update_traces(hovertemplate='<b>%{x}</b><br>Resultado: <b>%{customdata[0]}</b><br>Utilidad Neta: <b>$%{y:,.0f}</b><extra></extra>', customdata=df_net[["Tipo"]])
+    fig_net.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white",
+        hovermode="closest", dragmode=False,
+        hoverlabel=dict(bgcolor="#121212", font_size=13, font_family="Nunito Sans", bordercolor="#00EEFF")
+    )
+    fig_net.update_xaxes(fixedrange=True)
+    fig_net.update_yaxes(fixedrange=True)
+    st.plotly_chart(fig_net, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False, 'doubleClick': False})
     
     # --- TABLA DETALLADA DE GASTOS ---
     if not df_exp.empty:
