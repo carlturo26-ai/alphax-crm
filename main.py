@@ -185,6 +185,36 @@ div[data-testid="stDataEditor"] span {
     font-weight: 800 !important; 
     color: #FFFFFF !important;
 }
+
+/* NAVEGACIÓN PRINCIPAL (Sidebar Radio Buttons) - Letras más grandes y claras */
+section[data-testid="stSidebar"] div[data-testid="stRadio"] > label {
+    font-size: 1.25rem !important;
+    font-weight: 900 !important;
+    color: #00EEFF !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 8px !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label {
+    padding: 6px 10px !important;
+    margin-bottom: 4px !important;
+    border-radius: 8px !important;
+    transition: background 0.2s ease;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+    background-color: rgba(0, 238, 255, 0.08) !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label p,
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label span {
+    font-size: 1.18rem !important;
+    font-weight: 700 !important;
+    color: #FFFFFF !important;
+    letter-spacing: 0.3px !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label[data-checked="true"] p,
+section[data-testid="stSidebar"] div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p {
+    color: #00EEFF !important;
+    font-weight: 800 !important;
+}
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
@@ -298,7 +328,7 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "🩸 Marcadores Clínicos", "🐺 Wolfy AI Coach"])
+    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "Marcadores Clínicos", "Wolfy AI Coach"])
 
     # Acceso rápido a enlaces de la App de Atletas desde el sidebar
     render_athlete_links_box(title="📲 Enlaces App de Atletas", expanded=False, key_prefix="sb_links")
@@ -439,6 +469,72 @@ if page == "Dashboard":
     col3.metric("Resultado Neto", f"${net_profit:,.0f}")
     col4.metric("Socios", member_count)
     
+    # --- RECORDATORIO: ÚLTIMOS 10 HEMOGRAMAS SUBIDOS POR DEPORTISTAS ---
+    st.markdown("---")
+    st.markdown("### 🔔 Recordatorio: Últimos 10 Hemogramas Subidos")
+    st.caption("Seguimiento en tiempo real de los exámenes de sangre y hemogramas que los atletas han cargado.")
+    
+    try:
+        recent_blood_recs = session.query(BloodworkRecord).order_by(
+            BloodworkRecord.created_at.desc(), 
+            BloodworkRecord.id.desc()
+        ).limit(10).all()
+        
+        if recent_blood_recs:
+            first_rec = recent_blood_recs[0]
+            first_name = first_rec.member.name if first_rec.member else "Deportista"
+            first_date = first_rec.created_at.strftime("%d/%m/%Y") if first_rec.created_at else (first_rec.date.strftime("%d/%m/%Y") if first_rec.date else "Reciente")
+            first_file = first_rec.pdf_filename or "Formulario / Portal"
+            st.info(f"📢 **Último hemograma cargado:** **{first_name}** ({first_date}) · Archivo: `{first_file}`")
+            
+            table_data = []
+            for r in recent_blood_recs:
+                m_name = r.member.name if r.member else "N/A"
+                m_grp = r.member.group if r.member else "N/A"
+                f_exam = r.date.strftime("%d/%m/%Y") if r.date else "N/A"
+                f_upload = r.created_at.strftime("%d/%m/%Y") if r.created_at else f_exam
+                pdf_doc = r.pdf_filename if r.pdf_filename else "Formulario Web"
+                
+                # Markers highlights
+                markers_summary = []
+                if r.hemoglobin:
+                    markers_summary.append(f"Hb: {r.hemoglobin} g/dL")
+                if r.ferritin:
+                    markers_summary.append(f"Ferritina: {r.ferritin:.0f} ng/mL")
+                if r.hematocrit:
+                    markers_summary.append(f"Hto: {r.hematocrit}%")
+                if r.glucose:
+                    markers_summary.append(f"Gluc: {r.glucose:.0f} mg/dL")
+                
+                table_data.append({
+                    "Deportista": m_name,
+                    "Grupo": m_grp,
+                    "Fecha Examen": f_exam,
+                    "Fecha Subida": f_upload,
+                    "Archivo / Origen": pdf_doc,
+                    "Marcadores Clave": " · ".join(markers_summary) if markers_summary else "Registrado"
+                })
+                
+            df_recent_blood = pd.DataFrame(table_data)
+            st.dataframe(
+                df_recent_blood, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "Deportista": st.column_config.TextColumn("Deportista", width="medium"),
+                    "Grupo": st.column_config.TextColumn("Grupo", width="small"),
+                    "Fecha Examen": st.column_config.TextColumn("Fecha Examen", width="small"),
+                    "Fecha Subida": st.column_config.TextColumn("Fecha Subida", width="small"),
+                    "Archivo / Origen": st.column_config.TextColumn("Archivo / Origen", width="medium"),
+                    "Marcadores Clave": st.column_config.TextColumn("Marcadores Clave", width="large")
+                }
+            )
+        else:
+            st.info("ℹ️ Aún no hay registros de hemogramas cargados por los atletas.")
+    except Exception as e_bw_dash:
+        session.rollback()
+        st.caption(f"Nota: No se pudieron cargar los últimos hemogramas ({e_bw_dash})")
+    
     # --- GRÁFICOS Y ANÁLISIS ---
     # 1. Preparar Datos Mensuales con Lógica Estratégica
     monthly_data = {m: {"Income": 0.0, "Expense": 0.0} for m in months_order}
@@ -538,8 +634,8 @@ if page == "Dashboard":
             color_discrete_sequence=["#33C1FF"], text_auto='.2s'
         )
         fig_rev.update_traces(hovertemplate='Mes: %{x}<br>Total: $%{y:,.0f}<extra></extra>')
-        fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
-        st.plotly_chart(fig_rev, use_container_width=True)
+        fig_rev.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
+        st.plotly_chart(fig_rev, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
         
     with col_c2:
         st.markdown("### 📉 Evolución Gastos (Por Categoría)")
@@ -550,8 +646,8 @@ if page == "Dashboard":
                 barmode='stack'
             )
             fig_exp.update_traces(hovertemplate='Mes: %{x}<br>Categoría: %{color}<br>Total: $%{y:,.0f}<extra></extra>')
-            fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
-            st.plotly_chart(fig_exp, use_container_width=True)
+            fig_exp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
+            st.plotly_chart(fig_exp, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
         else:
             st.info("No hay gastos registrados aún.")
 
@@ -562,8 +658,8 @@ if page == "Dashboard":
         color="Tipo", color_discrete_map={"Ganancia": "#33C1FF", "Pérdida": "#FF4B4B"}
     )
     fig_net.update_traces(hovertemplate='Mes: %{x}<br>Neto: $%{y:,.0f}<extra></extra>')
-    fig_net.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
-    st.plotly_chart(fig_net, use_container_width=True)
+    fig_net.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", hovermode=False)
+    st.plotly_chart(fig_net, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
     
     # --- TABLA DETALLADA DE GASTOS ---
     if not df_exp.empty:
@@ -683,183 +779,6 @@ if page == "Dashboard":
         session.rollback()
         st.error(f"⚠️ Error cargando deudores: {e}")
         st.info("👉 Ve a 'Configuración' -> 'ACTUALIZAR DB'.")
-    
-    # --- LIQUIDACIÓN DE SOCIOS ---
-    st.markdown("---")
-    st.subheader("🤝 Liquidación Mensual de Entrenadores")
-    st.caption("Calculadora financiera para dividir honorarios según el modelo de negocio AlphaX.")
-    
-    # Selectores para la liquidación
-    c_liq1, c_liq2 = st.columns(2)
-    with c_liq1:
-        liq_month = st.selectbox("Mes a liquidar", months_list, index=current_month_index)
-    with c_liq2:
-        liq_year = st.number_input("Año a liquidar", value=current_year, step=1)
-        
-    try:
-        # Fetching valid payouts for the month
-        liq_txs = session.query(Transaction).join(Member).filter(
-            Transaction.month == liq_month,
-            Transaction.year == liq_year,
-            Transaction.status == 'PAID'
-        ).all()
-        
-        # Fetching expenses for the month
-        from sqlalchemy import extract
-        liq_month_idx = months_list.index(liq_month) + 1
-        
-        liq_exp_query = session.query(Expense).filter(
-            extract('month', Expense.date) == liq_month_idx,
-            extract('year', Expense.date) == liq_year
-        ).all()
-        
-        # 1. Variables Base
-        income_alejandro = sum(t.amount for t in liq_txs if t.member.group == "Alejandro")
-        income_carlos = sum(t.amount for t in liq_txs if t.member.group == "Carlos")
-        income_aprendizaje = sum(t.amount for t in liq_txs if t.member.group == "Aprendizaje")
-        
-        total_expenses_liq = sum(e.amount for e in liq_exp_query)
-        expenses_paid_by_alejandro = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Alejandro')
-        expenses_paid_by_carlos = sum(e.amount for e in liq_exp_query if getattr(e, 'paid_by', '') == 'Carlos')
-        
-        # New: Tracking physical cash received
-        caja_alejandro = 0
-        caja_carlos = 0
-        
-        for t in liq_txs:
-            # Si el pago tiene 'received_by' (nuevo sistema)
-            if getattr(t, 'received_by', None) and t.received_by in ["Alejandro", "Carlos"]:
-                if t.received_by == "Alejandro":
-                    caja_alejandro += t.amount
-                elif t.received_by == "Carlos":
-                    caja_carlos += t.amount
-            # Fallback para pagos viejos sin 'received_by' (Enero/Febrero)
-            else:
-                if t.member.group == "Alejandro":
-                    caja_alejandro += t.amount
-                elif t.member.group == "Carlos":
-                    caja_carlos += t.amount
-                elif t.member.group == "Aprendizaje":
-                    if liq_month in ["ENERO", "FEBRERO"] and liq_year == 2026:
-                        caja_alejandro += t.amount
-                    else:
-                        caja_carlos += t.amount
-
-        # 2. Lógica Comercial Negociada (Honorarios que GANAN)
-        alejandro_share_alejandro = income_alejandro * 0.80
-        carlos_share_alejandro = income_alejandro * 0.20
-        
-        pozo_aprendizaje = income_aprendizaje
-        gastos_a_cubrir = total_expenses_liq
-        balance_aprendizaje = pozo_aprendizaje - gastos_a_cubrir
-        
-        # Determine if we are in July 2026 or later
-        is_after_june_2026 = (liq_year > 2026) or (liq_year == 2026 and liq_month_idx >= 7)
-        
-        if is_after_june_2026:
-            # Alejandro no asume gastos ni recibe del pozo de aprendizaje
-            mitad_balance_alejandro = 0.0
-            mitad_balance_carlos = balance_aprendizaje
-        else:
-            # Antes de Julio 2026, se dividía 50/50
-            mitad_balance_alejandro = balance_aprendizaje / 2.0
-            mitad_balance_carlos = balance_aprendizaje / 2.0
-        
-        # Honorarios Totales (Lo que cada uno DEBE tener al final)
-        honorarios_alejandro_base = alejandro_share_alejandro + mitad_balance_alejandro
-        honorarios_carlos_base = income_carlos + carlos_share_alejandro + mitad_balance_carlos
-        
-        total_alejandro = honorarios_alejandro_base + expenses_paid_by_alejandro
-        total_carlos = honorarios_carlos_base + expenses_paid_by_carlos
-        
-        # 3. Flujo de Caja (Quién le debe a quién)
-        deuda_a_alejandro = total_alejandro - caja_alejandro
-        deuda_a_carlos = total_carlos - caja_carlos
-        
-        # UI
-        st.markdown(f"#### Resultados de {liq_month.title()} {int(liq_year)}")
-        
-        # Alerta de Transferencia Principal
-        st.markdown("---")
-        if deuda_a_alejandro > 0:
-            st.error(f"### 💸 TRANSFERENCIA PENDIENTE: **Carlos** debe girarle **${deuda_a_alejandro:,.0f}** a Alejandro.")
-        elif deuda_a_carlos > 0:
-            st.error(f"### 💸 TRANSFERENCIA PENDIENTE: **Alejandro** debe girarle **${deuda_a_carlos:,.0f}** a Carlos.")
-        else:
-            st.success("### ✅ CUENTAS SALDADAS: Ninguno se debe dinero este mes.")
-        st.markdown("---")
-        
-        # Usamos contenedores estilizados
-        col_res1, col_res2 = st.columns(2)
-        
-        with col_res1:
-            st.info("🐺 **ALEJANDRO**")
-            st.markdown(f"**Revisión de Honorarios (Gané):**")
-            st.markdown(f"- 80% Grupo Alejandro: `+${alejandro_share_alejandro:,.0f}`")
-            if is_after_june_2026:
-                st.markdown(f"- 0% Gastos / Aprendizaje: `$0`")
-            else:
-                if balance_aprendizaje < 0:
-                    st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance_alejandro):,.0f}`")
-                else:
-                    st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance_alejandro:,.0f}`")
-            if expenses_paid_by_alejandro > 0:
-                st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_alejandro:,.0f}`")
-            
-            st.metric("Total que DEBE tener (Honorarios)", value=f"${total_alejandro:,.0f}")
-            st.metric("Total que TIENE FÍSICAMENTE (Caja)", value=f"${caja_alejandro:,.0f}", delta=f"{caja_alejandro - total_alejandro:,.0f} (Tiene vs Ideal)", delta_color="inverse")
-
-        with col_res2:
-            st.error("🦁 **CARLOS**")
-            st.markdown(f"**Revisión de Honorarios (Gané):**")
-            st.markdown(f"- 100% Grupo Carlos: `+${income_carlos:,.0f}`")
-            st.markdown(f"- 20% Grupo Alejandro: `+${carlos_share_alejandro:,.0f}`")
-            if is_after_june_2026:
-                if balance_aprendizaje < 0:
-                    st.markdown(f"- 100% Déficit Gastos: `-${abs(mitad_balance_carlos):,.0f}`")
-                else:
-                    st.markdown(f"- 100% Sobrante Aprend.: `+${mitad_balance_carlos:,.0f}`")
-            else:
-                if balance_aprendizaje < 0:
-                    st.markdown(f"- 50% Déficit Gastos: `-${abs(mitad_balance_carlos):,.0f}`")
-                else:
-                    st.markdown(f"- 50% Sobrante Aprend.: `+${mitad_balance_carlos:,.0f}`")
-            if expenses_paid_by_carlos > 0:
-                st.markdown(f"- Devolución Gastos (Puse Dinero): `+${expenses_paid_by_carlos:,.0f}`")
-            
-            st.metric("Total que DEBE tener (Honorarios)", value=f"${total_carlos:,.0f}")
-            st.metric("Total que TIENE FÍSICAMENTE (Caja)", value=f"${caja_carlos:,.0f}", delta=f"{caja_carlos - total_carlos:,.0f} (Tiene vs Ideal)", delta_color="inverse")
-
-        with st.expander("Ver Matemática del Pozo de Aprendizaje y Gastos"):
-            st.write(f"1. **Ingresos del Grupo Aprendizaje:** `${pozo_aprendizaje:,.0f}`")
-            st.write(f"2. **Total de Gastos Realizados en el Mes:** `${gastos_a_cubrir:,.0f}`")
-            
-            if balance_aprendizaje >= 0:
-                if is_after_june_2026:
-                    st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (100% para Carlos)")
-                else:
-                    st.success(f"**El Pozo cubrió todo y sobraron:** `${balance_aprendizaje:,.0f}` (Se divide entre 2)")
-            else:
-                if is_after_june_2026:
-                    st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (100% asume Carlos)")
-                else:
-                    st.warning(f"**El Pozo no alcanzó. Faltó:** `${abs(balance_aprendizaje):,.0f}` (Se divide entre 2 para que lo asuman)")
-
-    except Exception as e:
-        session.rollback()
-        st.error(f"⚠️ Actualización Requerida en Liquidación: El banco de datos necesita la nueva columna 'Cuenta Destino'.")
-        
-        st.markdown("---")
-        st.subheader("🔧 Herramientas de Mantenimiento Rápido")
-        if st.button("🛠️ FORZAR ACTUALIZACIÓN DE TABLAS", key="fix_liq"):
-            try:
-                force_schema_update(engine)
-                st.success("✅ Tablas reparadas. ¡Recarga la página (F5)!")
-                import time
-                time.sleep(1)
-                session.close(); st.rerun()
-            except Exception as e_mig:
-                st.error(f"Error forzando actualización: {e_mig}")
         
     session.close()
 
@@ -2208,7 +2127,7 @@ elif page == "Análisis de Lactato":
                     st.info("Pega datos tabulados o sube un archivo Excel para previsualizar los resultados del test.")
 
 # --- PAGE: MARCADORES CLÍNICOS ---
-elif page == "🩸 Marcadores Clínicos":
+elif page == "Marcadores Clínicos":
     from sqlalchemy.orm import joinedload
     import plotly.graph_objects as go
     from bloodwork_constants import (
@@ -2798,7 +2717,7 @@ elif page == "🩸 Marcadores Clínicos":
                     except AttributeError:
                         st.markdown(ref_html, unsafe_allow_html=True)
 
-elif page == "🐺 Wolfy AI Coach":
+elif page == "Wolfy AI Coach":
     session = SessionLocal()
     try:
         active_athletes = session.query(Member).order_by(Member.name).all()
