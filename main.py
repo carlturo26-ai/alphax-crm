@@ -297,7 +297,11 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    page = st.radio("Navegación", ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "ASSQ (Sueño)", "Análisis de Lactato", "Marcadores Clínicos", "Wolfy AI Coach"])
+    nav_options = ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "Analíticas AlphaX", "Wolfy AI Coach"]
+    target_nav = st.session_state.get("crm_nav_radio", "Dashboard")
+    if target_nav not in nav_options:
+        target_nav = "Dashboard"
+    page = st.radio("Navegación", nav_options, index=nav_options.index(target_nav), key="crm_nav_radio")
 
     # Acceso rápido a enlaces de la App de Atletas desde el sidebar
     render_athlete_links_box(title="📲 Enlaces App de Atletas", expanded=False, key_prefix="sb_links")
@@ -454,7 +458,14 @@ if page == "Dashboard":
             first_name = first_rec.member.name if first_rec.member else "Deportista"
             first_date = first_rec.created_at.strftime("%d/%m/%Y") if first_rec.created_at else (first_rec.date.strftime("%d/%m/%Y") if first_rec.date else "Reciente")
             first_file = first_rec.pdf_filename or "Formulario / Portal"
-            st.info(f"📢 **Último hemograma cargado:** **{first_name}** ({first_date}) · Archivo: `{first_file}`")
+            col_b_info, col_b_btn = st.columns([3, 1.3])
+            with col_b_info:
+                st.info(f"📢 **Último hemograma cargado:** **{first_name}** ({first_date}) · Archivo: `{first_file}`")
+            with col_b_btn:
+                if st.button(f"🔍 Abrir Perfil de {first_name}", key="btn_open_latest_bw", use_container_width=True):
+                    st.session_state["crm_nav_radio"] = "Analíticas AlphaX"
+                    st.session_state["target_athlete_name"] = first_name
+                    st.rerun()
             
             table_data = []
             for r in recent_blood_recs:
@@ -498,6 +509,31 @@ if page == "Dashboard":
                     "Marcadores Clave": st.column_config.TextColumn("Marcadores Clave", width="large")
                 }
             )
+
+            # Botones de acceso rápido para abrir el perfil completo con 1 solo clic
+            st.markdown("##### ⚡ Haz clic en un deportista para abrir su ficha integral (Hemograma, Lactato y Sueño):")
+            unique_recent = []
+            for r in recent_blood_recs:
+                if r.member and r.member.name and r.member.name not in unique_recent:
+                    unique_recent.append(r.member.name)
+            
+            chunk_size = min(len(unique_recent), 5)
+            if chunk_size > 0:
+                cols_ath1 = st.columns(chunk_size)
+                for idx, ath_n in enumerate(unique_recent[:chunk_size]):
+                    if cols_ath1[idx].button(f"👤 {ath_n}", key=f"btn_dash_ath_{idx}", use_container_width=True):
+                        st.session_state["crm_nav_radio"] = "Analíticas AlphaX"
+                        st.session_state["target_athlete_name"] = ath_n
+                        st.rerun()
+                        
+            if len(unique_recent) > 5:
+                rem_size = len(unique_recent) - 5
+                cols_ath2 = st.columns(rem_size)
+                for jdx, ath_n in enumerate(unique_recent[5:10]):
+                    if cols_ath2[jdx].button(f"👤 {ath_n}", key=f"btn_dash_ath_2_{jdx}", use_container_width=True):
+                        st.session_state["crm_nav_radio"] = "Analíticas AlphaX"
+                        st.session_state["target_athlete_name"] = ath_n
+                        st.rerun()
         else:
             st.info("ℹ️ Aún no hay registros de hemogramas cargados por los atletas.")
     except Exception as e_bw_dash:
@@ -1302,821 +1338,13 @@ elif page == "Configuración":
         except Exception as e:
             st.error(f"Error generando Excel: {e}")
 
-# --- PAGE: ASSQ ---
-elif page == "ASSQ (Sueño)":
-    
-    session = SessionLocal()
-    # Leer todos los deportistas activos de la base de datos
-    try:
-        active_members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
-        atletas_nombres = [m.name for m in active_members]
-    except Exception as e:
-        atletas_nombres = []
-        st.error(f"Error cargando socios: {e}")
-    finally:
-        session.close()
 
-    st.title("Monitoreo de Recuperación (ASSQ)")
-    
-    # --- ALERTAS CRÍTICAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+# --- PAGE: ANALÍTICAS ALPHAX (UNIFICADA) ---
+elif page == "Analíticas AlphaX":
     from sqlalchemy.orm import joinedload
-    session = SessionLocal()
-    alert_records = []
-    try:
-        seven_days_ago = datetime.now().date() - timedelta(days=7)
-        alert_records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).filter(
-            Member.active == True,
-            SleepRecord.date >= seven_days_ago,
-            SleepRecord.sds_score >= 8
-        ).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).all()
-    except Exception as e:
-        print(f"Error querying sleep alerts: {e}")
-    finally:
-        session.close()
-        
-    # --- DESPLEGABLE DE ALERTAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
-    if alert_records:
-        with st.expander("🚨 ALERTA: Deportistas con Recuperación Crítica (Últimos 7 días)", expanded=True):
-            st.markdown(
-                """
-                <div style="background: rgba(255, 75, 75, 0.08); padding: 10px; border-radius: 8px; margin-bottom: 12px;">
-                    <p style="color: #FFFFFF; font-size: 0.95rem; margin-bottom: 0px;">
-                        Los siguientes deportistas activos han registrado problemas de descanso moderados o graves recientemente (Score ≥ 8):
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            for r in alert_records:
-                badge_color = "#ff4b4b" if r.sds_score > 10 else "#ffa500"
-                st.markdown(
-                    f"""
-                    <div style="background: rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; border-left: 4px solid {badge_color}; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong style="color: #00EEFF; font-size: 0.95rem;">{r.member.name}</strong><br>
-                            <span style="font-size: 0.8rem; color: #aaaaaa;">Fecha: {r.date.strftime('%Y-%m-%d')} | Puntuación SDS: {r.sds_score}/17</span>
-                        </div>
-                        <span style="background: {badge_color}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">
-                            {r.clinical_category}
-                        </span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-    else:
-        with st.expander("🚨 Alertas de Sueño Activas (Últimos 7 días)", expanded=False):
-            st.success("✅ No hay alertas de descanso críticas activas en los últimos 7 días. ¡Excelente recuperación general! 👍")
-
-    st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
-
-    # --- GENERADOR DE ENLACES DE ACCESO RÁPIDO ---
-    render_athlete_links_box(athletes_names=atletas_nombres, title="🔗 Enlaces de Acceso para Atletas (General, Directo y QR)", expanded=True, key_prefix="assq_links")
-
-    st.markdown("---")
-    st.subheader("📈 Análisis Individual de Atleta")
-    selected_athlete = st.selectbox("Selecciona un deportista para ver su gráfico", ["-- Seleccionar --"] + atletas_nombres)
-
-    if selected_athlete != "-- Seleccionar --":
-        session = SessionLocal()
-        m_obj = session.query(Member).filter(Member.name == selected_athlete).first()
-        if m_obj:
-            records = session.query(SleepRecord).filter(SleepRecord.member_id == m_obj.id).order_by(SleepRecord.date).all()
-            if records:
-                meses_es = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC"}
-                def format_date_es(d):
-                    if isinstance(d, str):
-                        try: d = datetime.strptime(d.split()[0], "%Y-%m-%d")
-                        except: pass
-                    if hasattr(d, "month"): return f"{d.day} {meses_es[d.month]}"
-                    return str(d)
-
-                df_history = pd.DataFrame([{
-                    "Fecha": format_date_es(r.date),
-                    "Score (SDS)": r.sds_score,
-                    "Categoría": r.clinical_category
-                } for r in records])
-                
-                # Crear gráfico adaptado al CRM (Dark Mode)
-                fig = px.line(
-                    df_history, x="Fecha", y="Score (SDS)", markers=True,
-                    color_discrete_sequence=["#00EEFF"] # Cyan alphaX color
-                )
-                fig.update_layout(title=dict(text=f"EVOLUCIÓN DE SUEÑO: {selected_athlete}", x=0.5, xanchor='center', font=dict(size=18, color="#00EEFF", weight="bold")))
-                fig.update_traces(
-                    line=dict(width=3),
-                    marker=dict(symbol="circle", size=10, line=dict(width=2, color="#121212"))
-                )
-                fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#00FF00", annotation_position="inside left")
-                fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#33C1FF", annotation_position="inside left")
-                fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#FFB347", annotation_position="inside left")
-                fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#FF4B4B", annotation_position="inside left")
-                
-                fig.update_layout(
-                    paper_bgcolor="#121212", 
-                    plot_bgcolor="#121212", 
-                    font_color="#FFFFFF",
-                    margin=dict(l=5, r=5, t=60, b=5),
-                    dragmode=False,
-                    yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#333333", tickfont=dict(color="#FFFFFF"), ticks=""),
-                    xaxis=dict(title=dict(text="FECHA", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="#FFFFFF"), type="category", ticks="")
-                )
-                
-                # Card styling for the chart
-                st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.info(f"El atleta {selected_athlete} aún no tiene registros de sueño guardados.")
-        session.close()
-    
-        # ── INTEGRACIÓN: Último Hemograma + Última Prueba de Lactato ──
-        if selected_athlete != "-- Seleccionar --":
-            session_int = SessionLocal()
-            m_int = session_int.query(Member).filter(Member.name == selected_athlete).first()
-            if m_int:
-                from bloodwork_constants import ALL_MARKER_KEYS, get_bloodwork_ranges, classify_bloodwork_value
-                ath_gender = getattr(m_int, "gender", None) or "Hombre"
-                _BW_RANGES = get_bloodwork_ranges(ath_gender)
-                
-                with st.expander("🩸 Último Hemograma + 🧪 Última Prueba de Lactato", expanded=False):
-                    col_bw, col_lac = st.columns(2)
-                    
-                    with col_bw:
-                        st.markdown(f"**🩸 Último Hemograma** <span style='font-size:0.8rem; color:#00EEFF;'>({ath_gender})</span>", unsafe_allow_html=True)
-                        try:
-                            last_bw = session_int.query(BloodworkRecord).filter(
-                                BloodworkRecord.member_id == m_int.id
-                            ).order_by(BloodworkRecord.date.desc()).first()
-                            
-                            if last_bw:
-                                bw_date_str = last_bw.date.strftime("%d/%m/%Y") if last_bw.date else "—"
-                                bw_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem; max-height:340px; overflow-y:auto;">'
-                                bw_html += f'<span style="color:#00EEFF; font-weight:bold;">📅 {bw_date_str}</span><br>'
-                                for key in ALL_MARKER_KEYS:
-                                    val = getattr(last_bw, key, None)
-                                    if val is not None:
-                                        label, color = classify_bloodwork_value(key, val, ath_gender)
-                                        val_str = f"{val:.1f}" if isinstance(val, (int, float)) else str(val)
-                                        bw_html += f'<span style="color:{color};">●</span> <span style="color:#aaa;">{_BW_RANGES[key]["name"]}:</span> <span style="color:#fff; font-weight:bold;">{val_str}</span> <span style="color:#666; font-size:0.75rem;">{_BW_RANGES[key]["unit"]}</span> <span style="color:{color}; font-size:0.7rem; font-weight:bold;">[{label}]</span><br>'
-                                bw_html += '</div>'
-                                st.markdown(bw_html, unsafe_allow_html=True)
-                            else:
-                                st.caption("Sin hemogramas registrados.")
-                        except Exception:
-                            st.caption("Sin datos de hemograma.")
-                    
-                    with col_lac:
-                        st.markdown("**🧪 Última Prueba de Lactato**")
-                        try:
-                            last_lac = session_int.query(LactateTest).filter(
-                                LactateTest.member_id == m_int.id
-                            ).order_by(LactateTest.date.desc()).first()
-                            
-                            if last_lac:
-                                lac_date_str = last_lac.date.strftime("%d/%m/%Y") if last_lac.date else "—"
-                                lac_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem;">'
-                                lac_html += f'<span style="color:#00EEFF; font-weight:bold;">📅 {lac_date_str} — {last_lac.sport or ""}</span><br>'
-                                if last_lac.lt1_power:
-                                    lac_html += f'<span style="color:#FFD700;">LT1:</span> <span style="color:#fff; font-weight:bold;">{last_lac.lt1_power:.0f} W</span>'
-                                    if last_lac.lt1_hr:
-                                        lac_html += f' · <span style="color:#FF3366;">{last_lac.lt1_hr} lpm</span>'
-                                    if last_lac.lt1_lactate:
-                                        lac_html += f' · <span style="color:#00EEFF;">{last_lac.lt1_lactate:.1f} mmol</span>'
-                                    lac_html += '<br>'
-                                if last_lac.lt2_power:
-                                    lac_html += f'<span style="color:#FF3333;">LT2:</span> <span style="color:#fff; font-weight:bold;">{last_lac.lt2_power:.0f} W</span>'
-                                    if last_lac.lt2_hr:
-                                        lac_html += f' · <span style="color:#FF3366;">{last_lac.lt2_hr} lpm</span>'
-                                    if last_lac.lt2_lactate:
-                                        lac_html += f' · <span style="color:#00EEFF;">{last_lac.lt2_lactate:.1f} mmol</span>'
-                                    lac_html += '<br>'
-                                if last_lac.weight:
-                                    lac_html += f'<span style="color:#aaa;">Peso:</span> <span style="color:#fff;">{last_lac.weight:.1f} kg</span><br>'
-                                lac_html += '</div>'
-                                st.markdown(lac_html, unsafe_allow_html=True)
-                            else:
-                                st.caption("Sin pruebas de lactato registradas.")
-                        except Exception:
-                            st.caption("Sin datos de lactato.")
-            session_int.close()
-
-    # --- HISTORIAL DE SUEÑO ---
-    st.markdown("---")
-    st.subheader("📊 Historial Reciente de Sueño")
-    
-    session = SessionLocal()
-    try:
-        records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).limit(50).all()
-        if records:
-            data = []
-            for r in records:
-                data.append({
-                    "Fecha": r.date.strftime("%Y-%m-%d") if r.date else "",
-                    "Atleta": r.member.name if r.member else "Desconocido",
-                    "Score (SDS)": r.sds_score,
-                    "Categoría": r.clinical_category,
-                    "Horas": r.raw_hours,
-                    "Calidad": r.raw_quality
-                })
-            df_sleep = pd.DataFrame(data)
-            st.dataframe(df_sleep, use_container_width=True, hide_index=True)
-        else:
-            st.info("Aún no hay registros de sueño guardados.")
-    except Exception as e:
-        st.warning("⚠️ Debes recargar la aplicación para que se cree la tabla de historial de sueño en la base de datos.")
-    finally:
-        session.close()
-
-# --- PAGE: ANÁLISIS DE LACTATO ---
-elif page == "Análisis de Lactato":
-    import lactate_parser
+    import plotly.graph_objects as go
     from plotly.subplots import make_subplots
-    import plotly.graph_objects as go
-    from sqlalchemy.orm import joinedload
-    
-    st.title("🧪 Análisis de Lactato")
-    
-    session = SessionLocal()
-    try:
-        active_members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
-        atletas_nombres = [m.name for m in active_members]
-    except Exception as e:
-        atletas_nombres = []
-        st.error(f"Error cargando socios: {e}")
-    finally:
-        session.close()
-        
-    st.markdown("---")
-    
-    col_sel, col_empty = st.columns([1, 1])
-    with col_sel:
-        selected_athlete = st.selectbox("Selecciona un deportista:", ["-- Seleccionar --"] + atletas_nombres)
-        
-    if selected_athlete != "-- Seleccionar --":
-        # Fetch athlete object
-        session = SessionLocal()
-        member_obj = session.query(Member).filter(Member.name == selected_athlete).first()
-        session.close()
-        
-        if not member_obj:
-            st.error("Atleta no encontrado en el sistema.")
-        else:
-            # Create tabs
-            tab_history, tab_new = st.tabs(["📊 Historial y Comparación", "📥 Registrar Nueva Prueba"])
-            
-            # --- TAB: HISTORIAL Y COMPARACIÓN ---
-            with tab_history:
-                st.subheader(f"Evolución de {selected_athlete}")
-                
-                session = SessionLocal()
-                try:
-                    tests = session.query(LactateTest).filter(LactateTest.member_id == member_obj.id).order_by(LactateTest.date.desc()).all()
-                except Exception as e:
-                    tests = []
-                    st.error(f"Error cargando pruebas: {e}")
-                finally:
-                    session.close()
-                    
-                if tests:
-                    # 1. Show history table
-                    st.markdown("### Pruebas Registradas")
-                    history_data = []
-                    for t in tests:
-                        history_data.append({
-                            "id": t.id,
-                            "Fecha": t.date.strftime("%Y-%m-%d"),
-                            "Deporte": t.sport,
-                            "Peso (kg)": t.weight or "",
-                            "FTP/CP": t.ftp or "",
-                            "LT1 Potencia": f"{t.lt1_power:.0f} W" if t.lt1_power else "",
-                            "LT1 Pulso": f"{t.lt1_hr} lpm" if t.lt1_hr else "",
-                            "LT2 Potencia": f"{t.lt2_power:.0f} W" if t.lt2_power else "",
-                            "LT2 Pulso": f"{t.lt2_hr} lpm" if t.lt2_hr else "",
-                            "CTL/ATL/TSB": f"{t.ctl or 0:.0f}/{t.atl or 0:.0f}/{t.tsb or 0:.0f}"
-                        })
-                    df_history = pd.DataFrame(history_data)
-                    
-                    # Show dataframe
-                    st.dataframe(df_history.drop(columns=["id"]), use_container_width=True, hide_index=True)
-                    
-                    st.markdown("---")
-                    st.markdown("### 📈 Superponer y Comparar Curvas")
-                    st.info("Selecciona una o más pruebas del historial para visualizar y superponer sus curvas de rendimiento.")
-                    
-                    # Selectbox/multiselect for comparison
-                    test_options = {f"{t.date.strftime('%Y-%m-%d')} - {t.sport}": t.id for t in tests}
-                    selected_tests = st.multiselect("Selecciona pruebas a comparar:", list(test_options.keys()), default=[list(test_options.keys())[0]])
-                    
-                    if selected_tests:
-                        selected_ids = [test_options[name] for name in selected_tests]
-                        
-                        fig = make_subplots(specs=[[{"secondary_y": True}]])
-                        lac_colors = ["#00EEFF", "#3B82F6", "#1D4ED8", "#60A5FA", "#2563EB"]
-                        hr_colors = ["#FF3333", "#F87171", "#DC2626", "#FCA5A5", "#EF4444"]
-                        
-                        session = SessionLocal()
-                        try:
-                            for idx, t_id in enumerate(selected_ids):
-                                t = session.query(LactateTest).filter(LactateTest.id == t_id).first()
-                                steps = session.query(LactateTestStep).filter(LactateTestStep.test_id == t_id).order_by(LactateTestStep.id).all()
-                                
-                                df_steps = pd.DataFrame([{
-                                    "step_number": s.step_number,
-                                    "pot_rel": s.pot_rel or 0.0,
-                                    "lactate": s.lactate,
-                                    "watts": s.watts or 0.0,
-                                    "heart_rate": s.heart_rate
-                                } for s in steps])
-                                
-                                # Filter None for plotting
-                                df_plot = df_steps.dropna(subset=["lactate"])
-                                df_hr_plot = df_steps.dropna(subset=["heart_rate"])
-                                
-                                lac_color = lac_colors[idx % len(lac_colors)]
-                                hr_color = hr_colors[idx % len(hr_colors)]
-                                date_str = t.date.strftime("%Y-%m-%d")
-                                sport_str = t.sport
-                                
-                                # Define clean legend names based on comparison count
-                                lac_name = "Lactato" if len(selected_ids) == 1 else f"Lactato ({date_str})"
-                                hr_name = "Pulso" if len(selected_ids) == 1 else f"Pulso ({date_str})"
-                                
-                                # Add Lactate curve
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=df_plot["watts"], 
-                                        y=df_plot["lactate"], 
-                                        mode='lines+markers',
-                                        name=lac_name,
-                                        line=dict(color=lac_color, width=3),
-                                        marker=dict(size=10, symbol='circle')
-                                    ),
-                                    secondary_y=False
-                                )
-                                
-                                # Add Heart Rate curve
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=df_hr_plot["watts"], 
-                                        y=df_hr_plot["heart_rate"], 
-                                        mode='lines+markers',
-                                        name=hr_name,
-                                        line=dict(color=hr_color, width=2, dash='dash'),
-                                        marker=dict(size=14, symbol='triangle-up') # Larger red triangle markers
-                                    ),
-                                    secondary_y=True
-                                )
-                                
-                                # Add threshold lines & annotations if only 1 test is selected
-                                if len(selected_ids) == 1:
-                                    if t.lt1_power:
-                                        # Vertical line
-                                        fig.add_vline(
-                                            x=t.lt1_power, 
-                                            line_width=1.5, 
-                                            line_dash="dot", 
-                                            line_color="#FFD700", 
-                                            annotation_text=f"LT1: {t.lt1_power:.0f} W", 
-                                            annotation_position="top left",
-                                            annotation_font=dict(color="#FFD700", size=11, weight="bold")
-                                        )
-                                        # Lactate point annotation
-                                        if t.lt1_lactate is not None:
-                                            fig.add_annotation(
-                                                x=t.lt1_power,
-                                                y=t.lt1_lactate,
-                                                text=f"{t.lt1_lactate:.1f} mmol",
-                                                showarrow=True,
-                                                arrowhead=2,
-                                                ax=0,
-                                                ay=-35,
-                                                font=dict(color="#00EEFF", size=11, weight="bold"),
-                                                bordercolor="#FFD700",
-                                                borderwidth=1,
-                                                borderpad=4,
-                                                bgcolor="#121212",
-                                                xref="x",
-                                                yref="y"
-                                            )
-                                        # Heart rate point annotation
-                                        if t.lt1_hr is not None:
-                                            fig.add_annotation(
-                                                x=t.lt1_power,
-                                                y=t.lt1_hr,
-                                                text=f"{t.lt1_hr} lpm",
-                                                showarrow=True,
-                                                arrowhead=2,
-                                                ax=0,
-                                                ay=35,
-                                                font=dict(color="#FF3366", size=11, weight="bold"),
-                                                bordercolor="#FFD700",
-                                                borderwidth=1,
-                                                borderpad=4,
-                                                bgcolor="#121212",
-                                                xref="x",
-                                                yref="y2"
-                                            )
-                                            
-                                    if t.lt2_power:
-                                        # Vertical line
-                                        fig.add_vline(
-                                            x=t.lt2_power, 
-                                            line_width=1.5, 
-                                            line_dash="dot", 
-                                            line_color="#FF3333", 
-                                            annotation_text=f"LT2: {t.lt2_power:.0f} W", 
-                                            annotation_position="top left",
-                                            annotation_font=dict(color="#FF3333", size=11, weight="bold")
-                                        )
-                                        # Lactate point annotation
-                                        if t.lt2_lactate is not None:
-                                            fig.add_annotation(
-                                                x=t.lt2_power,
-                                                y=t.lt2_lactate,
-                                                text=f"{t.lt2_lactate:.1f} mmol",
-                                                showarrow=True,
-                                                arrowhead=2,
-                                                ax=0,
-                                                ay=-35,
-                                                font=dict(color="#00EEFF", size=11, weight="bold"),
-                                                bordercolor="#FF3333",
-                                                borderwidth=1,
-                                                borderpad=4,
-                                                bgcolor="#121212",
-                                                xref="x",
-                                                yref="y"
-                                            )
-                                        # Heart rate point annotation
-                                        if t.lt2_hr is not None:
-                                            fig.add_annotation(
-                                                x=t.lt2_power,
-                                                y=t.lt2_hr,
-                                                text=f"{t.lt2_hr} lpm",
-                                                showarrow=True,
-                                                arrowhead=2,
-                                                ax=0,
-                                                ay=35,
-                                                font=dict(color="#FF3366", size=11, weight="bold"),
-                                                bordercolor="#FF3333",
-                                                borderwidth=1,
-                                                borderpad=4,
-                                                bgcolor="#121212",
-                                                xref="x",
-                                                yref="y2"
-                                            )
-                                        
-                            # Define title text with date and sport when only one test is selected
-                            title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
-                            fig.update_layout(
-                                title=dict(
-                                    text=title_text,
-                                    x=0.5,
-                                    xanchor='center',
-                                    font=dict(color="#00EEFF", size=18, weight="bold")
-                                ),
-                                paper_bgcolor="#121212",
-                                plot_bgcolor="#121212",
-                                font_color="#FFFFFF",
-                                xaxis=dict(
-                                    title="Potencia (watts) / Velocidad", 
-                                    gridcolor="#333333", 
-                                    showgrid=True,
-                                    tickfont=dict(color="#FFFFFF")
-                                ),
-                                yaxis=dict(
-                                    title=dict(
-                                        text="Lactato (mmol/L)",
-                                        font=dict(color="#00EEFF")
-                                    ),
-                                    gridcolor="#333333", 
-                                    showgrid=True,
-                                    tickfont=dict(color="#00EEFF"),
-                                    fixedrange=True
-                                ),
-                                yaxis2=dict(
-                                    title=dict(
-                                        text="Pulso (bpm)",
-                                        font=dict(color="#FF3366")
-                                    ),
-                                    showgrid=False,
-                                    tickfont=dict(color="#FF3366"),
-                                    overlaying="y",
-                                    side="right",
-                                    fixedrange=True
-                                ),
-                                legend=dict(
-                                    bgcolor="rgba(0,0,0,0.5)",
-                                    bordercolor="#00EEFF",
-                                    borderwidth=1
-                                ),
-                                margin=dict(l=10, r=10, t=50, b=10)
-                            )
-                            
-                            st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
-                            st.markdown("</div>", unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"Error cargando gráficos: {e}")
-                        finally:
-                            session.close()
-                    else:
-                        st.info("Selecciona al menos una prueba para graficar.")
-                        
-                    # 2. Show threshold evolution over time
-                    st.markdown("---")
-                    st.markdown("### 📈 Evolución de Umbrales (LT1 y LT2)")
-                    
-                    # Sort tests by date ascending for evolution line chart
-                    tests_asc = sorted(tests, key=lambda x: x.date)
-                    dates_evolution = [t.date.strftime("%Y-%m-%d") for t in tests_asc]
-                    lt1_p_evolution = [t.lt1_power for t in tests_asc]
-                    lt2_p_evolution = [t.lt2_power for t in tests_asc]
-                    lt1_hr_evolution = [t.lt1_hr for t in tests_asc]
-                    lt2_hr_evolution = [t.lt2_hr for t in tests_asc]
-                    
-                    df_evo = pd.DataFrame({
-                        "Fecha": dates_evolution,
-                        "LT1 Potencia (W)": lt1_p_evolution,
-                        "LT2 Potencia (W)": lt2_p_evolution,
-                        "LT1 Pulso (bpm)": lt1_hr_evolution,
-                        "LT2 Pulso (bpm)": lt2_hr_evolution
-                    })
-                    
-                    # Plotly lines for power evolution
-                    fig_evo_p = px.line(df_evo, x="Fecha", y=["LT1 Potencia (W)", "LT2 Potencia (W)"], markers=True,
-                                        color_discrete_map={"LT1 Potencia (W)": "#FFD700", "LT2 Potencia (W)": "#FF3333"})
-                    fig_evo_p.update_layout(
-                        title="Evolución de Potencia de Umbral (W)",
-                        paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
-                        dragmode=False,
-                        xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
-                    )
-                    
-                    fig_evo_hr = px.line(df_evo, x="Fecha", y=["LT1 Pulso (bpm)", "LT2 Pulso (bpm)"], markers=True,
-                                         color_discrete_map={"LT1 Pulso (bpm)": "#FFD700", "LT2 Pulso (bpm)": "#FF3333"})
-                    fig_evo_hr.update_layout(
-                        title="Evolución de Pulso de Umbral (bpm)",
-                        paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
-                        dragmode=False,
-                        xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
-                    )
-                    
-                    col_evo1, col_evo2 = st.columns(2)
-                    with col_evo1:
-                        st.plotly_chart(fig_evo_p, use_container_width=True)
-                    with col_evo2:
-                        st.plotly_chart(fig_evo_hr, use_container_width=True)
-                else:
-                    st.info("Este atleta aún no tiene pruebas de lactato registradas. Ve a la pestaña 'Registrar Nueva Prueba' para cargar una.")
-                    
-            # --- TAB: REGISTRAR NUEVA PRUEBA ---
-            with tab_new:
-                st.subheader("Cargar Datos de Test de Lactato")
-                
-                # Form values inputs
-                col_in1, col_in2 = st.columns(2)
-                with col_in1:
-                    test_sport = st.selectbox("Deporte:", ["Ciclismo", "Running"])
-                    input_method = st.radio("Método de entrada de datos:", ["Copiar y Pegar Celdas (TSV)", "Subir Archivo Excel (.xlsx)"], horizontal=True)
-                with col_in2:
-                    test_date = st.date_input("Fecha de la prueba:", datetime.now().date())
-                    
-                parsed_header = {}
-                parsed_steps = []
-                
-                if input_method == "Copiar y Pegar Celdas (TSV)":
-                    tsv_data = st.text_area("Pega las celdas aquí (Copia directamente el bloque de celdas desde Google Sheets o Excel):", height=200, placeholder="ESCALON\tPOT/REL\tLACTATO\tPOWER\t...\nReposo\t0\t1.2\t0\t...\n1\t2.03\t1.4\t138\t...")
-                    if tsv_data:
-                        try:
-                            parsed_header, parsed_steps = lactate_parser.parse_tsv_text(tsv_data)
-                        except Exception as parse_err:
-                            st.error(f"Error procesando el texto pegado: {parse_err}")
-                else:
-                    uploaded_xlsx = st.file_uploader("Sube el archivo Excel de la prueba (.xlsx):", type=["xlsx"])
-                    if uploaded_xlsx:
-                        try:
-                            # Write temporarily
-                            temp_xlsx = f"temp_lactate_{uploaded_xlsx.name}"
-                            with open(temp_xlsx, "wb") as f:
-                                f.write(uploaded_xlsx.getbuffer())
-                                
-                            parsed_header, parsed_steps = lactate_parser.parse_excel_file(temp_xlsx)
-                            
-                            # Clean up temp
-                            try: os.remove(temp_xlsx)
-                            except: pass
-                        except Exception as parse_err:
-                            st.error(f"Error procesando el archivo Excel: {parse_err}")
-                            
-                if parsed_steps:
-                    st.success("✅ ¡Datos leídos exitosamente! Revisa los detalles abajo antes de guardar.")
-                    
-                    # Merge parsed values with default inputs
-                    st.markdown("### 📋 Cabecera / Metadatos del Test")
-                    
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        weight_val = parsed_header.get("weight") or 0.0
-                        test_weight = st.number_input("Peso (kg):", value=float(weight_val), step=0.1)
-                        
-                        ftp_val = parsed_header.get("ftp") or 0.0
-                        test_ftp = st.number_input("FTP o Umbral CP previo (W):", value=float(ftp_val), step=5.0)
-                        
-                        temp_val = parsed_header.get("temperature") or 18.0
-                        test_temperature = st.number_input("Temperatura (°C):", value=float(temp_val), step=1.0)
-                        
-                    with col_m2:
-                        ctl_val = parsed_header.get("ctl") or 0.0
-                        test_ctl = st.number_input("CTL (Fitness):", value=float(ctl_val), step=1.0)
-                        
-                        atl_val = parsed_header.get("atl") or 0.0
-                        test_atl = st.number_input("ATL (Fatiga):", value=float(atl_val), step=1.0)
-                        
-                        tsb_val = parsed_header.get("tsb") or 0.0
-                        test_tsb = st.number_input("TSB (Forma):", value=float(tsb_val), step=1.0)
-                        
-                    with col_m3:
-                        test_simulator = st.text_input("Simulador / Rodillo:", value=parsed_header.get("simulator") or "")
-                        test_lactate_meter = st.text_input("Medidor de Lactato:", value=parsed_header.get("lactate_meter") or "")
-                        test_bike_or_shoes = st.text_input("Bicicleta / Zapatillas:", value=parsed_header.get("bike_or_shoes") or "")
-                        test_power_source = st.text_input("Fuente de Potencia:", value=parsed_header.get("power_source") or "")
-                        
-                    col_m4, col_m5 = st.columns(2)
-                    with col_m4:
-                        test_breakfast = st.text_area("Desayuno / Nutrición previa:", value=parsed_header.get("breakfast") or "", height=80)
-                    with col_m5:
-                        test_last_training = st.text_input("Último entrenamiento realizado:", value=parsed_header.get("last_training") or "")
-                        col_m5_1, col_m5_2 = st.columns(2)
-                        with col_m5_1:
-                            test_duration = st.text_input("Duración de la sesión:", value=parsed_header.get("duration") or "")
-                        with col_m5_2:
-                            test_intensity = st.text_input("Intensidad percibida global:", value=parsed_header.get("intensity") or "")
-
-                    # Table editor for step data
-                    st.markdown("### 📊 Escalones del Test")
-                    st.info("Puedes modificar los valores directamente en la tabla si hay errores de lectura.")
-                    
-                    # Convert duration from seconds to minutes for display in editor
-                    for s in parsed_steps:
-                        if s.get("duration") is not None:
-                            try:
-                                s["duration"] = round(float(s["duration"]) / 60.0, 2)
-                            except:
-                                pass
-
-                    # Convert parsed steps list of dicts to DataFrame for st.data_editor
-                    df_steps_input = pd.DataFrame(parsed_steps)
-                    
-                    # Columns formatting
-                    columns_order = ["step_number", "pot_rel", "lactate", "watts", "heart_rate", "duration", "rpe"]
-                    for col in columns_order:
-                        if col not in df_steps_input.columns:
-                            df_steps_input[col] = None
-                    df_steps_input = df_steps_input[columns_order]
-
-                    # Rename columns to uppercase Spanish names for a premium look
-                    rename_dict = {
-                        "step_number": "NÚMERO DE PASO",
-                        "pot_rel": "POTENCIA RELATIVA (W/KG)",
-                        "lactate": "LACTATO (MMOL)",
-                        "watts": "POTENCIA (WATTS)",
-                        "heart_rate": "FRECUENCIA CARDÍACA (BPM)",
-                        "duration": "DURACIÓN (MINUTOS)",
-                        "rpe": "RPE (ESFUERZO)"
-                    }
-                    df_steps_input.rename(columns=rename_dict, inplace=True)
-                    
-                    # Show interactive data editor
-                    edited_df = st.data_editor(df_steps_input, use_container_width=True, num_rows="dynamic")
-                    
-                    # Map Spanish column names back to standard database keys for logic & storage
-                    reverse_rename_dict = {v: k for k, v in rename_dict.items()}
-                    edited_df_renamed = edited_df.rename(columns=reverse_rename_dict)
-                    
-                    # Recalculate thresholds based on edited table data
-                    edited_steps_list = edited_df_renamed.to_dict("records")
-                    
-                    # Convert duration from minutes back to seconds for DB storage
-                    for s in edited_steps_list:
-                        if s.get("duration") is not None:
-                            try:
-                                s["duration"] = int(float(s["duration"]) * 60)
-                            except:
-                                s["duration"] = None
-                                
-                    # Filter out rows with all None
-                    edited_steps_list = [s for s in edited_steps_list if s.get("step_number")]
-                    
-                    if edited_steps_list:
-                        # Suggested thresholds from logic
-                        sug_lt1, sug_lt2 = lactate_parser.estimate_thresholds(edited_steps_list)
-                        
-                        st.markdown("---")
-                        st.markdown("### 🎯 Definición de Umbrales (LT1 y LT2)")
-                        
-                        # Dropdowns of step options
-                        step_labels = [s.get("step_number") for s in edited_steps_list]
-                        
-                        sug_lt1_idx = step_labels.index(sug_lt1.get("step_number")) if sug_lt1 and sug_lt1.get("step_number") in step_labels else 0
-                        sug_lt2_idx = step_labels.index(sug_lt2.get("step_number")) if sug_lt2 and sug_lt2.get("step_number") in step_labels else len(step_labels)-1
-                        
-                        col_t1, col_t2 = st.columns(2)
-                        
-                        with col_t1:
-                            st.markdown("<h4 style='color: #FFD700;'>LT1 (Umbral Aeróbico)</h4>", unsafe_allow_html=True)
-                            selected_lt1_step = st.selectbox("Seleccionar Escalón LT1:", step_labels, index=sug_lt1_idx, key="sel_lt1")
-                            
-                            # Fetch values from selected step
-                            lt1_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt1_step), {})
-                            
-                            lt1_power = st.number_input("Potencia/Velocidad LT1:", value=float(lt1_step_data.get("watts") or 0.0), key="lt1_pow_input")
-                            lt1_hr = st.number_input("Pulso LT1 (bpm):", value=int(lt1_step_data.get("heart_rate") or 0), key="lt1_hr_input")
-                            lt1_lactate = st.number_input("Lactato LT1 (mmol/L):", value=float(lt1_step_data.get("lactate") or 0.0), step=0.1, key="lt1_lac_input")
-                            
-                        with col_t2:
-                            st.markdown("<h4 style='color: #FF3333;'>LT2 (Umbral Anaeróbico / FTP)</h4>", unsafe_allow_html=True)
-                            selected_lt2_step = st.selectbox("Seleccionar Escalón LT2:", step_labels, index=sug_lt2_idx, key="sel_lt2")
-                            
-                            # Fetch values from selected step
-                            lt2_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt2_step), {})
-                            
-                            lt2_power = st.number_input("Potencia/Velocidad LT2:", value=float(lt2_step_data.get("watts") or 0.0), key="lt2_pow_input")
-                            lt2_hr = st.number_input("Pulso LT2 (bpm):", value=int(lt2_step_data.get("heart_rate") or 0), key="lt2_hr_input")
-                            lt2_lactate = st.number_input("Lactato LT2 (mmol/L):", value=float(lt2_step_data.get("lactate") or 0.0), step=0.1, key="lt2_lac_input")
-                            
-                        st.markdown("---")
-                        
-                        if st.button("💾 Guardar Prueba de Lactato", type="primary"):
-                            session = SessionLocal()
-                            try:
-                                # Verify member still exists
-                                m = session.query(Member).filter(Member.name == selected_athlete).first()
-                                if not m:
-                                    st.error("El deportista seleccionado no existe.")
-                                    session.close()
-                                    st.stop()
-                                    
-                                new_test = LactateTest(
-                                    member_id=m.id,
-                                    date=test_date,
-                                    sport=test_sport,
-                                    simulator=test_simulator,
-                                    lactate_meter=test_lactate_meter,
-                                    bike_or_shoes=test_bike_or_shoes,
-                                    power_source=test_power_source,
-                                    weight=test_weight,
-                                    ftp=test_ftp,
-                                    temperature=test_temperature,
-                                    ctl=test_ctl,
-                                    atl=test_atl,
-                                    tsb=test_tsb,
-                                    breakfast=test_breakfast,
-                                    duration=test_duration,
-                                    intensity=test_intensity,
-                                    last_training=test_last_training,
-                                    
-                                    lt1_power=lt1_power,
-                                    lt1_hr=lt1_hr,
-                                    lt1_lactate=lt1_lactate,
-                                    lt2_power=lt2_power,
-                                    lt2_hr=lt2_hr,
-                                    lt2_lactate=lt2_lactate
-                                )
-                                session.add(new_test)
-                                session.flush() # Populate new_test.id
-                                
-                                # Add steps
-                                for s in edited_steps_list:
-                                    new_step = LactateTestStep(
-                                        test_id=new_test.id,
-                                        step_number=s.get("step_number"),
-                                        pot_rel=lactate_parser.parse_float(s.get("pot_rel")),
-                                        lactate=lactate_parser.parse_float(s.get("lactate")),
-                                        watts=lactate_parser.parse_float(s.get("watts")),
-                                        heart_rate=lactate_parser.parse_int(s.get("heart_rate")),
-                                        duration=lactate_parser.parse_int(s.get("duration")),
-                                        rpe=lactate_parser.parse_float(s.get("rpe"))
-                                    )
-                                    session.add(new_step)
-                                    
-                                session.commit()
-                                st.success(f"🎉 ¡La prueba del {test_date} para {selected_athlete} fue guardada exitosamente!")
-                                st.balloons()
-                                session.close()
-                                # Rerun to refresh list
-                                st.rerun()
-                            except Exception as save_err:
-                                session.rollback()
-                                st.error(f"Error al guardar la prueba de lactato: {save_err}")
-                            finally:
-                                session.close()
-                else:
-                    st.info("Pega datos tabulados o sube un archivo Excel para previsualizar los resultados del test.")
-
-# --- PAGE: MARCADORES CLÍNICOS ---
-elif page == "Marcadores Clínicos":
-    from sqlalchemy.orm import joinedload
-    import plotly.graph_objects as go
+    import lactate_parser
     from bloodwork_constants import (
         ALL_MARKER_KEYS,
         get_bloodwork_ranges,
@@ -2125,8 +1353,8 @@ elif page == "Marcadores Clínicos":
         generate_endurance_reference_table_html,
     )
     
-    st.title("🩸 Seguimiento de Marcadores Clínicos")
-    st.markdown("Hemograma y Perfil Bioquímico Completo — Deportistas de Resistencia (AlphaX CRM)")
+    st.title("🔬 Analíticas AlphaX")
+    st.markdown("Perfil Integral del Atleta: Marcadores Clínicos, Pruebas de Lactato y Monitoreo de Sueño")
     
     def badge_html(label, color):
         return f'<span style="background:{color}22; color:{color}; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold; border:1px solid {color}44;">{label}</span>'
@@ -2152,13 +1380,103 @@ elif page == "Marcadores Clínicos":
         st.error(f"Error cargando socios: {e}")
     finally:
         session.close()
+        
+    target_ath_def = st.session_state.get("target_athlete_name", "-- Seleccionar --")
+    if target_ath_def not in (["-- Seleccionar --"] + atletas_nombres):
+        target_ath_def = "-- Seleccionar --"
+    def_idx = (["-- Seleccionar --"] + atletas_nombres).index(target_ath_def)
     
     st.markdown("---")
     col_sel, col_sex = st.columns([3, 2])
     with col_sel:
-        selected_athlete = st.selectbox("Selecciona un deportista:", ["-- Seleccionar --"] + atletas_nombres, key="bw_athlete_sel")
-    
-    if selected_athlete != "-- Seleccionar --":
+        selected_athlete = st.selectbox(
+            "🎯 Selecciona un deportista para ver su perfil integral:",
+            ["-- Seleccionar --"] + atletas_nombres,
+            index=def_idx,
+            key="unified_analytics_athlete_sel"
+        )
+        st.session_state["target_athlete_name"] = selected_athlete
+
+    if selected_athlete == "-- Seleccionar --":
+        st.info("💡 **Selecciona un deportista arriba** para acceder a su perfil integral con análisis clínico, curvas de lactato y descanso.")
+        # --- ALERTAS CRÍTICAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+        from sqlalchemy.orm import joinedload
+        session = SessionLocal()
+        alert_records = []
+        try:
+            seven_days_ago = datetime.now().date() - timedelta(days=7)
+            alert_records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).filter(
+                Member.active == True,
+                SleepRecord.date >= seven_days_ago,
+                SleepRecord.sds_score >= 8
+            ).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).all()
+        except Exception as e:
+            print(f"Error querying sleep alerts: {e}")
+        finally:
+            session.close()
+        # --- DESPLEGABLE DE ALERTAS DE SUEÑO (ÚLTIMOS 7 DÍAS) ---
+        if alert_records:
+            with st.expander("🚨 ALERTA: Deportistas con Recuperación Crítica (Últimos 7 días)", expanded=True):
+                st.markdown(
+                    """
+                    <div style="background: rgba(255, 75, 75, 0.08); padding: 10px; border-radius: 8px; margin-bottom: 12px;">
+                        <p style="color: #FFFFFF; font-size: 0.95rem; margin-bottom: 0px;">
+                            Los siguientes deportistas activos han registrado problemas de descanso moderados o graves recientemente (Score ≥ 8):
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                for r in alert_records:
+                    badge_color = "#ff4b4b" if r.sds_score > 10 else "#ffa500"
+                    st.markdown(
+                        f"""
+                        <div style="background: rgba(255, 255, 255, 0.05); padding: 12px; border-radius: 8px; border-left: 4px solid {badge_color}; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong style="color: #00EEFF; font-size: 0.95rem;">{r.member.name}</strong><br>
+                                <span style="font-size: 0.8rem; color: #aaaaaa;">Fecha: {r.date.strftime('%Y-%m-%d')} | Puntuación SDS: {r.sds_score}/17</span>
+                            </div>
+                            <span style="background: {badge_color}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">
+                                {r.clinical_category}
+                            </span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+        else:
+            with st.expander("🚨 Alertas de Sueño Activas (Últimos 7 días)", expanded=False):
+                st.success("✅ No hay alertas de descanso críticas activas en los últimos 7 días. ¡Excelente recuperación general! 👍")
+        st.info("Utiliza el enlace público para que los deportistas llenen el cuestionario de sueño sin ver el CRM.", icon="ℹ️")
+        # --- GENERADOR DE ENLACES DE ACCESO RÁPIDO ---
+        render_athlete_links_box(athletes_names=atletas_nombres, title="🔗 Enlaces de Acceso para Atletas (General, Directo y QR)", expanded=True, key_prefix="assq_links")
+
+        # --- HISTORIAL DE SUEÑO ---
+        st.markdown("---")
+        st.subheader("📊 Historial Reciente de Sueño")
+        session = SessionLocal()
+        try:
+            records = session.query(SleepRecord).options(joinedload(SleepRecord.member)).join(Member).order_by(SleepRecord.date.desc(), SleepRecord.id.desc()).limit(50).all()
+            if records:
+                data = []
+                for r in records:
+                    data.append({
+                        "Fecha": r.date.strftime("%Y-%m-%d") if r.date else "",
+                        "Atleta": r.member.name if r.member else "Desconocido",
+                        "Score (SDS)": r.sds_score,
+                        "Categoría": r.clinical_category,
+                        "Horas": r.raw_hours,
+                        "Calidad": r.raw_quality
+                    })
+                df_sleep = pd.DataFrame(data)
+                st.dataframe(df_sleep, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aún no hay registros de sueño guardados.")
+        except Exception as e:
+            st.warning("⚠️ Debes recargar la aplicación para que se cree la tabla de historial de sueño en la base de datos.")
+        finally:
+            session.close()
+
+    else:
         session = SessionLocal()
         member_obj = session.query(Member).filter(Member.name == selected_athlete).first()
         session.close()
@@ -2217,492 +1535,1176 @@ elif page == "Marcadores Clínicos":
             BLOODWORK_RANGES = get_bloodwork_ranges(athlete_gender)
             gender_badge = "👩 Mujer" if athlete_gender == "Mujer" else "👨 Hombre"
 
-            tab_history, tab_new = st.tabs(["📊 Historial y Evolución", "📥 Registrar Nuevo Examen"])
+
+            st.markdown(f"### 🏃‍♂️ {selected_athlete} · Grupo: `{member_obj.group or 'AlphaX'}` · {gender_badge}")
             
-            # ═══════════════════════════════════════════════════════════
-            #  TAB: HISTORIAL Y EVOLUCIÓN
-            # ═══════════════════════════════════════════════════════════
-            with tab_history:
-                st.subheader(f"Evolución de Marcadores — {selected_athlete} ({gender_badge})")
-                
-                session = SessionLocal()
-                try:
-                    records = session.query(BloodworkRecord).filter(
-                        BloodworkRecord.member_id == member_obj.id
-                    ).order_by(BloodworkRecord.date.desc()).all()
-                except Exception as e:
-                    records = []
-                    st.error(f"Error cargando marcadores: {e}")
-                finally:
-                    session.close()
-                
-                if records:
-                    marker_keys = ALL_MARKER_KEYS
-                    
-                    # ── Tabla de historial con deltas ────────────────────
-                    st.markdown("### 📋 Historial de Biomarcadores y Perfil Clínico")
-                    
-                    table_html = """
-                    <div style="overflow-x: auto; max-width: 100%;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
-                    <thead>
-                    <tr style="background:#181828; border-bottom:1px solid rgba(255,255,255,0.08);">
-                        <th rowspan="2" style="padding:10px 12px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle; position:sticky; left:0; background:#181828; z-index:2;">Fecha</th>
-                    """
-                    for key in marker_keys:
-                        r = BLOODWORK_RANGES[key]
-                        c_color = r["color"]
-                        table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]}; vertical-align:middle; white-space:nowrap;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
-                    
-                    table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">Notas</th>'
-                    table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">PDF</th>'
-                    table_html += '</tr><tr style="background:#141422; border-bottom:2px solid #00EEFF;">'
-                    
-                    for key in marker_keys:
-                        r = BLOODWORK_RANGES[key]
-                        c_color = r["color"]
-                        table_html += f'<th style="padding:5px 8px; color:{c_color}EE; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.75rem; background:{r["bg"]}; font-weight:bold;">Valor</th>'
-                        table_html += f'<th style="padding:5px 6px; color:{c_color}AA; text-align:center; font-size:0.75rem; background:{r["bg"]}; font-weight:600;">Δ</th>'
-                    
-                    table_html += "</tr></thead><tbody>"
-                    
-                    for idx, rec in enumerate(records):
-                        prev_rec = records[idx + 1] if idx + 1 < len(records) else None
-                        row_bg = "#161625" if idx % 2 == 0 else "#121212"
-                        table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
-                        table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap; position:sticky; left:0; background:{row_bg}; z-index:1;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
-                        
+            tab_clin, tab_lac, tab_sleep = st.tabs([
+                "🩸 Marcadores Clínicos / Hemogramas",
+                "🧪 Pruebas de Lactato",
+                "💤 Monitoreo de Sueño (ASSQ)"
+            ])
+
+            with tab_clin:
+                tab_clin_history, tab_clin_new = st.tabs(["📊 Historial y Evolución", "📥 Registrar Nuevo Examen"])
+
+                # ═══════════════════════════════════════════════════════════
+                #  TAB: HISTORIAL Y EVOLUCIÓN
+                # ═══════════════════════════════════════════════════════════
+                with tab_clin_history:
+                    st.subheader(f"Evolución de Marcadores — {selected_athlete} ({gender_badge})")
+
+                    session = SessionLocal()
+                    try:
+                        records = session.query(BloodworkRecord).filter(
+                            BloodworkRecord.member_id == member_obj.id
+                        ).order_by(BloodworkRecord.date.desc()).all()
+                    except Exception as e:
+                        records = []
+                        st.error(f"Error cargando marcadores: {e}")
+                    finally:
+                        session.close()
+
+                    if records:
+                        marker_keys = ALL_MARKER_KEYS
+
+                        # ── Tabla de historial con deltas ────────────────────
+                        st.markdown("### 📋 Historial de Biomarcadores y Perfil Clínico")
+
+                        table_html = """
+                        <div style="overflow-x: auto; max-width: 100%;">
+                        <table style="width:100%; border-collapse:collapse; font-size:0.82rem; background:#121212; border-radius:10px; overflow:hidden; border:1px solid #222;">
+                        <thead>
+                        <tr style="background:#181828; border-bottom:1px solid rgba(255,255,255,0.08);">
+                            <th rowspan="2" style="padding:10px 12px; color:#00EEFF; text-align:left; font-size:0.85rem; vertical-align:middle; position:sticky; left:0; background:#181828; z-index:2;">Fecha</th>
+                        """
                         for key in marker_keys:
                             r = BLOODWORK_RANGES[key]
-                            val = getattr(rec, key, None)
-                            prev_val = getattr(prev_rec, key, None) if prev_rec else None
-                            label, val_status_color = classify_bloodwork_value(key, val, athlete_gender)
-                            
-                            val_str = f"{val:.1f}" if val is not None else "—"
-                            
-                            table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]}; white-space:nowrap;">'
-                            table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.88rem;">{val_str}</span> {badge_html(label, val_status_color)}'
-                            table_html += '</td>'
-                            
-                            table_html += f'<td style="padding:8px 6px; text-align:center; background:{r["bg"]}; white-space:nowrap;">'
-                            table_html += f'{delta_html(val, prev_val, default_color=r["color"])}'
-                            table_html += '</td>'
-                        
-                        notes_str = (rec.notes or "")[:30]
-                        pdf_str = "📎" if rec.pdf_filename else ""
-                        table_html += f'<td style="padding:8px 6px; text-align:center; color:#888; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.05);">{notes_str}</td>'
-                        table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05);">{pdf_str}</td>'
-                        table_html += "</tr>"
-                    
-                    table_html += "</tbody></table></div>"
-                    st.markdown(table_html, unsafe_allow_html=True)
-                    
-                    # ── Alertas inteligentes y patrones clínicos ───────────
-                    latest = records[0]
-                    alerts = get_clinical_alerts(latest, gender=athlete_gender)
-                    
-                    if alerts:
-                        st.markdown(f"### 🔔 Alertas y Patrones Clínicos ({gender_badge})")
-                        for emoji, title, detail, color in alerts:
-                            st.markdown(
-                                f"""
-                                <div style="background:rgba(255,255,255,0.03); border-left:4px solid {color}; border-radius:8px; padding:12px 16px; margin-bottom:8px;">
-                                    <strong style="color:{color}; font-size:0.95rem;">{emoji} {title}</strong><br>
-                                    <span style="color:#ccc; font-size:0.85rem;">{detail}</span>
-                                </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
-                    
-                    # ── Gráficas Plotly de evolución (5 Grupos de 3) ─────
-                    st.markdown("---")
-                    st.markdown(f"### 📈 Evolución Temporal de Biomarcadores ({gender_badge})")
-                    
-                    records_chrono = list(reversed(records))
-                    dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
-                    
-                    marker_groups = [
-                        ("hemoglobin", "vcm", "chcm"),
-                        ("rbc", "hematocrit", "ferritin"),
-                        ("ck", "vitamin_b12", "folic_acid"),
-                        ("total_cholesterol", "hdl", "ldl", "triglycerides"),
-                        ("glucose", "hba1c", "pcr_us"),
-                    ]
-                    
-                    for group in marker_groups:
-                        cols = st.columns(len(group))
-                        for col, key in zip(cols, group):
-                            with col:
+                            c_color = r["color"]
+                            table_html += f'<th colspan="2" style="padding:10px 8px; color:{c_color}; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.8rem; background:{r["bg"]}; vertical-align:middle; white-space:nowrap;">{r["emoji"]} {r["name"]}<br><span style="font-size:0.7rem; color:{c_color}CC; font-weight:normal;">({r["unit"]})</span></th>'
+
+                        table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">Notas</th>'
+                        table_html += '<th rowspan="2" style="padding:10px; color:#888; text-align:center; border-left:1px solid rgba(255,255,255,0.08); vertical-align:middle;">PDF</th>'
+                        table_html += '</tr><tr style="background:#141422; border-bottom:2px solid #00EEFF;">'
+
+                        for key in marker_keys:
+                            r = BLOODWORK_RANGES[key]
+                            c_color = r["color"]
+                            table_html += f'<th style="padding:5px 8px; color:{c_color}EE; text-align:center; border-left:1px solid rgba(255,255,255,0.08); font-size:0.75rem; background:{r["bg"]}; font-weight:bold;">Valor</th>'
+                            table_html += f'<th style="padding:5px 6px; color:{c_color}AA; text-align:center; font-size:0.75rem; background:{r["bg"]}; font-weight:600;">Δ</th>'
+
+                        table_html += "</tr></thead><tbody>"
+
+                        for idx, rec in enumerate(records):
+                            prev_rec = records[idx + 1] if idx + 1 < len(records) else None
+                            row_bg = "#161625" if idx % 2 == 0 else "#121212"
+                            table_html += f'<tr style="background:{row_bg}; border-bottom:1px solid #222;">'
+                            table_html += f'<td style="padding:8px 10px; color:#FFFFFF; font-weight:bold; white-space:nowrap; position:sticky; left:0; background:{row_bg}; z-index:1;">{rec.date.strftime("%d/%m/%Y") if rec.date else "—"}</td>'
+
+                            for key in marker_keys:
                                 r = BLOODWORK_RANGES[key]
-                                values = [getattr(rec, key, None) for rec in records_chrono]
-                                values_clean = [v for v in values if v is not None]
-                                
-                                if not values_clean:
-                                    st.info(f"Sin datos de {r['name']}")
-                                    continue
-                                
-                                fig = go.Figure()
-                                
-                                y_min = min(min(values_clean) * 0.85, r["low"] * 0.9)
-                                y_max = max(max(values_clean) * 1.1, r["high"] * 1.05)
-                                if y_min == y_max:
-                                    y_min -= 1
-                                    y_max += 1
-                                
-                                # Bandas de referencia
-                                fig.add_hrect(y0=y_min, y1=r["low"], fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, 
-                                              annotation_text="BAJO", annotation_position="inside left", annotation_font=dict(color="#FF4B4B", size=10))
-                                fig.add_hrect(y0=r["opt_lo"], y1=r["opt_hi"], fillcolor="rgba(0, 255, 0, 0.08)", line_width=0,
-                                              annotation_text="ÓPTIMO", annotation_position="inside left", annotation_font=dict(color="#00FF00", size=10))
-                                fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
-                                              annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates_list,
-                                    y=values,
-                                    mode='lines+markers+text',
-                                    name=r["name"],
-                                    line=dict(color=r["color"], width=3),
-                                    marker=dict(size=10, symbol='circle', line=dict(width=2, color="#121212"), color=r["color"]),
-                                    text=[f"{v:.1f}" if v is not None else "" for v in values],
-                                    textposition="top center",
-                                    textfont=dict(color=r["color"], size=10, weight="bold"),
-                                    connectgaps=True,
-                                ))
-                                
-                                fig.update_layout(
-                                    title=dict(
-                                        text=f"{r['emoji']} {r['name']} ({r['unit']})",
-                                        x=0.5, xanchor='center',
-                                        font=dict(color=r["color"], size=12, weight="bold")
-                                    ),
-                                    paper_bgcolor="#121212",
-                                    plot_bgcolor="#121212",
-                                    font_color="#FFFFFF",
-                                    dragmode=False,
-                                    xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category", fixedrange=True),
-                                    yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
-                                    margin=dict(l=10, r=10, t=50, b=10),
-                                    showlegend=False,
-                                    height=270,
+                                val = getattr(rec, key, None)
+                                prev_val = getattr(prev_rec, key, None) if prev_rec else None
+                                label, val_status_color = classify_bloodwork_value(key, val, athlete_gender)
+
+                                val_str = f"{val:.1f}" if val is not None else "—"
+
+                                table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05); background:{r["bg"]}; white-space:nowrap;">'
+                                table_html += f'<span style="font-weight:bold; color:{val_status_color}; font-size:0.88rem;">{val_str}</span> {badge_html(label, val_status_color)}'
+                                table_html += '</td>'
+
+                                table_html += f'<td style="padding:8px 6px; text-align:center; background:{r["bg"]}; white-space:nowrap;">'
+                                table_html += f'{delta_html(val, prev_val, default_color=r["color"])}'
+                                table_html += '</td>'
+
+                            notes_str = (rec.notes or "")[:30]
+                            pdf_str = "📎" if rec.pdf_filename else ""
+                            table_html += f'<td style="padding:8px 6px; text-align:center; color:#888; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.05);">{notes_str}</td>'
+                            table_html += f'<td style="padding:8px 6px; text-align:center; border-left:1px solid rgba(255,255,255,0.05);">{pdf_str}</td>'
+                            table_html += "</tr>"
+
+                        table_html += "</tbody></table></div>"
+                        st.markdown(table_html, unsafe_allow_html=True)
+
+                        # ── Alertas inteligentes y patrones clínicos ───────────
+                        latest = records[0]
+                        alerts = get_clinical_alerts(latest, gender=athlete_gender)
+
+                        if alerts:
+                            st.markdown(f"### 🔔 Alertas y Patrones Clínicos ({gender_badge})")
+                            for emoji, title, detail, color in alerts:
+                                st.markdown(
+                                    f"""
+                                    <div style="background:rgba(255,255,255,0.03); border-left:4px solid {color}; border-radius:8px; padding:12px 16px; margin-bottom:8px;">
+                                        <strong style="color:{color}; font-size:0.95rem;">{emoji} {title}</strong><br>
+                                        <span style="color:#ccc; font-size:0.85rem;">{detail}</span>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True
                                 )
-                                
-                                st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-                                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
-                                st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    # ── Editar o Completar Biomarcadores de un Examen Existente ──
-                    st.markdown("---")
-                    with st.expander("✏️ Editar o Completar Biomarcadores de un Examen Existente"):
-                        edit_options = {f"Examen del {r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
-                        sel_edit = st.selectbox("Selecciona el examen a editar o completar:", list(edit_options.keys()), key="bw_edit_sel")
-                        selected_rec_id = edit_options[sel_edit]
-                        rec_to_edit = next((r for r in records if r.id == selected_rec_id), None)
-                        
-                        if rec_to_edit:
-                            st.caption(f"Actualiza o completa los 15 biomarcadores para el examen del {rec_to_edit.date.strftime('%d/%m/%Y')}.")
-                            with st.form(f"form_edit_bw_{selected_rec_id}"):
-                                ed_c1, ed_c2, ed_c3 = st.columns(3)
-                                def _e_val(attr):
-                                    v = getattr(rec_to_edit, attr, None)
-                                    return float(v) if v is not None else None
 
-                                with ed_c1:
-                                    st.markdown("##### 🔴 Serie Roja")
-                                    e_hb = st.number_input("🔴 Hemoglobina (g/dL)", value=_e_val("hemoglobin"), step=0.1, key=f"e_hb_{selected_rec_id}")
-                                    e_vcm = st.number_input("🔵 VCM (fL)", value=_e_val("vcm"), step=0.1, key=f"e_vcm_{selected_rec_id}")
-                                    e_chcm = st.number_input("🟡 CHCM (g/dL)", value=_e_val("chcm"), step=0.1, key=f"e_chcm_{selected_rec_id}")
-                                    e_rbc = st.number_input("⭕ Glóbulos Rojos (×10⁶/μL)", value=_e_val("rbc"), step=0.01, key=f"e_rbc_{selected_rec_id}")
-                                    e_hto = st.number_input("🩸 Hematocrito (%)", value=_e_val("hematocrit"), step=0.1, key=f"e_hto_{selected_rec_id}")
-                                    e_fer = st.number_input("🧲 Ferritina Sérica (ng/mL)", value=_e_val("ferritin"), step=1.0, key=f"e_fer_{selected_rec_id}")
-                                with ed_c2:
-                                    st.markdown("##### ⚡ Daño Muscular y Vitaminas")
-                                    e_ck = st.number_input("⚡ Creatina Kinasa CK (U/L)", value=_e_val("ck"), step=1.0, key=f"e_ck_{selected_rec_id}")
-                                    e_b12 = st.number_input("💊 Vitamina B12 (pg/mL)", value=_e_val("vitamin_b12"), step=1.0, key=f"e_b12_{selected_rec_id}")
-                                    e_fol = st.number_input("🥬 Ácido Fólico (ng/mL)", value=_e_val("folic_acid"), step=0.1, key=f"e_fol_{selected_rec_id}")
-                                with ed_c3:
-                                    st.markdown("##### 🫀 Perfil Lipídico y Glucemia")
-                                    e_chol = st.number_input("🫀 Colesterol Total (mg/dL)", value=_e_val("total_cholesterol"), step=1.0, key=f"e_chol_{selected_rec_id}")
-                                    e_hdl = st.number_input("🛡️ Colesterol HDL (mg/dL)", value=_e_val("hdl"), step=1.0, key=f"e_hdl_{selected_rec_id}")
-                                    e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=_e_val("ldl"), step=1.0, key=f"e_ldl_{selected_rec_id}")
-                                    e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=_e_val("triglycerides"), step=1.0, key=f"e_trig_{selected_rec_id}")
-                                    e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=_e_val("glucose"), step=1.0, key=f"e_glu_{selected_rec_id}")
-                                    e_a1c = st.number_input("🧬 HbA1c Hemoglobina Glicosilada (%)", value=_e_val("hba1c"), step=0.1, key=f"e_a1c_{selected_rec_id}")
-                                    e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=_e_val("pcr_us"), step=0.01, key=f"e_pcr_{selected_rec_id}")
-                                
-                                e_notes = st.text_area("Notas / Observaciones:", value=rec_to_edit.notes or "", height=70, key=f"e_notes_{selected_rec_id}")
-                                
-                                if st.form_submit_button("💾 Actualizar Registro de Examen", type="primary", use_container_width=True):
-                                    s_ed = SessionLocal()
+                        # ── Gráficas Plotly de evolución (5 Grupos de 3) ─────
+                        st.markdown("---")
+                        st.markdown(f"### 📈 Evolución Temporal de Biomarcadores ({gender_badge})")
+
+                        records_chrono = list(reversed(records))
+                        dates_list = [r.date.strftime("%d/%m/%Y") if r.date else "" for r in records_chrono]
+
+                        marker_groups = [
+                            ("hemoglobin", "vcm", "chcm"),
+                            ("rbc", "hematocrit", "ferritin"),
+                            ("ck", "vitamin_b12", "folic_acid"),
+                            ("total_cholesterol", "hdl", "ldl", "triglycerides"),
+                            ("glucose", "hba1c", "pcr_us"),
+                        ]
+
+                        for group in marker_groups:
+                            cols = st.columns(len(group))
+                            for col, key in zip(cols, group):
+                                with col:
+                                    r = BLOODWORK_RANGES[key]
+                                    values = [getattr(rec, key, None) for rec in records_chrono]
+                                    values_clean = [v for v in values if v is not None]
+
+                                    if not values_clean:
+                                        st.info(f"Sin datos de {r['name']}")
+                                        continue
+
+                                    fig = go.Figure()
+
+                                    y_min = min(min(values_clean) * 0.85, r["low"] * 0.9)
+                                    y_max = max(max(values_clean) * 1.1, r["high"] * 1.05)
+                                    if y_min == y_max:
+                                        y_min -= 1
+                                        y_max += 1
+
+                                    # Bandas de referencia
+                                    fig.add_hrect(y0=y_min, y1=r["low"], fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, 
+                                                  annotation_text="BAJO", annotation_position="inside left", annotation_font=dict(color="#FF4B4B", size=10))
+                                    fig.add_hrect(y0=r["opt_lo"], y1=r["opt_hi"], fillcolor="rgba(0, 255, 0, 0.08)", line_width=0,
+                                                  annotation_text="ÓPTIMO", annotation_position="inside left", annotation_font=dict(color="#00FF00", size=10))
+                                    fig.add_hrect(y0=r["high"], y1=y_max, fillcolor="rgba(255, 165, 0, 0.12)", line_width=0,
+                                                  annotation_text="ALTO", annotation_position="inside left", annotation_font=dict(color="#FFD700", size=10))
+
+                                    fig.add_trace(go.Scatter(
+                                        x=dates_list,
+                                        y=values,
+                                        mode='lines+markers+text',
+                                        name=r["name"],
+                                        line=dict(color=r["color"], width=3),
+                                        marker=dict(size=10, symbol='circle', line=dict(width=2, color="#121212"), color=r["color"]),
+                                        text=[f"{v:.1f}" if v is not None else "" for v in values],
+                                        textposition="top center",
+                                        textfont=dict(color=r["color"], size=10, weight="bold"),
+                                        connectgaps=True,
+                                    ))
+
+                                    fig.update_layout(
+                                        title=dict(
+                                            text=f"{r['emoji']} {r['name']} ({r['unit']})",
+                                            x=0.5, xanchor='center',
+                                            font=dict(color=r["color"], size=12, weight="bold")
+                                        ),
+                                        paper_bgcolor="#121212",
+                                        plot_bgcolor="#121212",
+                                        font_color="#FFFFFF",
+                                        dragmode=False,
+                                        xaxis=dict(gridcolor="#333333", showgrid=False, tickfont=dict(color="#FFFFFF", size=9), type="category", fixedrange=True),
+                                        yaxis=dict(gridcolor="#222222", showgrid=True, tickfont=dict(color="#FFFFFF", size=9), range=[y_min, y_max], fixedrange=True),
+                                        margin=dict(l=10, r=10, t=50, b=10),
+                                        showlegend=False,
+                                        height=270,
+                                    )
+
+                                    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+                                    st.markdown("</div>", unsafe_allow_html=True)
+
+                        # ── Editar o Completar Biomarcadores de un Examen Existente ──
+                        st.markdown("---")
+                        with st.expander("✏️ Editar o Completar Biomarcadores de un Examen Existente"):
+                            edit_options = {f"Examen del {r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
+                            sel_edit = st.selectbox("Selecciona el examen a editar o completar:", list(edit_options.keys()), key="bw_edit_sel")
+                            selected_rec_id = edit_options[sel_edit]
+                            rec_to_edit = next((r for r in records if r.id == selected_rec_id), None)
+
+                            if rec_to_edit:
+                                st.caption(f"Actualiza o completa los 15 biomarcadores para el examen del {rec_to_edit.date.strftime('%d/%m/%Y')}.")
+                                with st.form(f"form_edit_bw_{selected_rec_id}"):
+                                    ed_c1, ed_c2, ed_c3 = st.columns(3)
+                                    def _e_val(attr):
+                                        v = getattr(rec_to_edit, attr, None)
+                                        return float(v) if v is not None else None
+
+                                    with ed_c1:
+                                        st.markdown("##### 🔴 Serie Roja")
+                                        e_hb = st.number_input("🔴 Hemoglobina (g/dL)", value=_e_val("hemoglobin"), step=0.1, key=f"e_hb_{selected_rec_id}")
+                                        e_vcm = st.number_input("🔵 VCM (fL)", value=_e_val("vcm"), step=0.1, key=f"e_vcm_{selected_rec_id}")
+                                        e_chcm = st.number_input("🟡 CHCM (g/dL)", value=_e_val("chcm"), step=0.1, key=f"e_chcm_{selected_rec_id}")
+                                        e_rbc = st.number_input("⭕ Glóbulos Rojos (×10⁶/μL)", value=_e_val("rbc"), step=0.01, key=f"e_rbc_{selected_rec_id}")
+                                        e_hto = st.number_input("🩸 Hematocrito (%)", value=_e_val("hematocrit"), step=0.1, key=f"e_hto_{selected_rec_id}")
+                                        e_fer = st.number_input("🧲 Ferritina Sérica (ng/mL)", value=_e_val("ferritin"), step=1.0, key=f"e_fer_{selected_rec_id}")
+                                    with ed_c2:
+                                        st.markdown("##### ⚡ Daño Muscular y Vitaminas")
+                                        e_ck = st.number_input("⚡ Creatina Kinasa CK (U/L)", value=_e_val("ck"), step=1.0, key=f"e_ck_{selected_rec_id}")
+                                        e_b12 = st.number_input("💊 Vitamina B12 (pg/mL)", value=_e_val("vitamin_b12"), step=1.0, key=f"e_b12_{selected_rec_id}")
+                                        e_fol = st.number_input("🥬 Ácido Fólico (ng/mL)", value=_e_val("folic_acid"), step=0.1, key=f"e_fol_{selected_rec_id}")
+                                    with ed_c3:
+                                        st.markdown("##### 🫀 Perfil Lipídico y Glucemia")
+                                        e_chol = st.number_input("🫀 Colesterol Total (mg/dL)", value=_e_val("total_cholesterol"), step=1.0, key=f"e_chol_{selected_rec_id}")
+                                        e_hdl = st.number_input("🛡️ Colesterol HDL (mg/dL)", value=_e_val("hdl"), step=1.0, key=f"e_hdl_{selected_rec_id}")
+                                        e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=_e_val("ldl"), step=1.0, key=f"e_ldl_{selected_rec_id}")
+                                        e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=_e_val("triglycerides"), step=1.0, key=f"e_trig_{selected_rec_id}")
+                                        e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=_e_val("glucose"), step=1.0, key=f"e_glu_{selected_rec_id}")
+                                        e_a1c = st.number_input("🧬 HbA1c Hemoglobina Glicosilada (%)", value=_e_val("hba1c"), step=0.1, key=f"e_a1c_{selected_rec_id}")
+                                        e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=_e_val("pcr_us"), step=0.01, key=f"e_pcr_{selected_rec_id}")
+
+                                    e_notes = st.text_area("Notas / Observaciones:", value=rec_to_edit.notes or "", height=70, key=f"e_notes_{selected_rec_id}")
+
+                                    if st.form_submit_button("💾 Actualizar Registro de Examen", type="primary", use_container_width=True):
+                                        s_ed = SessionLocal()
+                                        try:
+                                            r_db = s_ed.query(BloodworkRecord).filter(BloodworkRecord.id == selected_rec_id).first()
+                                            if r_db:
+                                                r_db.hemoglobin = e_hb
+                                                r_db.vcm = e_vcm
+                                                r_db.chcm = e_chcm
+                                                r_db.rbc = e_rbc
+                                                r_db.hematocrit = e_hto
+                                                r_db.ferritin = e_fer
+                                                r_db.ck = e_ck
+                                                r_db.vitamin_b12 = e_b12
+                                                r_db.folic_acid = e_fol
+                                                r_db.total_cholesterol = e_chol
+                                                r_db.hdl = e_hdl
+                                                r_db.ldl = e_ldl
+                                                r_db.triglycerides = e_trig
+                                                r_db.glucose = e_glu
+                                                r_db.hba1c = e_a1c
+                                                r_db.pcr_us = e_pcr
+                                                r_db.notes = e_notes if e_notes else None
+                                                s_ed.commit()
+                                                st.success("✅ Examen actualizado exitosamente con los nuevos biomarcadores.")
+                                                st.rerun()
+                                        except Exception as err_ed:
+                                            s_ed.rollback()
+                                            st.error(f"Error actualizando examen: {err_ed}")
+                                        finally:
+                                            s_ed.close()
+
+                        # ── Eliminar registro ─────────────────────────────────
+                        st.markdown("---")
+                        with st.expander("🗑️ Eliminar un registro de hemograma"):
+                            del_options = {f"{r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
+                            sel_del = st.selectbox("Selecciona el registro a eliminar:", list(del_options.keys()), key="bw_del_sel")
+
+                            col_del1, col_del2 = st.columns([1, 3])
+                            with col_del1:
+                                if st.button("🗑️ Eliminar", type="primary", key="bw_del_btn"):
+                                    session = SessionLocal()
                                     try:
-                                        r_db = s_ed.query(BloodworkRecord).filter(BloodworkRecord.id == selected_rec_id).first()
-                                        if r_db:
-                                            r_db.hemoglobin = e_hb
-                                            r_db.vcm = e_vcm
-                                            r_db.chcm = e_chcm
-                                            r_db.rbc = e_rbc
-                                            r_db.hematocrit = e_hto
-                                            r_db.ferritin = e_fer
-                                            r_db.ck = e_ck
-                                            r_db.vitamin_b12 = e_b12
-                                            r_db.folic_acid = e_fol
-                                            r_db.total_cholesterol = e_chol
-                                            r_db.hdl = e_hdl
-                                            r_db.ldl = e_ldl
-                                            r_db.triglycerides = e_trig
-                                            r_db.glucose = e_glu
-                                            r_db.hba1c = e_a1c
-                                            r_db.pcr_us = e_pcr
-                                            r_db.notes = e_notes if e_notes else None
-                                            s_ed.commit()
-                                            st.success("✅ Examen actualizado exitosamente con los nuevos biomarcadores.")
+                                        rec_to_delete = session.query(BloodworkRecord).filter(BloodworkRecord.id == del_options[sel_del]).first()
+                                        if rec_to_delete:
+                                            session.delete(rec_to_delete)
+                                            session.commit()
+                                            st.success("✅ Registro eliminado.")
                                             st.rerun()
-                                    except Exception as err_ed:
-                                        s_ed.rollback()
-                                        st.error(f"Error actualizando examen: {err_ed}")
+                                    except Exception as e:
+                                        session.rollback()
+                                        st.error(f"Error al eliminar: {e}")
                                     finally:
-                                        s_ed.close()
+                                        session.close()
 
-                    # ── Eliminar registro ─────────────────────────────────
-                    st.markdown("---")
-                    with st.expander("🗑️ Eliminar un registro de hemograma"):
-                        del_options = {f"{r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
-                        sel_del = st.selectbox("Selecciona el registro a eliminar:", list(del_options.keys()), key="bw_del_sel")
-                        
-                        col_del1, col_del2 = st.columns([1, 3])
-                        with col_del1:
-                            if st.button("🗑️ Eliminar", type="primary", key="bw_del_btn"):
-                                session = SessionLocal()
-                                try:
-                                    rec_to_delete = session.query(BloodworkRecord).filter(BloodworkRecord.id == del_options[sel_del]).first()
-                                    if rec_to_delete:
-                                        session.delete(rec_to_delete)
-                                        session.commit()
-                                        st.success("✅ Registro eliminado.")
-                                        st.rerun()
-                                except Exception as e:
-                                    session.rollback()
-                                    st.error(f"Error al eliminar: {e}")
-                                finally:
-                                    session.close()
-                
-                else:
-                    st.info(f"{selected_athlete} aún no tiene exámenes registrados. Ve a la pestaña 'Registrar Nuevo Examen' para cargar uno.")
-            
-            # ═══════════════════════════════════════════════════════════
-            #  TAB: REGISTRAR NUEVO EXAMEN
-            # ═══════════════════════════════════════════════════════════
-            with tab_new:
-                st.subheader("📥 Registrar Examen de Sangre y Marcadores")
-                
-                # ── Extracción Automática por PDF/Imagen ───────────
-                with st.expander("🤖 Extracción Automática (PDF / Imagen)", expanded=True):
-                    st.info(f"Sube el PDF o foto del examen para extraer automáticamente hasta 15 biomarcadores. Rangos calibrados para perfil: **{gender_badge}**.")
-                    col_u1, col_u2 = st.columns([2, 1])
-                    with col_u1:
-                        auto_file = st.file_uploader("Adjuntar archivo del examen (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
-                    with col_u2:
-                        auto_pwd = st.text_input("Clave del PDF (si requiere):", type="password", key="auto_bw_pwd")
-                    
-                    if auto_file is not None:
-                        if st.button("⚡ Extraer Datos Automáticamente", use_container_width=True, type="secondary"):
-                            with st.spinner("Leyendo y procesando documento..."):
-                                try:
-                                    import importlib
-                                    import hemograma_parser
-                                    importlib.reload(hemograma_parser)
-                                    parsed_info = hemograma_parser.process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
-                                    raw_text = parsed_info.get("raw_text", "")
-                                    if raw_text.startswith("[ERROR]"):
-                                        st.error(f"⚠️ Error al leer archivo: {raw_text}")
-                                    else:
-                                        st.session_state["parsed_bw_data"] = parsed_info
-                                        st.session_state["parsed_bw_filename"] = auto_file.name
-                                        # Limpiar keys de sesión de widgets para que carguen los nuevos valores parseados
-                                        for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr"]:
-                                            st.session_state.pop(k, None)
-                                        st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
-                                        st.rerun()
-                                except Exception as parse_err:
-                                    st.error(f"Error procesando el archivo: {parse_err}")
-
-                parsed_data = st.session_state.get("parsed_bw_data", {})
-                
-                if parsed_data:
-                    st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos o vaciar cualquier casilla antes de guardar.")
-                    if st.button("🗑️ Limpiar autocompletado"):
-                        st.session_state.pop("parsed_bw_data", None)
-                        st.session_state.pop("parsed_bw_filename", None)
-                        for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
-                            st.session_state.pop(k, None)
-                        st.rerun()
-                    with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
-                        st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
-
-                init_date = datetime.now().date()
-                if parsed_data.get("date"):
-                    try:
-                        init_date = datetime.strptime(parsed_data["date"], "%Y-%m-%d").date()
-                    except Exception:
-                        pass
-                
-                def _clean_input_val(v):
-                    if v is None:
-                        return None
-                    try:
-                        f = float(v)
-                        return max(0.0, f)
-                    except (ValueError, TypeError):
-                        return None
-
-                # Pre-llenados
-                v_hb = _clean_input_val(parsed_data.get("hemoglobin"))
-                v_vcm = _clean_input_val(parsed_data.get("vcm"))
-                v_chcm = _clean_input_val(parsed_data.get("chcm"))
-                v_rbc = _clean_input_val(parsed_data.get("rbc"))
-                v_hto = _clean_input_val(parsed_data.get("hematocrit"))
-                v_fer = _clean_input_val(parsed_data.get("ferritin"))
-                v_ck = _clean_input_val(parsed_data.get("ck"))
-                v_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
-                v_fol = _clean_input_val(parsed_data.get("folic_acid"))
-                v_chol = _clean_input_val(parsed_data.get("total_cholesterol"))
-                v_hdl = _clean_input_val(parsed_data.get("hdl"))
-                v_ldl = _clean_input_val(parsed_data.get("ldl"))
-                v_trig = _clean_input_val(parsed_data.get("triglycerides"))
-                v_glu = _clean_input_val(parsed_data.get("glucose"))
-                v_a1c = _clean_input_val(parsed_data.get("hba1c"))
-                v_pcr = _clean_input_val(parsed_data.get("pcr_us"))
-
-                with st.form("form_bloodwork", clear_on_submit=False):
-                    col_d1, col_d2 = st.columns(2)
-                    with col_d1:
-                        bw_date = st.date_input("Fecha del examen:", value=init_date, key="bw_date")
-                    with col_d2:
-                        attached_name = st.session_state.get("parsed_bw_filename")
-                        bw_pdf = st.file_uploader("Adjuntar PDF del examen (opcional):", type=["pdf"], key="bw_pdf")
-                    
-                    st.markdown("### 🔴 1. Serie Roja y Transporte de Oxígeno")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        r_hb = BLOODWORK_RANGES["hemoglobin"]
-                        bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=None, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
-                        r_vcm = BLOODWORK_RANGES["vcm"]
-                        bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=None, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
-                    with c2:
-                        r_chcm = BLOODWORK_RANGES["chcm"]
-                        bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=None, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
-                        r_rbc = BLOODWORK_RANGES["rbc"]
-                        bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=None, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
-                    with c3:
-                        r_hto = BLOODWORK_RANGES["hematocrit"]
-                        bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=None, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
-                        r_fer = BLOODWORK_RANGES["ferritin"]
-                        bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=None, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
-
-                    st.markdown("### ⚡ 2. Daño Muscular y Vitaminas")
-                    c4, c5, c6 = st.columns(3)
-                    with c4:
-                        r_ck = BLOODWORK_RANGES["ck"]
-                        bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=None, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
-                    with c5:
-                        r_b12 = BLOODWORK_RANGES["vitamin_b12"]
-                        bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=None, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
-                    with c6:
-                        r_fol = BLOODWORK_RANGES["folic_acid"]
-                        bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=None, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
-
-                    st.markdown("### 🫀 3. Perfil Lipídico Cardiovascular")
-                    c7, c8, c9, c10 = st.columns(4)
-                    with c7:
-                        r_chol = BLOODWORK_RANGES["total_cholesterol"]
-                        bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=None, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
-                    with c8:
-                        r_hdl = BLOODWORK_RANGES["hdl"]
-                        bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=None, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
-                    with c9:
-                        r_ldl = BLOODWORK_RANGES["ldl"]
-                        bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=None, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
-                    with c10:
-                        r_trig = BLOODWORK_RANGES["triglycerides"]
-                        bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=None, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
-
-                    st.markdown("### 🍯 4. Glucemia, HbA1c e Inflamación Sistémica")
-                    c11, c12, c13 = st.columns(3)
-                    with c11:
-                        r_glu = BLOODWORK_RANGES["glucose"]
-                        bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=None, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
-                    with c12:
-                        r_a1c = BLOODWORK_RANGES["hba1c"]
-                        bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=None, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
-                    with c13:
-                        r_pcr = BLOODWORK_RANGES["pcr_us"]
-                        bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=None, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
-
-                    bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación, ayuno):", height=80, key="bw_notes")
-                    submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
-
-                if submitted_bw:
-                    def _val_or_none(x):
-                        if x is None:
-                            return None
-                        try:
-                            f = float(x)
-                            return f if f > 0 else None
-                        except (ValueError, TypeError):
-                            return None
-
-                    clean_inputs = [_val_or_none(x) for x in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]]
-                    if all(v is None for v in clean_inputs):
-                        st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
                     else:
-                        pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
-                        session = SessionLocal()
-                        try:
-                            new_bw = BloodworkRecord(
-                                member_id=member_obj.id,
-                                date=bw_date,
-                                hemoglobin=_val_or_none(bw_hb),
-                                vcm=_val_or_none(bw_vcm),
-                                chcm=_val_or_none(bw_chcm),
-                                rbc=_val_or_none(bw_rbc),
-                                hematocrit=_val_or_none(bw_hto),
-                                ferritin=_val_or_none(bw_fer),
-                                ck=_val_or_none(bw_ck),
-                                vitamin_b12=_val_or_none(bw_b12),
-                                folic_acid=_val_or_none(bw_fol),
-                                total_cholesterol=_val_or_none(bw_chol),
-                                hdl=_val_or_none(bw_hdl),
-                                ldl=_val_or_none(bw_ldl),
-                                triglycerides=_val_or_none(bw_trig),
-                                glucose=_val_or_none(bw_glu),
-                                hba1c=_val_or_none(bw_a1c),
-                                pcr_us=_val_or_none(bw_pcr),
-                                pdf_filename=pdf_filename,
-                                notes=bw_notes if bw_notes else None,
-                            )
-                            session.add(new_bw)
-                            session.commit()
+                        st.info(f"{selected_athlete} aún no tiene exámenes registrados. Ve a la pestaña 'Registrar Nuevo Examen' para cargar uno.")
+
+                # ═══════════════════════════════════════════════════════════
+                #  TAB: REGISTRAR NUEVO EXAMEN
+                # ═══════════════════════════════════════════════════════════
+                with tab_clin_new:
+                    st.subheader("📥 Registrar Examen de Sangre y Marcadores")
+
+                    # ── Extracción Automática por PDF/Imagen ───────────
+                    with st.expander("🤖 Extracción Automática (PDF / Imagen)", expanded=True):
+                        st.info(f"Sube el PDF o foto del examen para extraer automáticamente hasta 15 biomarcadores. Rangos calibrados para perfil: **{gender_badge}**.")
+                        col_u1, col_u2 = st.columns([2, 1])
+                        with col_u1:
+                            auto_file = st.file_uploader("Adjuntar archivo del examen (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
+                        with col_u2:
+                            auto_pwd = st.text_input("Clave del PDF (si requiere):", type="password", key="auto_bw_pwd")
+
+                        if auto_file is not None:
+                            if st.button("⚡ Extraer Datos Automáticamente", use_container_width=True, type="secondary"):
+                                with st.spinner("Leyendo y procesando documento..."):
+                                    try:
+                                        import importlib
+                                        import hemograma_parser
+                                        importlib.reload(hemograma_parser)
+                                        parsed_info = hemograma_parser.process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
+                                        raw_text = parsed_info.get("raw_text", "")
+                                        if raw_text.startswith("[ERROR]"):
+                                            st.error(f"⚠️ Error al leer archivo: {raw_text}")
+                                        else:
+                                            st.session_state["parsed_bw_data"] = parsed_info
+                                            st.session_state["parsed_bw_filename"] = auto_file.name
+                                            # Limpiar keys de sesión de widgets para que carguen los nuevos valores parseados
+                                            for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr"]:
+                                                st.session_state.pop(k, None)
+                                            st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
+                                            st.rerun()
+                                    except Exception as parse_err:
+                                        st.error(f"Error procesando el archivo: {parse_err}")
+
+                    parsed_data = st.session_state.get("parsed_bw_data", {})
+
+                    if parsed_data:
+                        st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos o vaciar cualquier casilla antes de guardar.")
+                        if st.button("🗑️ Limpiar autocompletado"):
                             st.session_state.pop("parsed_bw_data", None)
                             st.session_state.pop("parsed_bw_filename", None)
                             for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
                                 st.session_state.pop(k, None)
-                            st.success(f"🎉 ¡Biomarcadores del {bw_date} para {selected_athlete} ({gender_badge}) guardados exitosamente!")
-                            st.balloons()
                             st.rerun()
-                        except Exception as e:
-                            session.rollback()
-                            st.error(f"Error al guardar: {e}")
-                        finally:
-                            session.close()
+                        with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
+                            st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
 
-                # ── Tabla de referencia rápida (Hombres y Mujeres Atletas) ──
-                st.markdown("---")
-                with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
-                    ref_html = generate_endurance_reference_table_html(gender=athlete_gender)
+                    init_date = datetime.now().date()
+                    if parsed_data.get("date"):
+                        try:
+                            init_date = datetime.strptime(parsed_data["date"], "%Y-%m-%d").date()
+                        except Exception:
+                            pass
+
+                    def _clean_input_val(v):
+                        if v is None:
+                            return None
+                        try:
+                            f = float(v)
+                            return max(0.0, f)
+                        except (ValueError, TypeError):
+                            return None
+
+                    # Pre-llenados
+                    v_hb = _clean_input_val(parsed_data.get("hemoglobin"))
+                    v_vcm = _clean_input_val(parsed_data.get("vcm"))
+                    v_chcm = _clean_input_val(parsed_data.get("chcm"))
+                    v_rbc = _clean_input_val(parsed_data.get("rbc"))
+                    v_hto = _clean_input_val(parsed_data.get("hematocrit"))
+                    v_fer = _clean_input_val(parsed_data.get("ferritin"))
+                    v_ck = _clean_input_val(parsed_data.get("ck"))
+                    v_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
+                    v_fol = _clean_input_val(parsed_data.get("folic_acid"))
+                    v_chol = _clean_input_val(parsed_data.get("total_cholesterol"))
+                    v_hdl = _clean_input_val(parsed_data.get("hdl"))
+                    v_ldl = _clean_input_val(parsed_data.get("ldl"))
+                    v_trig = _clean_input_val(parsed_data.get("triglycerides"))
+                    v_glu = _clean_input_val(parsed_data.get("glucose"))
+                    v_a1c = _clean_input_val(parsed_data.get("hba1c"))
+                    v_pcr = _clean_input_val(parsed_data.get("pcr_us"))
+
+                    with st.form("form_bloodwork", clear_on_submit=False):
+                        col_d1, col_d2 = st.columns(2)
+                        with col_d1:
+                            bw_date = st.date_input("Fecha del examen:", value=init_date, key="bw_date")
+                        with col_d2:
+                            attached_name = st.session_state.get("parsed_bw_filename")
+                            bw_pdf = st.file_uploader("Adjuntar PDF del examen (opcional):", type=["pdf"], key="bw_pdf")
+
+                        st.markdown("### 🔴 1. Serie Roja y Transporte de Oxígeno")
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            r_hb = BLOODWORK_RANGES["hemoglobin"]
+                            bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=None, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
+                            r_vcm = BLOODWORK_RANGES["vcm"]
+                            bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=None, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
+                        with c2:
+                            r_chcm = BLOODWORK_RANGES["chcm"]
+                            bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=None, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
+                            r_rbc = BLOODWORK_RANGES["rbc"]
+                            bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=None, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
+                        with c3:
+                            r_hto = BLOODWORK_RANGES["hematocrit"]
+                            bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=None, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
+                            r_fer = BLOODWORK_RANGES["ferritin"]
+                            bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=None, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
+
+                        st.markdown("### ⚡ 2. Daño Muscular y Vitaminas")
+                        c4, c5, c6 = st.columns(3)
+                        with c4:
+                            r_ck = BLOODWORK_RANGES["ck"]
+                            bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=None, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
+                        with c5:
+                            r_b12 = BLOODWORK_RANGES["vitamin_b12"]
+                            bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=None, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
+                        with c6:
+                            r_fol = BLOODWORK_RANGES["folic_acid"]
+                            bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=None, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
+
+                        st.markdown("### 🫀 3. Perfil Lipídico Cardiovascular")
+                        c7, c8, c9, c10 = st.columns(4)
+                        with c7:
+                            r_chol = BLOODWORK_RANGES["total_cholesterol"]
+                            bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=None, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
+                        with c8:
+                            r_hdl = BLOODWORK_RANGES["hdl"]
+                            bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=None, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
+                        with c9:
+                            r_ldl = BLOODWORK_RANGES["ldl"]
+                            bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=None, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
+                        with c10:
+                            r_trig = BLOODWORK_RANGES["triglycerides"]
+                            bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=None, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
+
+                        st.markdown("### 🍯 4. Glucemia, HbA1c e Inflamación Sistémica")
+                        c11, c12, c13 = st.columns(3)
+                        with c11:
+                            r_glu = BLOODWORK_RANGES["glucose"]
+                            bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=None, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
+                        with c12:
+                            r_a1c = BLOODWORK_RANGES["hba1c"]
+                            bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=None, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
+                        with c13:
+                            r_pcr = BLOODWORK_RANGES["pcr_us"]
+                            bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=None, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
+
+                        bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación, ayuno):", height=80, key="bw_notes")
+                        submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
+
+                    if submitted_bw:
+                        def _val_or_none(x):
+                            if x is None:
+                                return None
+                            try:
+                                f = float(x)
+                                return f if f > 0 else None
+                            except (ValueError, TypeError):
+                                return None
+
+                        clean_inputs = [_val_or_none(x) for x in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]]
+                        if all(v is None for v in clean_inputs):
+                            st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
+                        else:
+                            pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
+                            session = SessionLocal()
+                            try:
+                                new_bw = BloodworkRecord(
+                                    member_id=member_obj.id,
+                                    date=bw_date,
+                                    hemoglobin=_val_or_none(bw_hb),
+                                    vcm=_val_or_none(bw_vcm),
+                                    chcm=_val_or_none(bw_chcm),
+                                    rbc=_val_or_none(bw_rbc),
+                                    hematocrit=_val_or_none(bw_hto),
+                                    ferritin=_val_or_none(bw_fer),
+                                    ck=_val_or_none(bw_ck),
+                                    vitamin_b12=_val_or_none(bw_b12),
+                                    folic_acid=_val_or_none(bw_fol),
+                                    total_cholesterol=_val_or_none(bw_chol),
+                                    hdl=_val_or_none(bw_hdl),
+                                    ldl=_val_or_none(bw_ldl),
+                                    triglycerides=_val_or_none(bw_trig),
+                                    glucose=_val_or_none(bw_glu),
+                                    hba1c=_val_or_none(bw_a1c),
+                                    pcr_us=_val_or_none(bw_pcr),
+                                    pdf_filename=pdf_filename,
+                                    notes=bw_notes if bw_notes else None,
+                                )
+                                session.add(new_bw)
+                                session.commit()
+                                st.session_state.pop("parsed_bw_data", None)
+                                st.session_state.pop("parsed_bw_filename", None)
+                                for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
+                                    st.session_state.pop(k, None)
+                                st.success(f"🎉 ¡Biomarcadores del {bw_date} para {selected_athlete} ({gender_badge}) guardados exitosamente!")
+                                st.balloons()
+                                st.rerun()
+                            except Exception as e:
+                                session.rollback()
+                                st.error(f"Error al guardar: {e}")
+                            finally:
+                                session.close()
+
+                    # ── Tabla de referencia rápida (Hombres y Mujeres Atletas) ──
+                    st.markdown("---")
+                    with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
+                        ref_html = generate_endurance_reference_table_html(gender=athlete_gender)
+                        try:
+                            st.html(ref_html)
+                        except AttributeError:
+                            st.markdown(ref_html, unsafe_allow_html=True)
+
+            with tab_lac:
+                tab_lac_history, tab_lac_new = st.tabs(["📊 Historial y Comparación", "📥 Registrar Nueva Prueba"])
+
+                # --- TAB: HISTORIAL Y COMPARACIÓN ---
+                with tab_lac_history:
+                    st.subheader(f"Evolución de {selected_athlete}")
+
+                    session = SessionLocal()
                     try:
-                        st.html(ref_html)
-                    except AttributeError:
-                        st.markdown(ref_html, unsafe_allow_html=True)
+                        tests = session.query(LactateTest).filter(LactateTest.member_id == member_obj.id).order_by(LactateTest.date.desc()).all()
+                    except Exception as e:
+                        tests = []
+                        st.error(f"Error cargando pruebas: {e}")
+                    finally:
+                        session.close()
+
+                    if tests:
+                        # 1. Show history table
+                        st.markdown("### Pruebas Registradas")
+                        history_data = []
+                        for t in tests:
+                            history_data.append({
+                                "id": t.id,
+                                "Fecha": t.date.strftime("%Y-%m-%d"),
+                                "Deporte": t.sport,
+                                "Peso (kg)": t.weight or "",
+                                "FTP/CP": t.ftp or "",
+                                "LT1 Potencia": f"{t.lt1_power:.0f} W" if t.lt1_power else "",
+                                "LT1 Pulso": f"{t.lt1_hr} lpm" if t.lt1_hr else "",
+                                "LT2 Potencia": f"{t.lt2_power:.0f} W" if t.lt2_power else "",
+                                "LT2 Pulso": f"{t.lt2_hr} lpm" if t.lt2_hr else "",
+                                "CTL/ATL/TSB": f"{t.ctl or 0:.0f}/{t.atl or 0:.0f}/{t.tsb or 0:.0f}"
+                            })
+                        df_history = pd.DataFrame(history_data)
+
+                        # Show dataframe
+                        st.dataframe(df_history.drop(columns=["id"]), use_container_width=True, hide_index=True)
+
+                        st.markdown("---")
+                        st.markdown("### 📈 Superponer y Comparar Curvas")
+                        st.info("Selecciona una o más pruebas del historial para visualizar y superponer sus curvas de rendimiento.")
+
+                        # Selectbox/multiselect for comparison
+                        test_options = {f"{t.date.strftime('%Y-%m-%d')} - {t.sport}": t.id for t in tests}
+                        selected_tests = st.multiselect("Selecciona pruebas a comparar:", list(test_options.keys()), default=[list(test_options.keys())[0]])
+
+                        if selected_tests:
+                            selected_ids = [test_options[name] for name in selected_tests]
+
+                            fig = make_subplots(specs=[[{"secondary_y": True}]])
+                            lac_colors = ["#00EEFF", "#3B82F6", "#1D4ED8", "#60A5FA", "#2563EB"]
+                            hr_colors = ["#FF3333", "#F87171", "#DC2626", "#FCA5A5", "#EF4444"]
+
+                            session = SessionLocal()
+                            try:
+                                for idx, t_id in enumerate(selected_ids):
+                                    t = session.query(LactateTest).filter(LactateTest.id == t_id).first()
+                                    steps = session.query(LactateTestStep).filter(LactateTestStep.test_id == t_id).order_by(LactateTestStep.id).all()
+
+                                    df_steps = pd.DataFrame([{
+                                        "step_number": s.step_number,
+                                        "pot_rel": s.pot_rel or 0.0,
+                                        "lactate": s.lactate,
+                                        "watts": s.watts or 0.0,
+                                        "heart_rate": s.heart_rate
+                                    } for s in steps])
+
+                                    # Filter None for plotting
+                                    df_plot = df_steps.dropna(subset=["lactate"])
+                                    df_hr_plot = df_steps.dropna(subset=["heart_rate"])
+
+                                    lac_color = lac_colors[idx % len(lac_colors)]
+                                    hr_color = hr_colors[idx % len(hr_colors)]
+                                    date_str = t.date.strftime("%Y-%m-%d")
+                                    sport_str = t.sport
+
+                                    # Define clean legend names based on comparison count
+                                    lac_name = "Lactato" if len(selected_ids) == 1 else f"Lactato ({date_str})"
+                                    hr_name = "Pulso" if len(selected_ids) == 1 else f"Pulso ({date_str})"
+
+                                    # Add Lactate curve
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=df_plot["watts"], 
+                                            y=df_plot["lactate"], 
+                                            mode='lines+markers',
+                                            name=lac_name,
+                                            line=dict(color=lac_color, width=3),
+                                            marker=dict(size=10, symbol='circle')
+                                        ),
+                                        secondary_y=False
+                                    )
+
+                                    # Add Heart Rate curve
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=df_hr_plot["watts"], 
+                                            y=df_hr_plot["heart_rate"], 
+                                            mode='lines+markers',
+                                            name=hr_name,
+                                            line=dict(color=hr_color, width=2, dash='dash'),
+                                            marker=dict(size=14, symbol='triangle-up') # Larger red triangle markers
+                                        ),
+                                        secondary_y=True
+                                    )
+
+                                    # Add threshold lines & annotations if only 1 test is selected
+                                    if len(selected_ids) == 1:
+                                        if t.lt1_power:
+                                            # Vertical line
+                                            fig.add_vline(
+                                                x=t.lt1_power, 
+                                                line_width=1.5, 
+                                                line_dash="dot", 
+                                                line_color="#FFD700", 
+                                                annotation_text=f"LT1: {t.lt1_power:.0f} W", 
+                                                annotation_position="top left",
+                                                annotation_font=dict(color="#FFD700", size=11, weight="bold")
+                                            )
+                                            # Lactate point annotation
+                                            if t.lt1_lactate is not None:
+                                                fig.add_annotation(
+                                                    x=t.lt1_power,
+                                                    y=t.lt1_lactate,
+                                                    text=f"{t.lt1_lactate:.1f} mmol",
+                                                    showarrow=True,
+                                                    arrowhead=2,
+                                                    ax=0,
+                                                    ay=-35,
+                                                    font=dict(color="#00EEFF", size=11, weight="bold"),
+                                                    bordercolor="#FFD700",
+                                                    borderwidth=1,
+                                                    borderpad=4,
+                                                    bgcolor="#121212",
+                                                    xref="x",
+                                                    yref="y"
+                                                )
+                                            # Heart rate point annotation
+                                            if t.lt1_hr is not None:
+                                                fig.add_annotation(
+                                                    x=t.lt1_power,
+                                                    y=t.lt1_hr,
+                                                    text=f"{t.lt1_hr} lpm",
+                                                    showarrow=True,
+                                                    arrowhead=2,
+                                                    ax=0,
+                                                    ay=35,
+                                                    font=dict(color="#FF3366", size=11, weight="bold"),
+                                                    bordercolor="#FFD700",
+                                                    borderwidth=1,
+                                                    borderpad=4,
+                                                    bgcolor="#121212",
+                                                    xref="x",
+                                                    yref="y2"
+                                                )
+
+                                        if t.lt2_power:
+                                            # Vertical line
+                                            fig.add_vline(
+                                                x=t.lt2_power, 
+                                                line_width=1.5, 
+                                                line_dash="dot", 
+                                                line_color="#FF3333", 
+                                                annotation_text=f"LT2: {t.lt2_power:.0f} W", 
+                                                annotation_position="top left",
+                                                annotation_font=dict(color="#FF3333", size=11, weight="bold")
+                                            )
+                                            # Lactate point annotation
+                                            if t.lt2_lactate is not None:
+                                                fig.add_annotation(
+                                                    x=t.lt2_power,
+                                                    y=t.lt2_lactate,
+                                                    text=f"{t.lt2_lactate:.1f} mmol",
+                                                    showarrow=True,
+                                                    arrowhead=2,
+                                                    ax=0,
+                                                    ay=-35,
+                                                    font=dict(color="#00EEFF", size=11, weight="bold"),
+                                                    bordercolor="#FF3333",
+                                                    borderwidth=1,
+                                                    borderpad=4,
+                                                    bgcolor="#121212",
+                                                    xref="x",
+                                                    yref="y"
+                                                )
+                                            # Heart rate point annotation
+                                            if t.lt2_hr is not None:
+                                                fig.add_annotation(
+                                                    x=t.lt2_power,
+                                                    y=t.lt2_hr,
+                                                    text=f"{t.lt2_hr} lpm",
+                                                    showarrow=True,
+                                                    arrowhead=2,
+                                                    ax=0,
+                                                    ay=35,
+                                                    font=dict(color="#FF3366", size=11, weight="bold"),
+                                                    bordercolor="#FF3333",
+                                                    borderwidth=1,
+                                                    borderpad=4,
+                                                    bgcolor="#121212",
+                                                    xref="x",
+                                                    yref="y2"
+                                                )
+
+                                # Define title text with date and sport when only one test is selected
+                                title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
+                                fig.update_layout(
+                                    title=dict(
+                                        text=title_text,
+                                        x=0.5,
+                                        xanchor='center',
+                                        font=dict(color="#00EEFF", size=18, weight="bold")
+                                    ),
+                                    paper_bgcolor="#121212",
+                                    plot_bgcolor="#121212",
+                                    font_color="#FFFFFF",
+                                    xaxis=dict(
+                                        title="Potencia (watts) / Velocidad", 
+                                        gridcolor="#333333", 
+                                        showgrid=True,
+                                        tickfont=dict(color="#FFFFFF")
+                                    ),
+                                    yaxis=dict(
+                                        title=dict(
+                                            text="Lactato (mmol/L)",
+                                            font=dict(color="#00EEFF")
+                                        ),
+                                        gridcolor="#333333", 
+                                        showgrid=True,
+                                        tickfont=dict(color="#00EEFF"),
+                                        fixedrange=True
+                                    ),
+                                    yaxis2=dict(
+                                        title=dict(
+                                            text="Pulso (bpm)",
+                                            font=dict(color="#FF3366")
+                                        ),
+                                        showgrid=False,
+                                        tickfont=dict(color="#FF3366"),
+                                        overlaying="y",
+                                        side="right",
+                                        fixedrange=True
+                                    ),
+                                    legend=dict(
+                                        bgcolor="rgba(0,0,0,0.5)",
+                                        bordercolor="#00EEFF",
+                                        borderwidth=1
+                                    ),
+                                    margin=dict(l=10, r=10, t=50, b=10)
+                                )
+
+                                st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+                                st.markdown("</div>", unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"Error cargando gráficos: {e}")
+                            finally:
+                                session.close()
+                        else:
+                            st.info("Selecciona al menos una prueba para graficar.")
+
+                        # 2. Show threshold evolution over time
+                        st.markdown("---")
+                        st.markdown("### 📈 Evolución de Umbrales (LT1 y LT2)")
+
+                        # Sort tests by date ascending for evolution line chart
+                        tests_asc = sorted(tests, key=lambda x: x.date)
+                        dates_evolution = [t.date.strftime("%Y-%m-%d") for t in tests_asc]
+                        lt1_p_evolution = [t.lt1_power for t in tests_asc]
+                        lt2_p_evolution = [t.lt2_power for t in tests_asc]
+                        lt1_hr_evolution = [t.lt1_hr for t in tests_asc]
+                        lt2_hr_evolution = [t.lt2_hr for t in tests_asc]
+
+                        df_evo = pd.DataFrame({
+                            "Fecha": dates_evolution,
+                            "LT1 Potencia (W)": lt1_p_evolution,
+                            "LT2 Potencia (W)": lt2_p_evolution,
+                            "LT1 Pulso (bpm)": lt1_hr_evolution,
+                            "LT2 Pulso (bpm)": lt2_hr_evolution
+                        })
+
+                        # Plotly lines for power evolution
+                        fig_evo_p = px.line(df_evo, x="Fecha", y=["LT1 Potencia (W)", "LT2 Potencia (W)"], markers=True,
+                                            color_discrete_map={"LT1 Potencia (W)": "#FFD700", "LT2 Potencia (W)": "#FF3333"})
+                        fig_evo_p.update_layout(
+                            title="Evolución de Potencia de Umbral (W)",
+                            paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
+                            dragmode=False,
+                            xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
+                        )
+
+                        fig_evo_hr = px.line(df_evo, x="Fecha", y=["LT1 Pulso (bpm)", "LT2 Pulso (bpm)"], markers=True,
+                                             color_discrete_map={"LT1 Pulso (bpm)": "#FFD700", "LT2 Pulso (bpm)": "#FF3333"})
+                        fig_evo_hr.update_layout(
+                            title="Evolución de Pulso de Umbral (bpm)",
+                            paper_bgcolor="#121212", plot_bgcolor="#121212", font_color="#FFFFFF",
+                            dragmode=False,
+                            xaxis=dict(gridcolor="#333333", fixedrange=True), yaxis=dict(gridcolor="#333333", fixedrange=True)
+                        )
+
+                        col_evo1, col_evo2 = st.columns(2)
+                        with col_evo1:
+                            st.plotly_chart(fig_evo_p, use_container_width=True)
+                        with col_evo2:
+                            st.plotly_chart(fig_evo_hr, use_container_width=True)
+                    else:
+                        st.info("Este atleta aún no tiene pruebas de lactato registradas. Ve a la pestaña 'Registrar Nueva Prueba' para cargar una.")
+
+                # --- TAB: REGISTRAR NUEVA PRUEBA ---
+                with tab_lac_new:
+                    st.subheader("Cargar Datos de Test de Lactato")
+
+                    # Form values inputs
+                    col_in1, col_in2 = st.columns(2)
+                    with col_in1:
+                        test_sport = st.selectbox("Deporte:", ["Ciclismo", "Running"])
+                        input_method = st.radio("Método de entrada de datos:", ["Copiar y Pegar Celdas (TSV)", "Subir Archivo Excel (.xlsx)"], horizontal=True)
+                    with col_in2:
+                        test_date = st.date_input("Fecha de la prueba:", datetime.now().date())
+
+                    parsed_header = {}
+                    parsed_steps = []
+
+                    if input_method == "Copiar y Pegar Celdas (TSV)":
+                        tsv_data = st.text_area("Pega las celdas aquí (Copia directamente el bloque de celdas desde Google Sheets o Excel):", height=200, placeholder="ESCALON\tPOT/REL\tLACTATO\tPOWER\t...\nReposo\t0\t1.2\t0\t...\n1\t2.03\t1.4\t138\t...")
+                        if tsv_data:
+                            try:
+                                parsed_header, parsed_steps = lactate_parser.parse_tsv_text(tsv_data)
+                            except Exception as parse_err:
+                                st.error(f"Error procesando el texto pegado: {parse_err}")
+                    else:
+                        uploaded_xlsx = st.file_uploader("Sube el archivo Excel de la prueba (.xlsx):", type=["xlsx"])
+                        if uploaded_xlsx:
+                            try:
+                                # Write temporarily
+                                temp_xlsx = f"temp_lactate_{uploaded_xlsx.name}"
+                                with open(temp_xlsx, "wb") as f:
+                                    f.write(uploaded_xlsx.getbuffer())
+
+                                parsed_header, parsed_steps = lactate_parser.parse_excel_file(temp_xlsx)
+
+                                # Clean up temp
+                                try: os.remove(temp_xlsx)
+                                except: pass
+                            except Exception as parse_err:
+                                st.error(f"Error procesando el archivo Excel: {parse_err}")
+
+                    if parsed_steps:
+                        st.success("✅ ¡Datos leídos exitosamente! Revisa los detalles abajo antes de guardar.")
+
+                        # Merge parsed values with default inputs
+                        st.markdown("### 📋 Cabecera / Metadatos del Test")
+
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            weight_val = parsed_header.get("weight") or 0.0
+                            test_weight = st.number_input("Peso (kg):", value=float(weight_val), step=0.1)
+
+                            ftp_val = parsed_header.get("ftp") or 0.0
+                            test_ftp = st.number_input("FTP o Umbral CP previo (W):", value=float(ftp_val), step=5.0)
+
+                            temp_val = parsed_header.get("temperature") or 18.0
+                            test_temperature = st.number_input("Temperatura (°C):", value=float(temp_val), step=1.0)
+
+                        with col_m2:
+                            ctl_val = parsed_header.get("ctl") or 0.0
+                            test_ctl = st.number_input("CTL (Fitness):", value=float(ctl_val), step=1.0)
+
+                            atl_val = parsed_header.get("atl") or 0.0
+                            test_atl = st.number_input("ATL (Fatiga):", value=float(atl_val), step=1.0)
+
+                            tsb_val = parsed_header.get("tsb") or 0.0
+                            test_tsb = st.number_input("TSB (Forma):", value=float(tsb_val), step=1.0)
+
+                        with col_m3:
+                            test_simulator = st.text_input("Simulador / Rodillo:", value=parsed_header.get("simulator") or "")
+                            test_lactate_meter = st.text_input("Medidor de Lactato:", value=parsed_header.get("lactate_meter") or "")
+                            test_bike_or_shoes = st.text_input("Bicicleta / Zapatillas:", value=parsed_header.get("bike_or_shoes") or "")
+                            test_power_source = st.text_input("Fuente de Potencia:", value=parsed_header.get("power_source") or "")
+
+                        col_m4, col_m5 = st.columns(2)
+                        with col_m4:
+                            test_breakfast = st.text_area("Desayuno / Nutrición previa:", value=parsed_header.get("breakfast") or "", height=80)
+                        with col_m5:
+                            test_last_training = st.text_input("Último entrenamiento realizado:", value=parsed_header.get("last_training") or "")
+                            col_m5_1, col_m5_2 = st.columns(2)
+                            with col_m5_1:
+                                test_duration = st.text_input("Duración de la sesión:", value=parsed_header.get("duration") or "")
+                            with col_m5_2:
+                                test_intensity = st.text_input("Intensidad percibida global:", value=parsed_header.get("intensity") or "")
+
+                        # Table editor for step data
+                        st.markdown("### 📊 Escalones del Test")
+                        st.info("Puedes modificar los valores directamente en la tabla si hay errores de lectura.")
+
+                        # Convert duration from seconds to minutes for display in editor
+                        for s in parsed_steps:
+                            if s.get("duration") is not None:
+                                try:
+                                    s["duration"] = round(float(s["duration"]) / 60.0, 2)
+                                except:
+                                    pass
+
+                        # Convert parsed steps list of dicts to DataFrame for st.data_editor
+                        df_steps_input = pd.DataFrame(parsed_steps)
+
+                        # Columns formatting
+                        columns_order = ["step_number", "pot_rel", "lactate", "watts", "heart_rate", "duration", "rpe"]
+                        for col in columns_order:
+                            if col not in df_steps_input.columns:
+                                df_steps_input[col] = None
+                        df_steps_input = df_steps_input[columns_order]
+
+                        # Rename columns to uppercase Spanish names for a premium look
+                        rename_dict = {
+                            "step_number": "NÚMERO DE PASO",
+                            "pot_rel": "POTENCIA RELATIVA (W/KG)",
+                            "lactate": "LACTATO (MMOL)",
+                            "watts": "POTENCIA (WATTS)",
+                            "heart_rate": "FRECUENCIA CARDÍACA (BPM)",
+                            "duration": "DURACIÓN (MINUTOS)",
+                            "rpe": "RPE (ESFUERZO)"
+                        }
+                        df_steps_input.rename(columns=rename_dict, inplace=True)
+
+                        # Show interactive data editor
+                        edited_df = st.data_editor(df_steps_input, use_container_width=True, num_rows="dynamic")
+
+                        # Map Spanish column names back to standard database keys for logic & storage
+                        reverse_rename_dict = {v: k for k, v in rename_dict.items()}
+                        edited_df_renamed = edited_df.rename(columns=reverse_rename_dict)
+
+                        # Recalculate thresholds based on edited table data
+                        edited_steps_list = edited_df_renamed.to_dict("records")
+
+                        # Convert duration from minutes back to seconds for DB storage
+                        for s in edited_steps_list:
+                            if s.get("duration") is not None:
+                                try:
+                                    s["duration"] = int(float(s["duration"]) * 60)
+                                except:
+                                    s["duration"] = None
+
+                        # Filter out rows with all None
+                        edited_steps_list = [s for s in edited_steps_list if s.get("step_number")]
+
+                        if edited_steps_list:
+                            # Suggested thresholds from logic
+                            sug_lt1, sug_lt2 = lactate_parser.estimate_thresholds(edited_steps_list)
+
+                            st.markdown("---")
+                            st.markdown("### 🎯 Definición de Umbrales (LT1 y LT2)")
+
+                            # Dropdowns of step options
+                            step_labels = [s.get("step_number") for s in edited_steps_list]
+
+                            sug_lt1_idx = step_labels.index(sug_lt1.get("step_number")) if sug_lt1 and sug_lt1.get("step_number") in step_labels else 0
+                            sug_lt2_idx = step_labels.index(sug_lt2.get("step_number")) if sug_lt2 and sug_lt2.get("step_number") in step_labels else len(step_labels)-1
+
+                            col_t1, col_t2 = st.columns(2)
+
+                            with col_t1:
+                                st.markdown("<h4 style='color: #FFD700;'>LT1 (Umbral Aeróbico)</h4>", unsafe_allow_html=True)
+                                selected_lt1_step = st.selectbox("Seleccionar Escalón LT1:", step_labels, index=sug_lt1_idx, key="sel_lt1")
+
+                                # Fetch values from selected step
+                                lt1_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt1_step), {})
+
+                                lt1_power = st.number_input("Potencia/Velocidad LT1:", value=float(lt1_step_data.get("watts") or 0.0), key="lt1_pow_input")
+                                lt1_hr = st.number_input("Pulso LT1 (bpm):", value=int(lt1_step_data.get("heart_rate") or 0), key="lt1_hr_input")
+                                lt1_lactate = st.number_input("Lactato LT1 (mmol/L):", value=float(lt1_step_data.get("lactate") or 0.0), step=0.1, key="lt1_lac_input")
+
+                            with col_t2:
+                                st.markdown("<h4 style='color: #FF3333;'>LT2 (Umbral Anaeróbico / FTP)</h4>", unsafe_allow_html=True)
+                                selected_lt2_step = st.selectbox("Seleccionar Escalón LT2:", step_labels, index=sug_lt2_idx, key="sel_lt2")
+
+                                # Fetch values from selected step
+                                lt2_step_data = next((s for s in edited_steps_list if s.get("step_number") == selected_lt2_step), {})
+
+                                lt2_power = st.number_input("Potencia/Velocidad LT2:", value=float(lt2_step_data.get("watts") or 0.0), key="lt2_pow_input")
+                                lt2_hr = st.number_input("Pulso LT2 (bpm):", value=int(lt2_step_data.get("heart_rate") or 0), key="lt2_hr_input")
+                                lt2_lactate = st.number_input("Lactato LT2 (mmol/L):", value=float(lt2_step_data.get("lactate") or 0.0), step=0.1, key="lt2_lac_input")
+
+                            st.markdown("---")
+
+                            if st.button("💾 Guardar Prueba de Lactato", type="primary"):
+                                session = SessionLocal()
+                                try:
+                                    # Verify member still exists
+                                    m = session.query(Member).filter(Member.name == selected_athlete).first()
+                                    if not m:
+                                        st.error("El deportista seleccionado no existe.")
+                                        session.close()
+                                        st.stop()
+
+                                    new_test = LactateTest(
+                                        member_id=m.id,
+                                        date=test_date,
+                                        sport=test_sport,
+                                        simulator=test_simulator,
+                                        lactate_meter=test_lactate_meter,
+                                        bike_or_shoes=test_bike_or_shoes,
+                                        power_source=test_power_source,
+                                        weight=test_weight,
+                                        ftp=test_ftp,
+                                        temperature=test_temperature,
+                                        ctl=test_ctl,
+                                        atl=test_atl,
+                                        tsb=test_tsb,
+                                        breakfast=test_breakfast,
+                                        duration=test_duration,
+                                        intensity=test_intensity,
+                                        last_training=test_last_training,
+
+                                        lt1_power=lt1_power,
+                                        lt1_hr=lt1_hr,
+                                        lt1_lactate=lt1_lactate,
+                                        lt2_power=lt2_power,
+                                        lt2_hr=lt2_hr,
+                                        lt2_lactate=lt2_lactate
+                                    )
+                                    session.add(new_test)
+                                    session.flush() # Populate new_test.id
+
+                                    # Add steps
+                                    for s in edited_steps_list:
+                                        new_step = LactateTestStep(
+                                            test_id=new_test.id,
+                                            step_number=s.get("step_number"),
+                                            pot_rel=lactate_parser.parse_float(s.get("pot_rel")),
+                                            lactate=lactate_parser.parse_float(s.get("lactate")),
+                                            watts=lactate_parser.parse_float(s.get("watts")),
+                                            heart_rate=lactate_parser.parse_int(s.get("heart_rate")),
+                                            duration=lactate_parser.parse_int(s.get("duration")),
+                                            rpe=lactate_parser.parse_float(s.get("rpe"))
+                                        )
+                                        session.add(new_step)
+
+                                    session.commit()
+                                    st.success(f"🎉 ¡La prueba del {test_date} para {selected_athlete} fue guardada exitosamente!")
+                                    st.balloons()
+                                    session.close()
+                                    # Rerun to refresh list
+                                    st.rerun()
+                                except Exception as save_err:
+                                    session.rollback()
+                                    st.error(f"Error al guardar la prueba de lactato: {save_err}")
+                                finally:
+                                    session.close()
+                    else:
+                        st.info("Pega datos tabulados o sube un archivo Excel para previsualizar los resultados del test.")
+
+            with tab_sleep:
+                if records:
+                    meses_es = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC"}
+                    def format_date_es(d):
+                        if isinstance(d, str):
+                            try: d = datetime.strptime(d.split()[0], "%Y-%m-%d")
+                            except: pass
+                        if hasattr(d, "month"): return f"{d.day} {meses_es[d.month]}"
+                        return str(d)
+
+                    df_history = pd.DataFrame([{
+                        "Fecha": format_date_es(r.date),
+                        "Score (SDS)": r.sds_score,
+                        "Categoría": r.clinical_category
+                    } for r in records])
+
+                    # Crear gráfico adaptado al CRM (Dark Mode)
+                    fig = px.line(
+                        df_history, x="Fecha", y="Score (SDS)", markers=True,
+                        color_discrete_sequence=["#00EEFF"] # Cyan alphaX color
+                    )
+                    fig.update_layout(title=dict(text=f"EVOLUCIÓN DE SUEÑO: {selected_athlete}", x=0.5, xanchor='center', font=dict(size=18, color="#00EEFF", weight="bold")))
+                    fig.update_traces(
+                        line=dict(width=3),
+                        marker=dict(symbol="circle", size=10, line=dict(width=2, color="#121212"))
+                    )
+                    fig.add_hrect(y0=-0.5, y1=4.5, fillcolor="rgba(0, 255, 0, 0.15)", line_width=0, annotation_text=" Óptimo (0-4)", annotation_font_color="#00FF00", annotation_position="inside left")
+                    fig.add_hrect(y0=4.5, y1=7.5, fillcolor="rgba(0, 150, 255, 0.15)", line_width=0, annotation_text=" Leve (5-7)", annotation_font_color="#33C1FF", annotation_position="inside left")
+                    fig.add_hrect(y0=7.5, y1=10.5, fillcolor="rgba(255, 165, 0, 0.15)", line_width=0, annotation_text=" Moderado (8-10)", annotation_font_color="#FFB347", annotation_position="inside left")
+                    fig.add_hrect(y0=10.5, y1=17.5, fillcolor="rgba(255, 0, 0, 0.15)", line_width=0, annotation_text=" Severo (11-17)", annotation_font_color="#FF4B4B", annotation_position="inside left")
+
+                    fig.update_layout(
+                        paper_bgcolor="#121212", 
+                        plot_bgcolor="#121212", 
+                        font_color="#FFFFFF",
+                        margin=dict(l=5, r=5, t=60, b=5),
+                        dragmode=False,
+                        yaxis=dict(range=[18, -1], title=dict(text="SCORE (SDS)", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=True, gridcolor="#333333", tickfont=dict(color="#FFFFFF"), ticks=""),
+                        xaxis=dict(title=dict(text="FECHA", font=dict(color="#00EEFF"), standoff=0), fixedrange=True, showgrid=False, tickfont=dict(color="#FFFFFF"), type="category", ticks="")
+                    )
+
+                    # Card styling for the chart
+                    st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.info(f"El atleta {selected_athlete} aún no tiene registros de sueño guardados.")
+            session.close()
+
+            # ── INTEGRACIÓN: Último Hemograma + Última Prueba de Lactato ──
+            if selected_athlete != "-- Seleccionar --":
+                session_int = SessionLocal()
+                m_int = session_int.query(Member).filter(Member.name == selected_athlete).first()
+                if m_int:
+                    from bloodwork_constants import ALL_MARKER_KEYS, get_bloodwork_ranges, classify_bloodwork_value
+                    ath_gender = getattr(m_int, "gender", None) or "Hombre"
+                    _BW_RANGES = get_bloodwork_ranges(ath_gender)
+
+                    with st.expander("🩸 Último Hemograma + 🧪 Última Prueba de Lactato", expanded=False):
+                        col_bw, col_lac = st.columns(2)
+
+                        with col_bw:
+                            st.markdown(f"**🩸 Último Hemograma** <span style='font-size:0.8rem; color:#00EEFF;'>({ath_gender})</span>", unsafe_allow_html=True)
+                            try:
+                                last_bw = session_int.query(BloodworkRecord).filter(
+                                    BloodworkRecord.member_id == m_int.id
+                                ).order_by(BloodworkRecord.date.desc()).first()
+
+                                if last_bw:
+                                    bw_date_str = last_bw.date.strftime("%d/%m/%Y") if last_bw.date else "—"
+                                    bw_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem; max-height:340px; overflow-y:auto;">'
+                                    bw_html += f'<span style="color:#00EEFF; font-weight:bold;">📅 {bw_date_str}</span><br>'
+                                    for key in ALL_MARKER_KEYS:
+                                        val = getattr(last_bw, key, None)
+                                        if val is not None:
+                                            label, color = classify_bloodwork_value(key, val, ath_gender)
+                                            val_str = f"{val:.1f}" if isinstance(val, (int, float)) else str(val)
+                                            bw_html += f'<span style="color:{color};">●</span> <span style="color:#aaa;">{_BW_RANGES[key]["name"]}:</span> <span style="color:#fff; font-weight:bold;">{val_str}</span> <span style="color:#666; font-size:0.75rem;">{_BW_RANGES[key]["unit"]}</span> <span style="color:{color}; font-size:0.7rem; font-weight:bold;">[{label}]</span><br>'
+                                    bw_html += '</div>'
+                                    st.markdown(bw_html, unsafe_allow_html=True)
+                                else:
+                                    st.caption("Sin hemogramas registrados.")
+                            except Exception:
+                                st.caption("Sin datos de hemograma.")
+
+                        with col_lac:
+                            st.markdown("**🧪 Última Prueba de Lactato**")
+                            try:
+                                last_lac = session_int.query(LactateTest).filter(
+                                    LactateTest.member_id == m_int.id
+                                ).order_by(LactateTest.date.desc()).first()
+
+                                if last_lac:
+                                    lac_date_str = last_lac.date.strftime("%d/%m/%Y") if last_lac.date else "—"
+                                    lac_html = f'<div style="background:#161625; border:1px solid #00EEFF33; border-radius:8px; padding:12px; font-size:0.85rem;">'
+                                    lac_html += f'<span style="color:#00EEFF; font-weight:bold;">📅 {lac_date_str} — {last_lac.sport or ""}</span><br>'
+                                    if last_lac.lt1_power:
+                                        lac_html += f'<span style="color:#FFD700;">LT1:</span> <span style="color:#fff; font-weight:bold;">{last_lac.lt1_power:.0f} W</span>'
+                                        if last_lac.lt1_hr:
+                                            lac_html += f' · <span style="color:#FF3366;">{last_lac.lt1_hr} lpm</span>'
+                                        if last_lac.lt1_lactate:
+                                            lac_html += f' · <span style="color:#00EEFF;">{last_lac.lt1_lactate:.1f} mmol</span>'
+                                        lac_html += '<br>'
+                                    if last_lac.lt2_power:
+                                        lac_html += f'<span style="color:#FF3333;">LT2:</span> <span style="color:#fff; font-weight:bold;">{last_lac.lt2_power:.0f} W</span>'
+                                        if last_lac.lt2_hr:
+                                            lac_html += f' · <span style="color:#FF3366;">{last_lac.lt2_hr} lpm</span>'
+                                        if last_lac.lt2_lactate:
+                                            lac_html += f' · <span style="color:#00EEFF;">{last_lac.lt2_lactate:.1f} mmol</span>'
+                                        lac_html += '<br>'
+                                    if last_lac.weight:
+                                        lac_html += f'<span style="color:#aaa;">Peso:</span> <span style="color:#fff;">{last_lac.weight:.1f} kg</span><br>'
+                                    lac_html += '</div>'
+                                    st.markdown(lac_html, unsafe_allow_html=True)
+                                else:
+                                    st.caption("Sin pruebas de lactato registradas.")
+                            except Exception:
+                                st.caption("Sin datos de lactato.")
+                session_int.close()
+
+                session.close()
 
 elif page == "Wolfy AI Coach":
     session = SessionLocal()
