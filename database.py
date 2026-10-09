@@ -239,46 +239,51 @@ def set_club_setting(key: str, value: str) -> bool:
         print(f"Error saving club setting {key}: {e}")
         return False
 
+_db_initialized = False
+
 def init_db():
+    global _db_initialized
+    if _db_initialized:
+        return
     Base.metadata.create_all(bind=engine)
     try:
         from sqlalchemy import text
         is_sqlite = "sqlite" in str(engine.url)
         
-        # Migración de género en tabla members
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            # Migración de género en tabla members
+            try:
                 if is_sqlite:
                     conn.execute(text("ALTER TABLE members ADD COLUMN gender VARCHAR DEFAULT 'Hombre';"))
                 else:
                     conn.execute(text("ALTER TABLE members ADD COLUMN IF NOT EXISTS gender VARCHAR DEFAULT 'Hombre';"))
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        # Migración de marcadores en tabla bloodwork_records
-        cols_to_add = [
-            ("ck", "FLOAT"),
-            ("vitamin_b12", "FLOAT"),
-            ("folic_acid", "FLOAT"),
-            ("total_cholesterol", "FLOAT"),
-            ("hdl", "FLOAT"),
-            ("ldl", "FLOAT"),
-            ("triglycerides", "FLOAT"),
-            ("glucose", "FLOAT"),
-            ("hba1c", "FLOAT"),
-            ("pcr_us", "FLOAT"),
-        ]
-        for col_name, col_type in cols_to_add:
-            try:
-                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            # Migración de marcadores en tabla bloodwork_records
+            cols_to_add = [
+                ("ck", "FLOAT"),
+                ("vitamin_b12", "FLOAT"),
+                ("folic_acid", "FLOAT"),
+                ("total_cholesterol", "FLOAT"),
+                ("hdl", "FLOAT"),
+                ("ldl", "FLOAT"),
+                ("triglycerides", "FLOAT"),
+                ("glucose", "FLOAT"),
+                ("hba1c", "FLOAT"),
+                ("pcr_us", "FLOAT"),
+            ]
+            for col_name, col_type in cols_to_add:
+                try:
                     if is_sqlite:
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN {col_name} {col_type};"))
                     else:
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-            except Exception:
-                pass
+                except Exception:
+                    pass
     except Exception:
         pass
+    _db_initialized = True
 
     
 def get_db():

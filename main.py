@@ -188,8 +188,23 @@ try:
 except AttributeError:
     st.markdown(css_styles, unsafe_allow_html=True)
 
-# Inicializar DB
-init_db()
+# Inicializar DB (con cache para máxima velocidad en recargas y navegación)
+@st.cache_resource(show_spinner=False)
+def ensure_db_ready():
+    init_db()
+    return True
+
+ensure_db_ready()
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_cached_active_member_names():
+    s = SessionLocal()
+    try:
+        return [m[0] for m in s.query(Member.name).filter(Member.active == True).order_by(Member.name).all()]
+    except Exception:
+        return []
+    finally:
+        s.close()
 
 import urllib.parse
 
@@ -254,12 +269,7 @@ def render_athlete_links_box(athletes_names=None, title="📲 Enlaces App de Atl
             st.caption("Genera un link específico para que un deportista ingrese directamente a su perfil sin clave:")
             
             if not athletes_names:
-                try:
-                    s_db = SessionLocal()
-                    athletes_names = [m.name for m in s_db.query(Member).filter(Member.active == True).order_by(Member.name).all()]
-                    s_db.close()
-                except Exception:
-                    athletes_names = []
+                athletes_names = get_cached_active_member_names()
                     
             sel_ath = st.selectbox("Seleccionar Deportista:", ["-- Seleccionar --"] + (athletes_names or []), key=f"{key_prefix}_sel_ath")
             if sel_ath != "-- Seleccionar --":
@@ -947,57 +957,78 @@ elif page == "Novedades/Pagos":
     
     col1, col2 = st.columns(2)
     
+    months_list = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
+                   "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
+    
+    members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
+    member_names = ["+ Agregar Nuevo Socio..."] + [m.name for m in members]
+    
     with col1:
-        members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
-        member_names = ["+ Agregar Nuevo Socio..."] + [m.name for m in members]
         selected_member_ui = st.selectbox("Seleccionar Socio", member_names)
         
         new_member_group = None
-        new_member_start_month = "ENERO" # Default
+        new_member_start_month = "ENERO"
+        mem_obj_temp = None
+        last_amount = None
+        paid_months = []
+        member_start_idx = 0
+        
         if selected_member_ui == "+ Agregar Nuevo Socio...":
             final_member_name = st.text_input("Escribe el nombre del nuevo deportista:").strip().upper()
             new_member_group = st.selectbox("Grupo al que ingresa:", ["Carlos", "Aprendizaje"])
-            new_member_start_month = st.selectbox("Mes de Inicio (Inscripción):", ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"])
+            new_member_start_month = st.selectbox("Mes de Inicio (Inscripción):", months_list)
+            if new_member_start_month in months_list:
+                member_start_idx = months_list.index(new_member_start_month)
         else:
             final_member_name = selected_member_ui
+            mem_obj_temp = next((m for m in members if m.name == final_member_name), None)
+            if mem_obj_temp:
+                # Buscar el último pago registrado con monto > 0 (tarifa real que pagó el mes anterior)
+                last_tx = (
+                    session.query(Transaction)
+                    .filter(
+                        Transaction.member_id == mem_obj_temp.id,
+                        Transaction.status == 'PAID',
+                        Transaction.amount > 0
+                    )
+                    .order_by(Transaction.id.desc())
+                    .first()
+                )
+                if last_tx and last_tx.amount:
+                    last_amount = int(last_tx.amount)
+                    
+                m_start = getattr(mem_obj_temp, 'start_month', 'ENERO')
+                if m_start in months_list:
+                    member_start_idx = months_list.index(m_start)
+                    
+                paid_txs = (
+                    session.query(Transaction.month)
+                    .filter(
+                        Transaction.member_id == mem_obj_temp.id,
+                        Transaction.year == 2026,
+                        Transaction.status == 'PAID'
+                    )
+                    .all()
+                )
+                paid_months = [m[0] for m in paid_txs]
     
     with col2:
-        tarifas = [300000, 315000, 350000, 400000, 405000, 450000, 530000, 1000000, 1320000, 1500000, 1900000, 2280000, 2600000, 3600000, 5000000, 5500000, "Otro Monto..."]
-        amount_sel = st.selectbox("Monto", tarifas, format_func=lambda x: f"${x:,.0f}" if isinstance(x, int) else x)
-        if amount_sel == "Otro Monto...":
-            amount = st.number_input("Monto Manual", min_value=0, step=1000, value=150000)
+        ath_key = str(mem_obj_temp.id) if mem_obj_temp else "nuevo"
+        if last_amount is not None:
+            opcion_anterior = f"${last_amount:,.0f} (Monto Mes Anterior)"
+            opciones_monto = [opcion_anterior, "Otro Monto..."]
+            amount_sel = st.selectbox("Monto", opciones_monto, key=f"sel_monto_{ath_key}")
+            if amount_sel == "Otro Monto...":
+                amount = st.number_input("Monto Manual ($)", min_value=0, step=1000, value=0, key=f"num_monto_{ath_key}")
+            else:
+                amount = last_amount
         else:
-            amount = amount_sel
+            opciones_monto = ["Otro Monto..."]
+            st.selectbox("Monto", opciones_monto, key=f"sel_monto_{ath_key}")
+            amount = st.number_input("Monto Manual ($)", min_value=0, step=1000, value=0, key=f"num_monto_{ath_key}")
     
     col3, col4 = st.columns(2)
     with col3:
-        # Month List for Indexing
-        months_list = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", 
-                       "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"]
-        
-        # Filter logic to prevent duplicate month entries AND enforce start month
-        paid_months = []
-        member_start_idx = 0
-        if final_member_name and selected_member_ui != "+ Agregar Nuevo Socio...":
-            try:
-                mem_obj_temp = session.query(Member).filter(Member.name == final_member_name).first()
-                if mem_obj_temp:
-                    # Enforce start month
-                    m_start = getattr(mem_obj_temp, 'start_month', 'ENERO')
-                    if m_start in months_list:
-                        member_start_idx = months_list.index(m_start)
-                        
-                    paid_txs = session.query(Transaction.month).filter(
-                        Transaction.member_id == mem_obj_temp.id,
-                        Transaction.year == 2026, # Current operational year
-                        Transaction.status == 'PAID'
-                    ).all()
-                    paid_months = [m[0] for m in paid_txs]
-            except Exception:
-                pass # Safe fallback
-        elif final_member_name:
-            member_start_idx = months_list.index(new_member_start_month) if new_member_start_month in months_list else 0
-        
         valid_months = months_list[member_start_idx:]
         available_months = [m for m in valid_months if m not in paid_months]
         
@@ -1020,8 +1051,16 @@ elif page == "Novedades/Pagos":
         received_by = st.selectbox("Cuenta Destino (Ingresó a)", ["Carlos"])
         
     if st.button("Registrar Transacción", type="primary"):
-        if final_member_name and start_month:
-            mem_obj = session.query(Member).filter(Member.name == final_member_name).first()
+        if not final_member_name:
+            st.error("Por favor selecciona o ingresa el nombre del socio.")
+        elif not start_month:
+            st.error("No hay meses disponibles para registrar el pago.")
+        elif amount <= 0 and status == 'PAID':
+            st.warning("⚠️ Ingresa un valor en 'Monto Manual' mayor a $0 (actualmente está en $0).")
+        else:
+            mem_obj = mem_obj_temp
+            if not mem_obj:
+                mem_obj = session.query(Member).filter(Member.name == final_member_name).first()
             if not mem_obj:
                 mem_obj = Member(name=final_member_name, group=new_member_group, active=True, phone="", start_month=new_member_start_month)
                 session.add(mem_obj)
@@ -1064,10 +1103,15 @@ elif page == "Novedades/Pagos":
                 session.add(new_tx)
             
             session.commit()
+            st.cache_data.clear() # Invalida cache para que se actualicen Dashboard y Socios
             if duration > 1:
                 st.success(f"¡Paquete registrado! Se crearon {duration} pagos (Mes 1: ${amount:,.0f}, Resto: $0 cubierto).")
             else:
                 st.success("Pago registrado exitosamente!")
+            import time
+            time.sleep(0.5)
+            session.close()
+            st.rerun()
             
     # --- HISTORIAL Y ANULACIÓN ---
     st.markdown("---")
