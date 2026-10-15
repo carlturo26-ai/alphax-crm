@@ -1562,8 +1562,8 @@ else:
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#FFFFFF", size=10), bgcolor="rgba(15, 19, 30, 0.7)")
                             )
                             fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#8E9BAE"), tickfont=dict(color="#FFFFFF"), fixedrange=True)
-                            fig.update_yaxes(title_text="Lactato (mmol/L)", range=[0, 20], secondary_y=False, gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#00EEFF"), tickfont=dict(color="#00EEFF"), fixedrange=True)
-                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", range=[40, 210], secondary_y=True, showgrid=False, title_font=dict(color="#FF3366"), tickfont=dict(color="#FF3366"), fixedrange=True)
+                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#00EEFF"), tickfont=dict(color="#00EEFF"), fixedrange=True)
+                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#FF3366"), tickfont=dict(color="#FF3366"), fixedrange=True)
                             
                             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:

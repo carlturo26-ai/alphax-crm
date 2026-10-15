@@ -2323,7 +2323,6 @@ elif page == "Analíticas AlphaX":
                                         gridcolor="#333333", 
                                         showgrid=True,
                                         tickfont=dict(color="#00EEFF"),
-                                        range=[0, 20],
                                         fixedrange=True
                                     ),
                                     yaxis2=dict(
@@ -2333,7 +2332,6 @@ elif page == "Analíticas AlphaX":
                                         ),
                                         showgrid=False,
                                         tickfont=dict(color="#FF3366"),
-                                        range=[40, 210],
                                         overlaying="y",
                                         side="right",
                                         fixedrange=True
