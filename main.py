@@ -2135,17 +2135,20 @@ elif page == "Analíticas AlphaX":
                                     t = session.query(LactateTest).filter(LactateTest.id == t_id).first()
                                     steps = session.query(LactateTestStep).filter(LactateTestStep.test_id == t_id).order_by(LactateTestStep.id).all()
 
+                                    ignored_keywords = {"v4", "lt1", "lt2", "fatmax", "anaerobica", "anaeróbica", "aerobica", "aeróbica", "umbral"}
+                                    valid_steps = [s for s in steps if str(s.step_number or "").strip().lower() not in ignored_keywords]
+
                                     df_steps = pd.DataFrame([{
                                         "step_number": s.step_number,
                                         "pot_rel": s.pot_rel or 0.0,
-                                        "lactate": s.lactate,
-                                        "watts": s.watts or 0.0,
+                                        "lactate": s.lactate if (s.lactate is not None and s.lactate <= 35.0) else None,
+                                        "watts": s.watts if s.watts is not None else (0.0 if "reposo" in str(s.step_number or "").lower() else None),
                                         "heart_rate": s.heart_rate
-                                    } for s in steps])
+                                    } for s in valid_steps])
 
-                                    # Filter None for plotting
-                                    df_plot = df_steps.dropna(subset=["lactate"])
-                                    df_hr_plot = df_steps.dropna(subset=["heart_rate"])
+                                    # Filter None for plotting and ensure sorted by intensity/watts
+                                    df_plot = df_steps.dropna(subset=["lactate", "watts"]).sort_values("watts")
+                                    df_hr_plot = df_steps.dropna(subset=["heart_rate", "watts"]).sort_values("watts")
 
                                     lac_color = lac_colors[idx % len(lac_colors)]
                                     hr_color = hr_colors[idx % len(hr_colors)]
