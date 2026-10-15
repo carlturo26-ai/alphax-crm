@@ -2381,6 +2381,181 @@ elif page == "Analíticas AlphaX":
                             st.plotly_chart(fig_evo_p, use_container_width=True)
                         with col_evo2:
                             st.plotly_chart(fig_evo_hr, use_container_width=True)
+
+                        # 3. Editar o Corregir Prueba
+                        st.markdown("---")
+                        with st.expander("✏️ Editar o Corregir una Prueba Existente", expanded=False):
+                            edit_test_map = {f"{t.date.strftime('%d/%m/%Y')} - {t.sport} (ID: {t.id})": t.id for t in tests}
+                            sel_edit_label = st.selectbox("Selecciona la prueba a editar:", list(edit_test_map.keys()), key="lac_edit_sel")
+                            selected_test_id = edit_test_map[sel_edit_label]
+
+                            s_edit = SessionLocal()
+                            try:
+                                t_to_edit = s_edit.query(LactateTest).filter(LactateTest.id == selected_test_id).first()
+                                steps_to_edit = s_edit.query(LactateTestStep).filter(LactateTestStep.test_id == selected_test_id).order_by(LactateTestStep.id).all()
+
+                                if t_to_edit:
+                                    st.markdown("##### 📋 Cabecera / Metadatos de la Prueba")
+                                    ec1, ec2, ec3 = st.columns(3)
+                                    with ec1:
+                                        ed_date = st.date_input("Fecha:", value=t_to_edit.date or datetime.now().date(), key=f"ed_date_{selected_test_id}")
+                                        sport_opts = ["Ciclismo", "Running"]
+                                        curr_sport_idx = sport_opts.index(t_to_edit.sport) if t_to_edit.sport in sport_opts else 0
+                                        ed_sport = st.selectbox("Deporte:", sport_opts, index=curr_sport_idx, key=f"ed_sport_{selected_test_id}")
+                                        ed_weight = st.number_input("Peso (kg):", value=float(t_to_edit.weight or 0.0), step=0.1, key=f"ed_weight_{selected_test_id}")
+                                        ed_ftp = st.number_input("FTP o Umbral CP (W):", value=float(t_to_edit.ftp or 0.0), step=5.0, key=f"ed_ftp_{selected_test_id}")
+                                        ed_temp = st.number_input("Temperatura (°C):", value=float(t_to_edit.temperature or 18.0), step=1.0, key=f"ed_temp_{selected_test_id}")
+
+                                    with ec2:
+                                        ed_ctl = st.number_input("CTL (Fitness):", value=float(t_to_edit.ctl or 0.0), step=1.0, key=f"ed_ctl_{selected_test_id}")
+                                        ed_atl = st.number_input("ATL (Fatiga):", value=float(t_to_edit.atl or 0.0), step=1.0, key=f"ed_atl_{selected_test_id}")
+                                        ed_tsb = st.number_input("TSB (Forma):", value=float(t_to_edit.tsb or 0.0), step=1.0, key=f"ed_tsb_{selected_test_id}")
+                                        ed_breakfast = st.text_input("Desayuno / Ingesta previa:", value=t_to_edit.breakfast or "", key=f"ed_bk_{selected_test_id}")
+                                        ed_duration = st.text_input("Duración total / protocolo:", value=t_to_edit.duration or "", key=f"ed_dur_{selected_test_id}")
+                                        ed_intensity = st.text_input("Intensidad percibida:", value=t_to_edit.intensity or "", key=f"ed_int_{selected_test_id}")
+
+                                    with ec3:
+                                        ed_sim = st.text_input("Rodillo / Simulador:", value=t_to_edit.simulator or "", key=f"ed_sim_{selected_test_id}")
+                                        ed_meter = st.text_input("Lactímetro usado:", value=t_to_edit.lactate_meter or "", key=f"ed_meter_{selected_test_id}")
+                                        ed_shoes = st.text_input("Bici o Zapatillas:", value=t_to_edit.bike_or_shoes or "", key=f"ed_shoes_{selected_test_id}")
+                                        ed_power_src = st.text_input("Fuente de Potencia / Sensor:", value=t_to_edit.power_source or "", key=f"ed_psrc_{selected_test_id}")
+                                        ed_last_tr = st.text_input("Último entrenamiento previo:", value=t_to_edit.last_training or "", key=f"ed_ltr_{selected_test_id}")
+
+                                    st.markdown("---")
+                                    st.markdown("##### 🪜 Escalones del Test (Valores por Fase)")
+                                    st.caption("Puedes modificar directamente cualquier valor de la tabla o agregar nuevos escalones.")
+
+                                    steps_raw_data = []
+                                    for s in steps_to_edit:
+                                        dur_min = round(s.duration / 60.0, 2) if s.duration is not None else None
+                                        steps_raw_data.append({
+                                            "NÚMERO DE PASO": s.step_number or "",
+                                            "POTENCIA RELATIVA (W/KG)": float(s.pot_rel) if s.pot_rel is not None else None,
+                                            "LACTATO (MMOL)": float(s.lactate) if s.lactate is not None else None,
+                                            "POTENCIA (WATTS)": float(s.watts) if s.watts is not None else None,
+                                            "FRECUENCIA CARDÍACA (BPM)": int(s.heart_rate) if s.heart_rate is not None else None,
+                                            "DURACIÓN (MINUTOS)": dur_min,
+                                            "RPE (ESFUERZO)": float(s.rpe) if s.rpe is not None else None
+                                        })
+
+                                    df_steps_edit = pd.DataFrame(steps_raw_data)
+                                    edited_steps_grid = st.data_editor(
+                                        df_steps_edit,
+                                        use_container_width=True,
+                                        num_rows="dynamic",
+                                        key=f"grid_edit_{selected_test_id}"
+                                    )
+
+                                    st.markdown("---")
+                                    st.markdown("##### 🎯 Definición de Umbrales (LT1 y LT2)")
+                                    col_ut1, col_ut2 = st.columns(2)
+                                    with col_ut1:
+                                        st.markdown("<h5 style='color: #FFD700;'>LT1 (Umbral Aeróbico)</h5>", unsafe_allow_html=True)
+                                        ed_lt1_p = st.number_input("Potencia / Velocidad LT1:", value=float(t_to_edit.lt1_power or 0.0), key=f"ed_lt1_p_{selected_test_id}")
+                                        ed_lt1_hr = st.number_input("Pulso LT1 (bpm):", value=int(t_to_edit.lt1_hr or 0), key=f"ed_lt1_hr_{selected_test_id}")
+                                        ed_lt1_lac = st.number_input("Lactato LT1 (mmol/L):", value=float(t_to_edit.lt1_lactate or 0.0), step=0.1, key=f"ed_lt1_lac_{selected_test_id}")
+
+                                    with col_ut2:
+                                        st.markdown("<h5 style='color: #FF3333;'>LT2 (Umbral Anaeróbico / FTP)</h5>", unsafe_allow_html=True)
+                                        ed_lt2_p = st.number_input("Potencia / Velocidad LT2:", value=float(t_to_edit.lt2_power or 0.0), key=f"ed_lt2_p_{selected_test_id}")
+                                        ed_lt2_hr = st.number_input("Pulso LT2 (bpm):", value=int(t_to_edit.lt2_hr or 0), key=f"ed_lt2_hr_{selected_test_id}")
+                                        ed_lt2_lac = st.number_input("Lactato LT2 (mmol/L):", value=float(t_to_edit.lt2_lactate or 0.0), step=0.1, key=f"ed_lt2_lac_{selected_test_id}")
+
+                                    st.markdown("---")
+                                    if st.button("💾 Guardar Cambios en la Prueba", type="primary", key=f"btn_save_lac_{selected_test_id}"):
+                                        try:
+                                            t_to_edit.date = ed_date
+                                            t_to_edit.sport = ed_sport
+                                            t_to_edit.weight = ed_weight
+                                            t_to_edit.ftp = ed_ftp
+                                            t_to_edit.temperature = ed_temp
+                                            t_to_edit.ctl = ed_ctl
+                                            t_to_edit.atl = ed_atl
+                                            t_to_edit.tsb = ed_tsb
+                                            t_to_edit.breakfast = ed_breakfast if ed_breakfast else None
+                                            t_to_edit.duration = ed_duration if ed_duration else None
+                                            t_to_edit.intensity = ed_intensity if ed_intensity else None
+                                            t_to_edit.simulator = ed_sim if ed_sim else None
+                                            t_to_edit.lactate_meter = ed_meter if ed_meter else None
+                                            t_to_edit.bike_or_shoes = ed_shoes if ed_shoes else None
+                                            t_to_edit.power_source = ed_power_src if ed_power_src else None
+                                            t_to_edit.last_training = ed_last_tr if ed_last_tr else None
+
+                                            t_to_edit.lt1_power = ed_lt1_p
+                                            t_to_edit.lt1_hr = ed_lt1_hr
+                                            t_to_edit.lt1_lactate = ed_lt1_lac
+                                            t_to_edit.lt2_power = ed_lt2_p
+                                            t_to_edit.lt2_hr = ed_lt2_hr
+                                            t_to_edit.lt2_lactate = ed_lt2_lac
+
+                                            # Recreate steps from edited table
+                                            s_edit.query(LactateTestStep).filter(LactateTestStep.test_id == selected_test_id).delete()
+                                            s_edit.flush()
+
+                                            for _, row in edited_steps_grid.iterrows():
+                                                step_num = str(row.get("NÚMERO DE PASO") or "").strip()
+                                                if not step_num:
+                                                    continue
+                                                dur_sec = None
+                                                if row.get("DURACIÓN (MINUTOS)") is not None and not pd.isna(row.get("DURACIÓN (MINUTOS)")):
+                                                    try:
+                                                        dur_sec = int(float(row.get("DURACIÓN (MINUTOS)")) * 60)
+                                                    except:
+                                                        pass
+                                                
+                                                def _clean_num(val, is_int=False):
+                                                    if val is None or pd.isna(val):
+                                                        return None
+                                                    try:
+                                                        return int(val) if is_int else float(val)
+                                                    except:
+                                                        return None
+
+                                                new_step = LactateTestStep(
+                                                    test_id=selected_test_id,
+                                                    step_number=step_num,
+                                                    pot_rel=_clean_num(row.get("POTENCIA RELATIVA (W/KG)")),
+                                                    lactate=_clean_num(row.get("LACTATO (MMOL)")),
+                                                    watts=_clean_num(row.get("POTENCIA (WATTS)")),
+                                                    heart_rate=_clean_num(row.get("FRECUENCIA CARDÍACA (BPM)"), is_int=True),
+                                                    duration=dur_sec,
+                                                    rpe=_clean_num(row.get("RPE (ESFUERZO)"))
+                                                )
+                                                s_edit.add(new_step)
+
+                                            s_edit.commit()
+                                            st.success("🎉 ¡Prueba de lactato actualizada exitosamente!")
+                                            st.rerun()
+                                        except Exception as err_save:
+                                            s_edit.rollback()
+                                            st.error(f"Error al guardar cambios: {err_save}")
+                            finally:
+                                s_edit.close()
+
+                        # 4. Eliminar Prueba
+                        with st.expander("🗑️ Eliminar una Prueba de Lactato", expanded=False):
+                            del_test_map = {f"{t.date.strftime('%d/%m/%Y')} - {t.sport} (ID: {t.id})": t.id for t in tests}
+                            sel_del_label = st.selectbox("Selecciona la prueba que deseas eliminar:", list(del_test_map.keys()), key="lac_del_sel")
+                            selected_del_id = del_test_map[sel_del_label]
+
+                            col_d1, col_d2 = st.columns([1, 2])
+                            with col_d1:
+                                confirm_del = st.checkbox("Confirmo la eliminación definitiva", key=f"lac_confirm_del_{selected_del_id}")
+                                if st.button("🗑️ Eliminar Prueba Definitivamente", type="primary", key=f"lac_btn_del_{selected_del_id}", disabled=not confirm_del):
+                                    s_del = SessionLocal()
+                                    try:
+                                        t_del = s_del.query(LactateTest).filter(LactateTest.id == selected_del_id).first()
+                                        if t_del:
+                                            s_del.query(LactateTestStep).filter(LactateTestStep.test_id == selected_del_id).delete()
+                                            s_del.delete(t_del)
+                                            s_del.commit()
+                                            st.success("✅ Prueba de lactato eliminada correctamente.")
+                                            st.rerun()
+                                    except Exception as del_err:
+                                        s_del.rollback()
+                                        st.error(f"Error al eliminar la prueba: {del_err}")
+                                    finally:
+                                        s_del.close()
                     else:
                         st.info("Este atleta aún no tiene pruebas de lactato registradas. Ve a la pestaña 'Registrar Nueva Prueba' para cargar una.")
 
@@ -2629,7 +2804,17 @@ elif page == "Analíticas AlphaX":
                         st.info("Pega datos tabulados o sube un archivo Excel para previsualizar los resultados del test.")
 
             with tab_sleep:
-                if records:
+                session_sleep = SessionLocal()
+                try:
+                    sleep_records = session_sleep.query(SleepRecord).filter(
+                        SleepRecord.member_id == member_obj.id
+                    ).order_by(SleepRecord.date.asc()).all()
+                except Exception as e:
+                    sleep_records = []
+                finally:
+                    session_sleep.close()
+
+                if sleep_records:
                     meses_es = {1: "ENE", 2: "FEB", 3: "MAR", 4: "ABR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AGO", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DIC"}
                     def format_date_es(d):
                         if isinstance(d, str):
@@ -2642,7 +2827,7 @@ elif page == "Analíticas AlphaX":
                         "Fecha": format_date_es(r.date),
                         "Score (SDS)": r.sds_score,
                         "Categoría": r.clinical_category
-                    } for r in records])
+                    } for r in sleep_records])
 
                     # Crear gráfico adaptado al CRM (Dark Mode)
                     fig = px.line(
@@ -2675,7 +2860,6 @@ elif page == "Analíticas AlphaX":
                     st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info(f"El atleta {selected_athlete} aún no tiene registros de sueño guardados.")
-            session.close()
 
             # ── INTEGRACIÓN: Último Hemograma + Última Prueba de Lactato ──
             if selected_athlete != "-- Seleccionar --":
