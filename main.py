@@ -2185,97 +2185,111 @@ elif page == "Analíticas AlphaX":
                                         secondary_y=True
                                     )
 
-                                    # Add threshold lines & annotations if only 1 test is selected
-                                    if len(selected_ids) == 1:
-                                        if t.lt1_power:
-                                            # Vertical line
+                                    # Add horizontal yellow line at 4.0 mmol/L (V4 threshold)
+                                    fig.add_hline(
+                                        y=4.0, 
+                                        line_width=2, 
+                                        line_dash="dash", 
+                                        line_color="#FFD700", 
+                                        annotation_text="4.0 mmol/L (V4)", 
+                                        annotation_position="top left",
+                                        annotation_font=dict(color="#FFD700", size=11, weight="bold")
+                                    )
+
+                                    # Calculate intersection point with the lactate curve at 4.0 mmol/L
+                                    v4_power = None
+                                    v4_hr = None
+
+                                    lac_pts = df_plot.to_dict("records")
+                                    for i in range(len(lac_pts) - 1):
+                                        w1, l1 = lac_pts[i]["watts"], lac_pts[i]["lactate"]
+                                        w2, l2 = lac_pts[i+1]["watts"], lac_pts[i+1]["lactate"]
+                                        if (l1 <= 4.0 <= l2) or (l2 <= 4.0 <= l1):
+                                            if l2 != l1:
+                                                frac = (4.0 - l1) / (l2 - l1)
+                                                v4_power = w1 + frac * (w2 - w1)
+                                            else:
+                                                v4_power = w1
+                                            break
+
+                                    if v4_power is None and len(lac_pts) >= 1:
+                                        if t.lt2_power and (t.lt2_lactate is not None and abs(t.lt2_lactate - 4.0) < 0.6):
+                                            v4_power = t.lt2_power
+                                        elif abs(lac_pts[-1]["lactate"] - 4.0) < 0.4:
+                                            v4_power = lac_pts[-1]["watts"]
+
+                                    # Interpolate Heart Rate at v4_power
+                                    if v4_power is not None:
+                                        hr_pts = df_hr_plot.to_dict("records")
+                                        for i in range(len(hr_pts) - 1):
+                                            hw1, h1 = hr_pts[i]["watts"], hr_pts[i]["heart_rate"]
+                                            hw2, h2 = hr_pts[i+1]["watts"], hr_pts[i+1]["heart_rate"]
+                                            if (hw1 <= v4_power <= hw2) or (hw2 <= v4_power <= hw1):
+                                                if hw2 != hw1:
+                                                    h_frac = (v4_power - hw1) / (hw2 - hw1)
+                                                    v4_hr = h1 + h_frac * (h2 - h1)
+                                                else:
+                                                    v4_hr = h1
+                                                break
+                                        if v4_hr is None and t.lt2_hr:
+                                            v4_hr = float(t.lt2_hr)
+
+                                        # Highlight intersection on single test view
+                                        if len(selected_ids) == 1:
+                                            # Vertical guide line from intersection
                                             fig.add_vline(
-                                                x=t.lt1_power, 
-                                                line_width=1.5, 
-                                                line_dash="dot", 
-                                                line_color="#FFD700", 
-                                                annotation_text=f"LT1: {t.lt1_power:.0f} W", 
+                                                x=v4_power,
+                                                line_width=1.5,
+                                                line_dash="dot",
+                                                line_color="#FFD700",
+                                                annotation_text=f"V4: {v4_power:.0f} W",
                                                 annotation_position="top left",
                                                 annotation_font=dict(color="#FFD700", size=11, weight="bold")
                                             )
-                                            # Lactate point annotation
-                                            if t.lt1_lactate is not None:
-                                                fig.add_annotation(
-                                                    x=t.lt1_power,
-                                                    y=t.lt1_lactate,
-                                                    text=f"{t.lt1_lactate:.1f} mmol",
-                                                    showarrow=True,
-                                                    arrowhead=2,
-                                                    ax=0,
-                                                    ay=-35,
-                                                    font=dict(color="#00EEFF", size=11, weight="bold"),
-                                                    bordercolor="#FFD700",
-                                                    borderwidth=1,
-                                                    borderpad=4,
-                                                    bgcolor="#121212",
-                                                    xref="x",
-                                                    yref="y"
-                                                )
-                                            # Heart rate point annotation
-                                            if t.lt1_hr is not None:
-                                                fig.add_annotation(
-                                                    x=t.lt1_power,
-                                                    y=t.lt1_hr,
-                                                    text=f"{t.lt1_hr} lpm",
-                                                    showarrow=True,
-                                                    arrowhead=2,
-                                                    ax=0,
-                                                    ay=35,
-                                                    font=dict(color="#FF3366", size=11, weight="bold"),
-                                                    bordercolor="#FFD700",
-                                                    borderwidth=1,
-                                                    borderpad=4,
-                                                    bgcolor="#121212",
-                                                    xref="x",
-                                                    yref="y2"
-                                                )
 
-                                        if t.lt2_power:
-                                            # Vertical line
-                                            fig.add_vline(
-                                                x=t.lt2_power, 
-                                                line_width=1.5, 
-                                                line_dash="dot", 
-                                                line_color="#FF3333", 
-                                                annotation_text=f"LT2: {t.lt2_power:.0f} W", 
-                                                annotation_position="top left",
-                                                annotation_font=dict(color="#FF3333", size=11, weight="bold")
+                                            # Intersection point marker on lactate curve
+                                            fig.add_trace(
+                                                go.Scatter(
+                                                    x=[v4_power],
+                                                    y=[4.0],
+                                                    mode='markers',
+                                                    name='V4 (4 mmol)',
+                                                    marker=dict(size=13, color='#FFD700', symbol='diamond', line=dict(color='#000000', width=1.5)),
+                                                    showlegend=False
+                                                ),
+                                                secondary_y=False
                                             )
-                                            # Lactate point annotation
-                                            if t.lt2_lactate is not None:
+
+                                            # Lactate annotation at (v4_power, 4.0)
+                                            fig.add_annotation(
+                                                x=v4_power,
+                                                y=4.0,
+                                                text=f"<b>V4: {v4_power:.0f} W</b><br>4.0 mmol/L",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=-35,
+                                                font=dict(color="#FFD700", size=11, weight="bold"),
+                                                bordercolor="#FFD700",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                xref="x",
+                                                yref="y"
+                                            )
+
+                                            # Heart rate annotation at (v4_power, v4_hr)
+                                            if v4_hr is not None:
                                                 fig.add_annotation(
-                                                    x=t.lt2_power,
-                                                    y=t.lt2_lactate,
-                                                    text=f"{t.lt2_lactate:.1f} mmol",
-                                                    showarrow=True,
-                                                    arrowhead=2,
-                                                    ax=0,
-                                                    ay=-35,
-                                                    font=dict(color="#00EEFF", size=11, weight="bold"),
-                                                    bordercolor="#FF3333",
-                                                    borderwidth=1,
-                                                    borderpad=4,
-                                                    bgcolor="#121212",
-                                                    xref="x",
-                                                    yref="y"
-                                                )
-                                            # Heart rate point annotation
-                                            if t.lt2_hr is not None:
-                                                fig.add_annotation(
-                                                    x=t.lt2_power,
-                                                    y=t.lt2_hr,
-                                                    text=f"{t.lt2_hr} lpm",
+                                                    x=v4_power,
+                                                    y=v4_hr,
+                                                    text=f"<b>Pulso V4: {v4_hr:.0f} lpm</b>",
                                                     showarrow=True,
                                                     arrowhead=2,
                                                     ax=0,
                                                     ay=35,
                                                     font=dict(color="#FF3366", size=11, weight="bold"),
-                                                    bordercolor="#FF3333",
+                                                    bordercolor="#FF3366",
                                                     borderwidth=1,
                                                     borderpad=4,
                                                     bgcolor="#121212",
@@ -2309,6 +2323,7 @@ elif page == "Analíticas AlphaX":
                                         gridcolor="#333333", 
                                         showgrid=True,
                                         tickfont=dict(color="#00EEFF"),
+                                        range=[0, 20],
                                         fixedrange=True
                                     ),
                                     yaxis2=dict(
@@ -2318,6 +2333,7 @@ elif page == "Analíticas AlphaX":
                                         ),
                                         showgrid=False,
                                         tickfont=dict(color="#FF3366"),
+                                        range=[40, 210],
                                         overlaying="y",
                                         side="right",
                                         fixedrange=True

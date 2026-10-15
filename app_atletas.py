@@ -1398,16 +1398,19 @@ else:
                                 t = session.query(LactateTest).filter(LactateTest.id == t_id).first()
                                 steps = session.query(LactateTestStep).filter(LactateTestStep.test_id == t_id).order_by(LactateTestStep.id).all()
                                 
+                                ignored_keywords = {"v4", "lt1", "lt2", "fatmax", "anaerobica", "anaeróbica", "aerobica", "aeróbica", "umbral"}
+                                valid_steps = [s for s in steps if str(s.step_number or "").strip().lower() not in ignored_keywords]
+
                                 df_steps = pd.DataFrame([{
                                     "step_number": s.step_number,
                                     "pot_rel": s.pot_rel or 0.0,
-                                    "lactate": s.lactate,
-                                    "watts": s.watts or 0.0,
+                                    "lactate": s.lactate if (s.lactate is not None and s.lactate <= 35.0) else None,
+                                    "watts": s.watts if s.watts is not None else (0.0 if "reposo" in str(s.step_number or "").lower() else None),
                                     "heart_rate": s.heart_rate
-                                } for s in steps])
+                                } for s in valid_steps])
                                 
-                                df_plot = df_steps.dropna(subset=["lactate"])
-                                df_hr_plot = df_steps.dropna(subset=["heart_rate"])
+                                df_plot = df_steps.dropna(subset=["lactate", "watts"]).sort_values("watts")
+                                df_hr_plot = df_steps.dropna(subset=["heart_rate", "watts"]).sort_values("watts")
                                 
                                 lac_color = lac_colors[idx % len(lac_colors)]
                                 hr_color = hr_colors[idx % len(hr_colors)]
@@ -1441,19 +1444,112 @@ else:
                                     secondary_y=True
                                 )
                                 
-                                if len(selected_ids) == 1:
-                                    if t.lt1_power:
+                                # Add horizontal yellow line at 4.0 mmol/L (V4 threshold)
+                                fig.add_hline(
+                                    y=4.0, 
+                                    line_width=2, 
+                                    line_dash="dash", 
+                                    line_color="#FFD700", 
+                                    annotation_text="4.0 mmol/L (V4)", 
+                                    annotation_position="top left",
+                                    annotation_font=dict(color="#FFD700", size=11, weight="bold")
+                                )
+
+                                # Calculate intersection point with the lactate curve at 4.0 mmol/L
+                                v4_power = None
+                                v4_hr = None
+
+                                lac_pts = df_plot.to_dict("records")
+                                for i in range(len(lac_pts) - 1):
+                                    w1, l1 = lac_pts[i]["watts"], lac_pts[i]["lactate"]
+                                    w2, l2 = lac_pts[i+1]["watts"], lac_pts[i+1]["lactate"]
+                                    if (l1 <= 4.0 <= l2) or (l2 <= 4.0 <= l1):
+                                        if l2 != l1:
+                                            frac = (4.0 - l1) / (l2 - l1)
+                                            v4_power = w1 + frac * (w2 - w1)
+                                        else:
+                                            v4_power = w1
+                                        break
+
+                                if v4_power is None and len(lac_pts) >= 1:
+                                    if t.lt2_power and (t.lt2_lactate is not None and abs(t.lt2_lactate - 4.0) < 0.6):
+                                        v4_power = t.lt2_power
+                                    elif abs(lac_pts[-1]["lactate"] - 4.0) < 0.4:
+                                        v4_power = lac_pts[-1]["watts"]
+
+                                # Interpolate Heart Rate at v4_power
+                                if v4_power is not None:
+                                    hr_pts = df_hr_plot.to_dict("records")
+                                    for i in range(len(hr_pts) - 1):
+                                        hw1, h1 = hr_pts[i]["watts"], hr_pts[i]["heart_rate"]
+                                        hw2, h2 = hr_pts[i+1]["watts"], hr_pts[i+1]["heart_rate"]
+                                        if (hw1 <= v4_power <= hw2) or (hw2 <= v4_power <= hw1):
+                                            if hw2 != hw1:
+                                                h_frac = (v4_power - hw1) / (hw2 - hw1)
+                                                v4_hr = h1 + h_frac * (h2 - h1)
+                                            else:
+                                                v4_hr = h1
+                                            break
+                                    if v4_hr is None and t.lt2_hr:
+                                        v4_hr = float(t.lt2_hr)
+
+                                    if len(selected_ids) == 1:
                                         fig.add_vline(
-                                            x=t.lt1_power, line_width=1.5, line_dash="dot", line_color="#FFD700", 
-                                            annotation_text=f"LT1: {t.lt1_power:.0f} W", annotation_position="top left",
+                                            x=v4_power,
+                                            line_width=1.5,
+                                            line_dash="dot",
+                                            line_color="#FFD700",
+                                            annotation_text=f"V4: {v4_power:.0f} W",
+                                            annotation_position="top left",
                                             annotation_font=dict(color="#FFD700", size=11, weight="bold")
                                         )
-                                    if t.lt2_power:
-                                        fig.add_vline(
-                                            x=t.lt2_power, line_width=1.5, line_dash="dot", line_color="#FF3333", 
-                                            annotation_text=f"LT2: {t.lt2_power:.0f} W", annotation_position="top left",
-                                            annotation_font=dict(color="#FF3333", size=11, weight="bold")
+
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=[v4_power],
+                                                y=[4.0],
+                                                mode='markers',
+                                                name='V4 (4 mmol)',
+                                                marker=dict(size=13, color='#FFD700', symbol='diamond', line=dict(color='#000000', width=1.5)),
+                                                showlegend=False
+                                            ),
+                                            secondary_y=False
                                         )
+
+                                        fig.add_annotation(
+                                            x=v4_power,
+                                            y=4.0,
+                                            text=f"<b>V4: {v4_power:.0f} W</b><br>4.0 mmol/L",
+                                            showarrow=True,
+                                            arrowhead=2,
+                                            ax=0,
+                                            ay=-35,
+                                            font=dict(color="#FFD700", size=11, weight="bold"),
+                                            bordercolor="#FFD700",
+                                            borderwidth=1,
+                                            borderpad=4,
+                                            bgcolor="#121212",
+                                            xref="x",
+                                            yref="y"
+                                        )
+
+                                        if v4_hr is not None:
+                                            fig.add_annotation(
+                                                x=v4_power,
+                                                y=v4_hr,
+                                                text=f"<b>Pulso V4: {v4_hr:.0f} lpm</b>",
+                                                showarrow=True,
+                                                arrowhead=2,
+                                                ax=0,
+                                                ay=35,
+                                                font=dict(color="#FF3366", size=11, weight="bold"),
+                                                bordercolor="#FF3366",
+                                                borderwidth=1,
+                                                borderpad=4,
+                                                bgcolor="#121212",
+                                                xref="x",
+                                                yref="y2"
+                                            )
                                         
                             title_text = f"TEST DE LACTATO: {sport_str.upper()} - {date_str}" if len(selected_ids) == 1 else "COMPARACIÓN DE PRUEBAS DE LACTATO"
                             fig.update_layout(
@@ -1466,8 +1562,8 @@ else:
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#FFFFFF", size=10), bgcolor="rgba(15, 19, 30, 0.7)")
                             )
                             fig.update_xaxes(title_text="Potencia / Carga (Watts)", gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#8E9BAE"), tickfont=dict(color="#FFFFFF"), fixedrange=True)
-                            fig.update_yaxes(title_text="Lactato (mmol/L)", secondary_y=False, gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#00EEFF"), tickfont=dict(color="#00EEFF"), fixedrange=True)
-                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", secondary_y=True, showgrid=False, title_font=dict(color="#FF3366"), tickfont=dict(color="#FF3366"), fixedrange=True)
+                            fig.update_yaxes(title_text="Lactato (mmol/L)", range=[0, 20], secondary_y=False, gridcolor="rgba(255, 255, 255, 0.08)", title_font=dict(color="#00EEFF"), tickfont=dict(color="#00EEFF"), fixedrange=True)
+                            fig.update_yaxes(title_text="Frecuencia Cardíaca (lpm)", range=[40, 210], secondary_y=True, showgrid=False, title_font=dict(color="#FF3366"), tickfont=dict(color="#FF3366"), fixedrange=True)
                             
                             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                     else:
