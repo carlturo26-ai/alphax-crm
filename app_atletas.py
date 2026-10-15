@@ -1444,16 +1444,48 @@ else:
                                     secondary_y=True
                                 )
                                 
+                                # Cuando se comparan varias pruebas, rotular cada curva con su fecha en letra pequeña cerca de su pico máximo
+                                if len(selected_ids) > 1 and not df_plot.empty:
+                                    peak_row = df_plot.loc[df_plot["lactate"].idxmax()]
+                                    peak_watts = peak_row["watts"]
+                                    peak_lac = peak_row["lactate"]
+                                    formatted_date_str = t.date.strftime("%d/%m/%Y") if hasattr(t, "date") and t.date else date_str
+                                    
+                                    # Alternar desplazamiento para evitar solapes si coinciden picos
+                                    offset_y = -22 - ((idx % 3) * 14)
+                                    offset_x = 10 if (idx % 2 == 0) else -10
+
+                                    fig.add_annotation(
+                                        x=peak_watts,
+                                        y=peak_lac,
+                                        text=f"{formatted_date_str}",
+                                        showarrow=True,
+                                        arrowhead=1,
+                                        arrowsize=0.8,
+                                        arrowwidth=1,
+                                        arrowcolor=lac_color,
+                                        ax=offset_x,
+                                        ay=offset_y,
+                                        font=dict(color=lac_color, size=9, weight="bold"),
+                                        bgcolor="rgba(18, 18, 18, 0.85)",
+                                        bordercolor=lac_color,
+                                        borderwidth=1,
+                                        borderpad=2,
+                                        xref="x",
+                                        yref="y"
+                                    )
+
                                 # Add horizontal yellow line at 4.0 mmol/L (V4 threshold)
-                                fig.add_hline(
-                                    y=4.0, 
-                                    line_width=2, 
-                                    line_dash="dash", 
-                                    line_color="#FFD700", 
-                                    annotation_text="4.0 mmol/L (V4)", 
-                                    annotation_position="top left",
-                                    annotation_font=dict(color="#FFD700", size=11, weight="bold")
-                                )
+                                if idx == 0:
+                                    fig.add_hline(
+                                        y=4.0, 
+                                        line_width=2, 
+                                        line_dash="dash", 
+                                        line_color="#FFD700", 
+                                        annotation_text="4.0 mmol/L (V4)", 
+                                        annotation_position="top left",
+                                        annotation_font=dict(color="#FFD700", size=11, weight="bold")
+                                    )
 
                                 # Calculate intersection point with the lactate curve at 4.0 mmol/L
                                 v4_power = None
