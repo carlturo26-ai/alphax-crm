@@ -5,7 +5,7 @@ race_strategy_ui.py — Interfaz interactiva de Estrategias de Carrera en Ciclis
 
 import json
 import math
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from database import LactateTest, Member, RaceStrategyScenario, SessionLocal, init_db
+from weather_service import deg_to_compass, fetch_race_weather
 from race_strategy_engine import (
     APPAREL_OPTIONS,
     BIKE_TYPES,
@@ -471,10 +472,118 @@ def render_race_strategy_page():
             hydration = st.selectbox("Hidratación / Carga:", list(HYDRATION_SETUP.keys()), index=0 if "TT" in bike_type else 1, key="rs_hydration")
             surface = st.selectbox("Superficie del Asfalto:", list(ROAD_SURFACES.keys()), index=1, key="rs_surface")
 
-        # ── COL 2: CLIMA, VIENTO Y DENSIDAD DEL AIRE ────────────────
+        # ── COL 2: FECHA, HORA, CLIMA REAL/HISTÓRICO Y VIENTO ───────
         with col_cfg2:
-            st.markdown("#### 🌬️ Clima, Viento y Altitud")
-            temp_c = st.slider("🌡️ Temperatura estimada (°C):", min_value=5, max_value=42, value=24, step=1, key="rs_temp")
+            st.markdown("#### 🌬️ Clima de Competencia y Viento")
+
+            # Coordenadas del centroide real de la ruta GPX
+            segs_all = route_data["segments"]
+            route_lat = sum(seg["lat"] for seg in segs_all) / max(1, len(segs_all))
+            route_lon = sum(seg["lon"] for seg in segs_all) / max(1, len(segs_all))
+
+            c_dt1, c_dt2 = st.columns([1.25, 1])
+            with c_dt1:
+                race_date = st.date_input(
+                    "📅 Fecha de competencia:",
+                    value=date.today() + timedelta(days=3),
+                    min_value=date(2020, 1, 1),
+                    max_value=date(2030, 12, 31),
+                    key="rs_race_date",
+                )
+            with c_dt2:
+                hour_opts = [f"{h:02d}:00" for h in range(5, 19)]
+                race_time_str = st.selectbox(
+                    "⏰ Hora salida bici:",
+                    options=hour_opts,
+                    index=2,  # 07:00
+                    key="rs_race_hour",
+                )
+                race_start_hour = int(race_time_str.split(":")[0])
+
+            route_sig = f"{route_data['route_name']}_{route_lat:.3f}_{route_lon:.3f}"
+            if st.button(
+                "🌦️ Buscar Clima Real del Circuito (Fecha y Hora)",
+                type="secondary",
+                use_container_width=True,
+                key="rs_fetch_weather_btn",
+            ):
+                with st.spinner("Consultando modelos meteorológicos (Open-Meteo ECMWF/GFS/ERA5) para el circuito..."):
+                    w_res = fetch_race_weather(
+                        lat=route_lat,
+                        lon=route_lon,
+                        race_date=race_date,
+                        start_hour=race_start_hour,
+                        duration_hours=8,
+                    )
+                if w_res.get("ok") and w_res.get("summary"):
+                    ws = w_res["summary"]
+                    st.session_state["rs_weather_data"] = w_res
+                    st.session_state["rs_weather_sig"] = route_sig
+                    st.session_state["rs_temp"] = max(5, min(42, int(round(ws["temp_c"]))))
+                    st.session_state["rs_hum"] = max(15, min(100, int(round(ws["humidity_pct"] / 5.0) * 5)))
+                    st.session_state["rs_wind_spd"] = max(0, min(50, int(round(ws["wind_kmh"]))))
+                    st.session_state["rs_wind_dir_lbl"] = "Personalizado (grados)"
+                    st.session_state["rs_wind_deg_custom"] = int(round(ws["wind_deg"] / 5.0) * 5) % 360
+                    st.session_state["rs_use_hourly_weather"] = True
+                    st.toast("Clima cargado para el circuito", icon="🌦️")
+                    st.rerun()
+                else:
+                    st.error(f"⚠️ No se pudo obtener el clima automáticamente: {w_res.get('error', 'sin conexión')}. Puedes ajustar los controles manualmente.")
+
+            weather_data = st.session_state.get("rs_weather_data")
+            weather_matches_route = bool(
+                weather_data
+                and weather_data.get("ok")
+                and st.session_state.get("rs_weather_sig") == route_sig
+            )
+
+            active_hourly_weather = None
+            if weather_matches_route:
+                ws = weather_data["summary"]
+                rain_txt = f" · 🌧️ Prob. lluvia: **{ws['precip_prob_pct']}%**" if ws.get("precip_prob_pct") is not None else ""
+                press_txt = f" · Presión: `{ws['pressure_hpa']} hPa`" if ws.get("pressure_hpa") else ""
+                _render_html(
+                    f"""
+                    <div style="background:rgba(0,238,255,0.08); border:1px solid rgba(0,238,255,0.38);
+                                border-radius:10px; padding:9px 11px; margin:4px 0 8px 0;">
+                        <div style="color:#00EEFF; font-size:0.75rem; font-weight:800;">
+                            {weather_data['source_label']}
+                        </div>
+                        <div style="color:#E2E8F0; font-size:0.79rem; margin-top:4px; line-height:1.45;">
+                            {ws['condition']} · <b>{ws['temp_c']}°C</b> (rango {ws['temp_min_c']}–{ws['temp_max_c']}°C) · <b>{ws['humidity_pct']}% HR</b><br>
+                            💨 Viento: <b>{ws['wind_kmh']} km/h</b> (ráfagas {ws['wind_gusts_kmh']} km/h) desde <b>{ws['wind_compass']} ({ws['wind_deg']:.0f}°)</b>{press_txt}
+                        </div>
+                    </div>
+                    """
+                )
+                if rain_txt:
+                    st.caption(f"📍 GPS circuito ({weather_data['lat']}, {weather_data['lon']}){rain_txt}")
+
+                use_hourly = st.checkbox(
+                    "⏱️ Simular evolución climática hora a hora (como Best Bike Split)",
+                    value=st.session_state.get("rs_use_hourly_weather", True),
+                    key="rs_use_hourly_weather",
+                    help="Actualiza temperatura, humedad, velocidad y dirección del viento automáticamente cada hora a medida que avanza la carrera.",
+                )
+                if use_hourly:
+                    active_hourly_weather = weather_data.get("hourly")
+
+                with st.expander("🕒 Ver pronóstico hora a hora del circuito", expanded=False):
+                    df_hw = pd.DataFrame([
+                        {
+                            "Hora": h["time_label"],
+                            "Clima": h["condition"],
+                            "Temp (°C)": h["temp_c"],
+                            "HR (%)": int(h["humidity_pct"]),
+                            "Viento (km/h)": h["wind_kmh"],
+                            "Ráfagas": h["wind_gusts_kmh"],
+                            "Dirección": f"{h['wind_compass']} ({h['wind_deg']:.0f}°)",
+                        }
+                        for h in weather_data.get("hourly", [])
+                    ])
+                    st.dataframe(df_hw, use_container_width=True, hide_index=True)
+
+            temp_c = st.slider("🌡️ Temperatura (°C):", min_value=5, max_value=42, value=24, step=1, key="rs_temp")
             humidity_pct = st.slider("💧 Humedad relativa (%):", min_value=15, max_value=100, value=65, step=5, key="rs_hum")
             wind_kmh = st.slider("💨 Velocidad del viento (km/h):", min_value=0, max_value=50, value=12, step=1, key="rs_wind_spd")
             wind_dir_lbl = st.selectbox(
@@ -488,11 +597,14 @@ def render_race_strategy_page():
             else:
                 wind_deg = WIND_DIRECTIONS[wind_dir_lbl]
 
-            rho_preview = calc_air_density(route_data["avg_ele_m"], temp_c, humidity_pct)
-            st.info(
-                f"🌬️ **Densidad del aire media (ρ):** `{rho_preview:.4f} kg/m³`\n\n"
-                f"Calculada dinámicamente tramo a tramo para altitud media de **{route_data['avg_ele_m']:.0f} m**, "
-                f"**{temp_c}°C** y **{humidity_pct}% HR**."
+            rho_preview = calc_air_density(
+                route_data["avg_ele_m"],
+                temp_c,
+                humidity_pct,
+                surface_pressure_hpa=(weather_data["summary"].get("pressure_hpa") if weather_matches_route else None),
+            )
+            st.caption(
+                f"🌬️ Densidad del aire (ρ): `{rho_preview:.4f} kg/m³` · Altitud media: **{route_data['avg_ele_m']:.0f} m** · Viento desde **{deg_to_compass(wind_deg)} ({wind_deg:.0f}°)**"
             )
 
             st.markdown("##### 📐 Ajuste fino de CdA y Peso de Bici")
@@ -582,7 +694,7 @@ def render_race_strategy_page():
             manual_bike_weight_kg=manual_bike_kg,
         )
 
-        # Ejecutar simulación principal
+        # Ejecutar simulación principal (con clima horario dinámico si está activo)
         sim = simulate_race_strategy(
             route_data=route_data,
             rider_weight_kg=rider_weight,
@@ -597,6 +709,7 @@ def render_race_strategy_page():
             max_climb_pct_ftp=max_climb_pct,
             max_descent_kmh=float(max_desc_kmh),
             split_interval_km=float(split_step_km),
+            hourly_weather=active_hourly_weather,
         )
         s = sim["summary"]
         nut = sim["nutrition"]
@@ -669,7 +782,7 @@ def render_race_strategy_page():
                 f"""
                 <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,255,136,0.35); border-radius:12px; padding:12px 14px; margin-top:4px;">
                     <div style="color:#00FF88; font-weight:800; font-size:0.86rem; margin-bottom:6px;">
-                        🥤 Plan Nutricional e Hidratación Sugerido ({temp_c}°C · {humidity_pct}% HR)
+                        🥤 Plan Nutricional e Hidratación Sugerido ({s['avg_temp_c']}°C · {s['avg_humidity_pct']}% HR{" · Dinámico" if s.get("dynamic_weather") else ""})
                     </div>
                     <div style="color:#E2E8F0; font-size:0.82rem; line-height:1.55;">
                         • <b>Carbohidratos:</b> <code>{nut['cho_g_per_h']} g/h</code> → <b>Total: {nut['cho_total_g']} g</b><br>
@@ -714,6 +827,10 @@ def render_race_strategy_page():
             if st.button("💾 Guardar Escenario", type="primary", use_container_width=True, key="rs_save_btn"):
                 try:
                     cfg_dump = {
+                        "race_date": race_date.strftime("%Y-%m-%d"),
+                        "race_start_time": race_time_str,
+                        "weather_source": weather_data["source_label"] if weather_matches_route else "Manual",
+                        "dynamic_hourly_weather": bool(active_hourly_weather),
                         "bike_type": bike_type,
                         "wheels": wheels,
                         "helmet": helmet,
@@ -795,6 +912,7 @@ def render_race_strategy_page():
                     strategy=p_code,
                     max_climb_pct_ftp=max_climb_pct,
                     max_descent_kmh=float(max_desc_kmh),
+                    hourly_weather=active_hourly_weather,
                 )["summary"]
                 if p_code == "constant":
                     p_base_t = p_sim["total_time_s"]
@@ -823,26 +941,26 @@ def render_race_strategy_page():
             t_aero = simulate_race_strategy(
                 route_data, rider_weight, ftp_w, target_if, eq_aero_better,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
-                strategy_code, max_climb_pct, float(max_desc_kmh),
+                strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]["total_time_s"]
 
             t_weight = simulate_race_strategy(
                 route_data, max(35.0, rider_weight - 2.0), ftp_w, target_if, equipment,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
-                strategy_code, max_climb_pct, float(max_desc_kmh),
+                strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]["total_time_s"]
 
             t_ftp = simulate_race_strategy(
                 route_data, rider_weight, ftp_w + 10.0, target_if, equipment,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
-                strategy_code, max_climb_pct, float(max_desc_kmh),
+                strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]["total_time_s"]
 
             eq_crr_better = dict(equipment, crr=max(0.0022, round(equipment["crr"] - 0.0010, 5)))
             t_crr = simulate_race_strategy(
                 route_data, rider_weight, ftp_w, target_if, eq_crr_better,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
-                strategy_code, max_climb_pct, float(max_desc_kmh),
+                strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]["total_time_s"]
 
             sens_df = pd.DataFrame([
@@ -870,7 +988,7 @@ def render_race_strategy_page():
             b_sim = simulate_race_strategy(
                 route_data, rider_weight, ftp_w, target_if, b_eq,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
-                strategy_code, max_climb_pct, float(max_desc_kmh),
+                strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]
             bike_bench.append((b_name, b_sim))
 

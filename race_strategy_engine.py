@@ -204,17 +204,26 @@ def estimate_equipment_specs(
 #  FÍSICA ATMOSFÉRICA Y GEOESPACIAL
 # ═════════════════════════════════════════════════════════════════════
 
-def calc_air_density(altitude_m: float, temp_c: float = 22.0, rel_humidity_pct: float = 60.0) -> float:
+def calc_air_density(
+    altitude_m: float,
+    temp_c: float = 22.0,
+    rel_humidity_pct: float = 60.0,
+    surface_pressure_hpa: float = None,
+) -> float:
     """
-    Calcula la densidad del aire rho (kg/m³) usando la atmósfera estándar barométrica
-    y corrección por humedad relativa (fórmula de Tetens).
+    Calcula la densidad del aire rho (kg/m³) usando la presión barométrica real (si está
+    disponible) o la atmósfera estándar por altitud, con corrección de humedad (Tetens).
     """
     h = max(-100.0, min(5500.0, float(altitude_m or 0.0)))
     t_k = float(temp_c) + 273.15
     rh = max(0.0, min(100.0, float(rel_humidity_pct))) / 100.0
 
     # Presión barométrica a altitud h (Pa)
-    p_total = 101325.0 * ((1.0 - (0.0065 * h) / 288.15) ** 5.25588)
+    if surface_pressure_hpa is not None and 500.0 <= float(surface_pressure_hpa) <= 1080.0:
+        p_total = float(surface_pressure_hpa) * 100.0
+    else:
+        p_total = 101325.0 * ((1.0 - (0.0065 * h) / 288.15) ** 5.25588)
+
     # Presión de vapor de saturación (Pa) - Tetens
     p_sat = 610.78 * math.exp((17.27 * temp_c) / (temp_c + 237.3))
     p_vapor = rh * p_sat
@@ -222,6 +231,58 @@ def calc_air_density(altitude_m: float, temp_c: float = 22.0, rel_humidity_pct: 
 
     rho = (p_dry / (R_DRY_AIR * t_k)) + (p_vapor / (R_WATER_VAPOR * t_k))
     return round(rho, 4)
+
+
+def _interp_angle_deg(a_deg: float, b_deg: float, frac: float) -> float:
+    """Interpola suavemente por el camino angular más corto entre dos direcciones en grados."""
+    diff = ((b_deg - a_deg + 180.0) % 360.0) - 180.0
+    return (a_deg + diff * frac) % 360.0
+
+
+def _sample_hourly_weather(
+    hourly_weather: list,
+    elapsed_hours: float,
+    fallback_temp: float,
+    fallback_hum: float,
+    fallback_wind_kmh: float,
+    fallback_wind_deg: float,
+) -> tuple:
+    """
+    Interpola (temp_c, humidity_pct, wind_kmh, wind_deg, pressure_hpa) en función del tiempo
+    transcurrido de carrera (`elapsed_hours`) usando la serie horaria real/climatológica.
+    """
+    if not hourly_weather:
+        return fallback_temp, fallback_hum, fallback_wind_kmh, fallback_wind_deg, None
+    if len(hourly_weather) == 1 or elapsed_hours <= 0.0:
+        p0 = hourly_weather[0]
+        return (
+            float(p0.get("temp_c", fallback_temp)),
+            float(p0.get("humidity_pct", fallback_hum)),
+            float(p0.get("wind_kmh", fallback_wind_kmh)),
+            float(p0.get("wind_deg", fallback_wind_deg)),
+            p0.get("pressure_hpa"),
+        )
+    max_idx = len(hourly_weather) - 1
+    if elapsed_hours >= max_idx:
+        pl = hourly_weather[max_idx]
+        return (
+            float(pl.get("temp_c", fallback_temp)),
+            float(pl.get("humidity_pct", fallback_hum)),
+            float(pl.get("wind_kmh", fallback_wind_kmh)),
+            float(pl.get("wind_deg", fallback_wind_deg)),
+            pl.get("pressure_hpa"),
+        )
+    i0 = int(math.floor(elapsed_hours))
+    i1 = min(max_idx, i0 + 1)
+    frac = elapsed_hours - i0
+    p0, p1 = hourly_weather[i0], hourly_weather[i1]
+    t_c = float(p0["temp_c"]) * (1.0 - frac) + float(p1["temp_c"]) * frac
+    hum = float(p0["humidity_pct"]) * (1.0 - frac) + float(p1["humidity_pct"]) * frac
+    w_k = float(p0["wind_kmh"]) * (1.0 - frac) + float(p1["wind_kmh"]) * frac
+    w_d = _interp_angle_deg(float(p0["wind_deg"]), float(p1["wind_deg"]), frac)
+    pr0, pr1 = p0.get("pressure_hpa"), p1.get("pressure_hpa")
+    pr = (float(pr0) * (1.0 - frac) + float(pr1) * frac) if (pr0 is not None and pr1 is not None) else (pr0 or pr1)
+    return t_c, hum, w_k, w_d, pr
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -639,10 +700,13 @@ def simulate_race_strategy(
     max_climb_pct_ftp: float = 1.08,
     max_descent_kmh: float = 68.0,
     split_interval_km: float = 5.0,
+    hourly_weather: list = None,
 ) -> dict:
     """
     Ejecuta la simulación completa de carrera calibrando el plan de potencia para que
     la Potencia Normalizada (NP) alcance el Factor de Intensidad (IF) objetivo.
+    Si se entrega `hourly_weather`, actualiza temperatura, humedad, viento y dirección
+    dinámicamente hora a hora a medida que avanza el reloj de carrera.
     """
     segments = route_data["segments"]
     total_mass_kg = float(rider_weight_kg) + float(equipment["bike_and_gear_kg"])
@@ -653,6 +717,7 @@ def simulate_race_strategy(
     wind_speed_ms = float(wind_speed_kmh) / 3.6
     target_np = float(ftp_w) * float(target_if)
     max_speed_ms = max(12.0, float(max_descent_kmh) / 3.6)
+    avg_route_ele = float(route_data.get("avg_ele_m", 0.0))
 
     def _run_pass(base_p: float):
         raw_powers = _generate_raw_power_profile(
@@ -676,10 +741,31 @@ def simulate_race_strategy(
         e_grav_pos = 0.0
 
         for seg, p_w in zip(segments, raw_powers):
-            rho = calc_air_density(seg["ele_m"], temp_c, rel_humidity_pct)
-            rel_angle = math.radians(wind_from_deg - seg["bearing_deg"])
-            headwind_ms = wind_speed_ms * math.cos(rel_angle)
-            crosswind_ms = wind_speed_ms * abs(math.sin(rel_angle))
+            seg_t_c, seg_hum, seg_w_kmh, seg_w_deg, seg_p_hpa = _sample_hourly_weather(
+                hourly_weather=hourly_weather,
+                elapsed_hours=cum_t / 3600.0,
+                fallback_temp=float(temp_c),
+                fallback_hum=float(rel_humidity_pct),
+                fallback_wind_kmh=float(wind_speed_kmh),
+                fallback_wind_deg=float(wind_from_deg),
+            )
+            # Ajustar presión barométrica por diferencia de altitud local respecto a la media de la ruta
+            local_p_hpa = None
+            if seg_p_hpa is not None:
+                dh = float(seg["ele_m"]) - avg_route_ele
+                local_p_hpa = float(seg_p_hpa) * math.exp(-dh / 8400.0)
+
+            rho = calc_air_density(seg["ele_m"], seg_t_c, seg_hum, surface_pressure_hpa=local_p_hpa)
+            seg_w_ms = seg_w_kmh / 3.6
+            rel_angle = math.radians(seg_w_deg - seg["bearing_deg"])
+            headwind_ms = seg_w_ms * math.cos(rel_angle)
+            crosswind_ms = seg_w_ms * abs(math.sin(rel_angle))
+
+            # En modo óptimo con clima horario dinámico, afinar potencia al viento real de esa hora
+            eff_p_w = p_w
+            if hourly_weather and strategy == "optimal" and seg["grade"] > -0.02:
+                delta_hw = headwind_ms - (wind_speed_ms * math.cos(math.radians(wind_from_deg - seg["bearing_deg"])))
+                eff_p_w = max(20.0, min(ftp_w * max_climb_pct_ftp, p_w * (1.0 + max(-0.04, min(0.05, delta_hw * 0.008)))))
 
             # Límite realista de velocidad en curva cerrada
             seg_max_v = max_speed_ms
@@ -689,7 +775,7 @@ def simulate_race_strategy(
                 seg_max_v = min(seg_max_v, 12.5)  # ~45 km/h curva media
 
             sol = solve_segment_speed(
-                power_rider_w=p_w,
+                power_rider_w=eff_p_w,
                 total_mass_kg=total_mass_kg,
                 cda_base=cda_base,
                 crr=crr,
@@ -709,14 +795,14 @@ def simulate_race_strategy(
 
             t_seg = seg["length_m"] / v_eff
             cum_t += t_seg
-            total_work_j += p_w * t_seg
+            total_work_j += eff_p_w * t_seg
             e_aero += sol["p_aero"] * t_seg
             e_roll += max(0.0, sol["p_roll"] * t_seg)
             if sol["p_grav"] > 0:
                 e_grav_pos += sol["p_grav"] * t_seg
 
             seg_times.append(t_seg)
-            seg_powers.append(p_w)
+            seg_powers.append(eff_p_w)
             seg_results.append({
                 "dist_km": seg["dist_mid_km"],
                 "dist_end_km": seg["dist_end_m"] / 1000.0,
@@ -724,13 +810,15 @@ def simulate_race_strategy(
                 "lon": seg["lon"],
                 "ele_m": seg["ele_m"],
                 "grade_pct": round(seg["grade"] * 100.0, 2),
-                "power_w": round(p_w, 1),
-                "pct_ftp": round((p_w / ftp_w) * 100.0, 1),
+                "power_w": round(eff_p_w, 1),
+                "pct_ftp": round((eff_p_w / ftp_w) * 100.0, 1),
                 "speed_kmh": round(v_eff * 3.6, 1),
                 "time_seg_s": t_seg,
                 "cum_time_s": cum_t,
                 "headwind_kmh": round(headwind_ms * 3.6, 1),
                 "crosswind_kmh": round(crosswind_ms * 3.6, 1),
+                "temp_c": round(seg_t_c, 1),
+                "humidity_pct": round(seg_hum, 0),
                 "rho": rho,
                 "lap": seg.get("lap", 1),
             })
@@ -783,10 +871,18 @@ def simulate_race_strategy(
     else:
         cho_g_h = 90
 
-    # Fluido por hora ajustado a temperatura y humedad
-    heat_bonus = max(0.0, (temp_c - 18.0) * 28.0) + max(0.0, (rel_humidity_pct - 60.0) * 3.0)
+    # Fluido por hora ajustado a temperatura y humedad reales vividas durante la carrera
+    avg_temp_race = (
+        sum(s.get("temp_c", temp_c) * s["time_seg_s"] for s in seg_results) / max(1.0, total_time_s)
+        if seg_results else float(temp_c)
+    )
+    avg_hum_race = (
+        sum(s.get("humidity_pct", rel_humidity_pct) * s["time_seg_s"] for s in seg_results) / max(1.0, total_time_s)
+        if seg_results else float(rel_humidity_pct)
+    )
+    heat_bonus = max(0.0, (avg_temp_race - 18.0) * 28.0) + max(0.0, (avg_hum_race - 60.0) * 3.0)
     fluid_ml_h = int(round(min(1200.0, max(500.0, 550.0 + heat_bonus)) / 50.0) * 50)
-    sodium_mg_h = int(round(min(1100.0, max(450.0, 500.0 + (temp_c - 18.0) * 25.0)) / 50.0) * 50)
+    sodium_mg_h = int(round(min(1100.0, max(450.0, 500.0 + (avg_temp_race - 18.0) * 25.0)) / 50.0) * 50)
 
     nutrition = {
         "cho_g_per_h": cho_g_h,
@@ -820,6 +916,9 @@ def simulate_race_strategy(
             "crr": crr,
             "total_mass_kg": round(total_mass_kg, 2),
             "avg_rho": round(avg_rho, 4),
+            "avg_temp_c": round(avg_temp_race, 1),
+            "avg_humidity_pct": int(round(avg_hum_race)),
+            "dynamic_weather": bool(hourly_weather),
         },
         "resistance": resist_breakdown,
         "nutrition": nutrition,
