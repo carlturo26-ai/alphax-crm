@@ -2749,7 +2749,15 @@ elif page == "Analíticas AlphaX":
                 session.close()
 
 elif page == "🏁 Estrategias de Carrera":
+    import importlib
+    import race_strategy_engine
+    import weather_service
+    import cda_estimator
     import race_strategy_ui
+    importlib.reload(race_strategy_engine)
+    importlib.reload(weather_service)
+    importlib.reload(cda_estimator)
+    importlib.reload(race_strategy_ui)
     race_strategy_ui.render_race_strategy_page()
 
 elif page == "Wolfy AI Coach":

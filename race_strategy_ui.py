@@ -630,12 +630,7 @@ def render_race_strategy_page():
             )
 
             st.markdown("##### 📐 Ajuste fino de CdA y Peso de Bici")
-            pending_cda_key = f"rs_apply_cda_pending_{member_id}"
-            if pending_cda_key in st.session_state:
-                pending_cda_val = float(st.session_state.pop(pending_cda_key))
-                st.session_state[f"rs_override_aero_{member_id}"] = True
-                st.session_state[f"rs_manual_cda_{member_id}"] = pending_cda_val
-
+            cda_ver = st.session_state.get(f"rs_cda_ver_{member_id}", 0)
             has_cal_cda = bool(ath_defaults.get("calibrated_cda"))
             default_cda_val = float(ath_defaults["calibrated_cda"]) if has_cal_cda else 0.240
             override_label = (
@@ -646,7 +641,7 @@ def render_race_strategy_page():
             override_aero = st.checkbox(
                 override_label,
                 value=has_cal_cda,
-                key=f"rs_override_aero_{member_id}",
+                key=f"rs_override_aero_{member_id}_v{cda_ver}",
             )
             manual_cda = None
             manual_bike_kg = None
@@ -658,7 +653,7 @@ def render_race_strategy_page():
                     value=default_cda_val,
                     step=0.005,
                     format="%.3f",
-                    key=f"rs_manual_cda_{member_id}",
+                    key=f"rs_manual_cda_{member_id}_v{cda_ver}",
                 )
                 manual_bike_kg = st.number_input(
                     "Peso bici + agua + equipo (kg, 0 = estimado por componentes):",
@@ -666,7 +661,7 @@ def render_race_strategy_page():
                     max_value=18.0,
                     value=0.0,
                     step=0.2,
-                    key=f"rs_manual_bkg_{member_id}",
+                    key=f"rs_manual_bkg_{member_id}_v{cda_ver}",
                 )
                 if manual_bike_kg <= 3.0:
                     manual_bike_kg = None
@@ -1335,8 +1330,8 @@ def render_race_strategy_page():
                             m_db.calibrated_cda_bike = cal_res.get("bike_label")
                             m_db.calibrated_cda_date = cal_res.get("race_date")
                             s_up.commit()
-                    # Guardar en flag pendiente para aplicar ANTES de instanciar los widgets de Tab 1 en el rerun
-                    st.session_state[f"rs_apply_cda_pending_{member_id}"] = float(cal_res["cda"])
+                    # Incrementar versión de widgets de CdA para que Tab 1 cargue el nuevo valor desde DB sin mutar widget keys
+                    st.session_state[f"rs_cda_ver_{member_id}"] = st.session_state.get(f"rs_cda_ver_{member_id}", 0) + 1
                     st.session_state[cda_flash_key] = (
                         f"🎉 CdA real (`{cal_res['cda']:.3f} m²`) guardado en el perfil de **{ath_defaults['name']}** "
                         "y aplicado automáticamente en **⚙️ Simulador y Plan de Carrera**."
