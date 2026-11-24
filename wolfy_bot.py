@@ -310,6 +310,17 @@ def render_athlete_biometric_profile_editor(
                 "IMC, relación vatios/kilo (W/kg), gramos exactos de carbohidratos/proteína, zonas de pulso y ajustes por altitud."
             )
 
+        def _safe_num(val, lo, hi, as_int=False):
+            if val is None:
+                return None
+            try:
+                v = int(val) if as_int else float(val)
+                if v < lo or v > hi:
+                    return None
+                return v
+            except (ValueError, TypeError):
+                return None
+
         with st.form(f"{key_prefix}_biometric_form_{member_id}"):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -317,7 +328,7 @@ def render_athlete_biometric_profile_editor(
                     "📏 Estatura (cm)",
                     min_value=100.0,
                     max_value=230.0,
-                    value=float(m_data["height_cm"]) if m_data["height_cm"] else None,
+                    value=_safe_num(m_data["height_cm"], 100.0, 230.0),
                     step=1.0,
                     placeholder="Ej. 176",
                     key=f"{key_prefix}_h_{member_id}",
@@ -327,7 +338,7 @@ def render_athlete_biometric_profile_editor(
                     "⚖️ Peso actual (kg)",
                     min_value=30.0,
                     max_value=180.0,
-                    value=float(m_data["weight_kg"]) if m_data["weight_kg"] else None,
+                    value=_safe_num(m_data["weight_kg"], 30.0, 180.0),
                     step=0.5,
                     placeholder="Ej. 68.5",
                     key=f"{key_prefix}_w_{member_id}",
@@ -356,7 +367,7 @@ def render_athlete_biometric_profile_editor(
                     "⏱️ Horas entreno / semana",
                     min_value=0.0,
                     max_value=45.0,
-                    value=float(m_data["weekly_hours"]) if m_data["weekly_hours"] is not None else None,
+                    value=_safe_num(m_data["weekly_hours"], 0.0, 45.0),
                     step=0.5,
                     placeholder="Ej. 10",
                     key=f"{key_prefix}_hrs_{member_id}",
@@ -366,7 +377,7 @@ def render_athlete_biometric_profile_editor(
                     "🏔️ Altitud habitual (msnm)",
                     min_value=0,
                     max_value=4500,
-                    value=int(m_data["altitude_m"]) if m_data["altitude_m"] is not None else None,
+                    value=_safe_num(m_data["altitude_m"], 0, 4500, as_int=True),
                     step=100,
                     placeholder="Ej. 1500 (Medellín) / 2600 (Bogotá)",
                     key=f"{key_prefix}_alt_{member_id}",
@@ -378,7 +389,7 @@ def render_athlete_biometric_profile_editor(
                     "❤️ FC en Reposo (lpm)",
                     min_value=30,
                     max_value=120,
-                    value=int(m_data["resting_hr"]) if m_data["resting_hr"] else None,
+                    value=_safe_num(m_data["resting_hr"], 30, 120, as_int=True),
                     step=1,
                     placeholder="Ej. 48",
                     key=f"{key_prefix}_rhr_{member_id}",
@@ -388,7 +399,7 @@ def render_athlete_biometric_profile_editor(
                     "🔥 FC Máxima conocida (lpm)",
                     min_value=110,
                     max_value=230,
-                    value=int(m_data["max_hr"]) if m_data["max_hr"] else None,
+                    value=_safe_num(m_data["max_hr"], 110, 230, as_int=True),
                     step=1,
                     placeholder="Ej. 188",
                     key=f"{key_prefix}_mhr_{member_id}",
@@ -403,7 +414,7 @@ def render_athlete_biometric_profile_editor(
             in_med = st.text_area(
                 "🩺 Alergias, tipo de dieta, suplementación o lesiones actuales (opcional)",
                 value=m_data["medical_notes"],
-                height=65,
+                height=80,
                 placeholder="Ej. Vegetariano, intolerancia a lactosa, tendinitis aquílea, tomo hierro y magnesio...",
                 key=f"{key_prefix}_med_{member_id}",
             )
