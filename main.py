@@ -477,6 +477,7 @@ if page == "Dashboard":
                     st.session_state["target_athlete_name"] = first_name
                     st.rerun()
             
+            from bloodwork_service import count_record_markers as _count_bw_dash
             table_data = []
             for r in recent_blood_recs:
                 m_name = r.member.name if r.member else "N/A"
@@ -484,7 +485,8 @@ if page == "Dashboard":
                 f_exam = r.date.strftime("%d/%m/%Y") if r.date else "N/A"
                 f_upload = r.created_at.strftime("%d/%m/%Y") if r.created_at else f_exam
                 pdf_doc = r.pdf_filename if r.pdf_filename else "Formulario Web"
-                
+                bw_filled = _count_bw_dash(r)
+
                 # Markers highlights
                 markers_summary = []
                 if r.hemoglobin:
@@ -495,26 +497,28 @@ if page == "Dashboard":
                     markers_summary.append(f"Hto: {r.hematocrit}%")
                 if r.glucose:
                     markers_summary.append(f"Gluc: {r.glucose:.0f} mg/dL")
-                
+
                 table_data.append({
                     "Deportista": m_name,
                     "Grupo": m_grp,
                     "Fecha Examen": f_exam,
                     "Fecha Subida": f_upload,
+                    "Datos": f"{bw_filled}/16",
                     "Archivo / Origen": pdf_doc,
-                    "Marcadores Clave": " · ".join(markers_summary) if markers_summary else "Registrado"
+                    "Marcadores Clave": " · ".join(markers_summary) if markers_summary else ("⚠️ Vacío" if bw_filled == 0 else "Registrado")
                 })
-                
+
             df_recent_blood = pd.DataFrame(table_data)
             st.dataframe(
-                df_recent_blood, 
-                use_container_width=True, 
+                df_recent_blood,
+                use_container_width=True,
                 hide_index=True,
                 column_config={
                     "Deportista": st.column_config.TextColumn("Deportista", width="medium"),
                     "Grupo": st.column_config.TextColumn("Grupo", width="small"),
                     "Fecha Examen": st.column_config.TextColumn("Fecha Examen", width="small"),
                     "Fecha Subida": st.column_config.TextColumn("Fecha Subida", width="small"),
+                    "Datos": st.column_config.TextColumn("Datos", width="small"),
                     "Archivo / Origen": st.column_config.TextColumn("Archivo / Origen", width="medium"),
                     "Marcadores Clave": st.column_config.TextColumn("Marcadores Clave", width="large")
                 }
@@ -1596,12 +1600,16 @@ elif page == "Analíticas AlphaX":
                 # ═══════════════════════════════════════════════════════════
                 with tab_clin_history:
                     st.subheader(f"Evolución de Marcadores — {selected_athlete} ({gender_badge})")
+                    from bloodwork_ui import (
+                        render_duplicate_cleanup_banner,
+                        render_bloodwork_manager,
+                    )
 
                     session = SessionLocal()
                     try:
                         records = session.query(BloodworkRecord).filter(
                             BloodworkRecord.member_id == member_obj.id
-                        ).order_by(BloodworkRecord.date.desc()).all()
+                        ).order_by(BloodworkRecord.date.desc(), BloodworkRecord.id.desc()).all()
                     except Exception as e:
                         records = []
                         st.error(f"Error cargando marcadores: {e}")
@@ -1609,6 +1617,13 @@ elif page == "Analíticas AlphaX":
                         session.close()
 
                     if records:
+                        render_duplicate_cleanup_banner(
+                            records=records,
+                            member_id=member_obj.id,
+                            SessionLocal=SessionLocal,
+                            BloodworkRecord=BloodworkRecord,
+                            key_prefix=f"crm_hist_{member_obj.id}",
+                        )
                         marker_keys = ALL_MARKER_KEYS
 
                         # ── Tabla de historial con deltas ────────────────────
@@ -1763,100 +1778,19 @@ elif page == "Analíticas AlphaX":
                                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                                     st.markdown("</div>", unsafe_allow_html=True)
 
-                        # ── Editar o Completar Biomarcadores de un Examen Existente ──
+                        # ── Gestionar, Completar, Editar o Eliminar Exámenes ──
                         st.markdown("---")
-                        with st.expander("✏️ Editar o Completar Biomarcadores de un Examen Existente"):
-                            edit_options = {f"Examen del {r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
-                            sel_edit = st.selectbox("Selecciona el examen a editar o completar:", list(edit_options.keys()), key="bw_edit_sel")
-                            selected_rec_id = edit_options[sel_edit]
-                            rec_to_edit = next((r for r in records if r.id == selected_rec_id), None)
-
-                            if rec_to_edit:
-                                st.caption(f"Actualiza o completa los 15 biomarcadores para el examen del {rec_to_edit.date.strftime('%d/%m/%Y')}.")
-                                with st.form(f"form_edit_bw_{selected_rec_id}"):
-                                    ed_c1, ed_c2, ed_c3 = st.columns(3)
-                                    def _e_val(attr):
-                                        v = getattr(rec_to_edit, attr, None)
-                                        return float(v) if v is not None else None
-
-                                    with ed_c1:
-                                        st.markdown("##### 🔴 Serie Roja")
-                                        e_hb = st.number_input("🔴 Hemoglobina (g/dL)", value=_e_val("hemoglobin"), step=0.1, key=f"e_hb_{selected_rec_id}")
-                                        e_vcm = st.number_input("🔵 VCM (fL)", value=_e_val("vcm"), step=0.1, key=f"e_vcm_{selected_rec_id}")
-                                        e_chcm = st.number_input("🟡 CHCM (g/dL)", value=_e_val("chcm"), step=0.1, key=f"e_chcm_{selected_rec_id}")
-                                        e_rbc = st.number_input("⭕ Glóbulos Rojos (×10⁶/μL)", value=_e_val("rbc"), step=0.01, key=f"e_rbc_{selected_rec_id}")
-                                        e_hto = st.number_input("🩸 Hematocrito (%)", value=_e_val("hematocrit"), step=0.1, key=f"e_hto_{selected_rec_id}")
-                                        e_fer = st.number_input("🧲 Ferritina Sérica (ng/mL)", value=_e_val("ferritin"), step=1.0, key=f"e_fer_{selected_rec_id}")
-                                    with ed_c2:
-                                        st.markdown("##### ⚡ Daño Muscular y Vitaminas")
-                                        e_ck = st.number_input("⚡ Creatina Kinasa CK (U/L)", value=_e_val("ck"), step=1.0, key=f"e_ck_{selected_rec_id}")
-                                        e_b12 = st.number_input("💊 Vitamina B12 (pg/mL)", value=_e_val("vitamin_b12"), step=1.0, key=f"e_b12_{selected_rec_id}")
-                                        e_fol = st.number_input("🥬 Ácido Fólico (ng/mL)", value=_e_val("folic_acid"), step=0.1, key=f"e_fol_{selected_rec_id}")
-                                    with ed_c3:
-                                        st.markdown("##### 🫀 Perfil Lipídico y Glucemia")
-                                        e_chol = st.number_input("🫀 Colesterol Total (mg/dL)", value=_e_val("total_cholesterol"), step=1.0, key=f"e_chol_{selected_rec_id}")
-                                        e_hdl = st.number_input("🛡️ Colesterol HDL (mg/dL)", value=_e_val("hdl"), step=1.0, key=f"e_hdl_{selected_rec_id}")
-                                        e_ldl = st.number_input("⚠️ Colesterol LDL (mg/dL)", value=_e_val("ldl"), step=1.0, key=f"e_ldl_{selected_rec_id}")
-                                        e_trig = st.number_input("🧪 Triglicéridos (mg/dL)", value=_e_val("triglycerides"), step=1.0, key=f"e_trig_{selected_rec_id}")
-                                        e_glu = st.number_input("🍯 Glucemia (mg/dL)", value=_e_val("glucose"), step=1.0, key=f"e_glu_{selected_rec_id}")
-                                        e_a1c = st.number_input("🧬 HbA1c Hemoglobina Glicosilada (%)", value=_e_val("hba1c"), step=0.1, key=f"e_a1c_{selected_rec_id}")
-                                        e_pcr = st.number_input("🔥 PCR Ultra Sensible (mg/L)", value=_e_val("pcr_us"), step=0.01, key=f"e_pcr_{selected_rec_id}")
-
-                                    e_notes = st.text_area("Notas / Observaciones:", value=rec_to_edit.notes or "", height=70, key=f"e_notes_{selected_rec_id}")
-
-                                    if st.form_submit_button("💾 Actualizar Registro de Examen", type="primary", use_container_width=True):
-                                        s_ed = SessionLocal()
-                                        try:
-                                            r_db = s_ed.query(BloodworkRecord).filter(BloodworkRecord.id == selected_rec_id).first()
-                                            if r_db:
-                                                r_db.hemoglobin = e_hb
-                                                r_db.vcm = e_vcm
-                                                r_db.chcm = e_chcm
-                                                r_db.rbc = e_rbc
-                                                r_db.hematocrit = e_hto
-                                                r_db.ferritin = e_fer
-                                                r_db.ck = e_ck
-                                                r_db.vitamin_b12 = e_b12
-                                                r_db.folic_acid = e_fol
-                                                r_db.total_cholesterol = e_chol
-                                                r_db.hdl = e_hdl
-                                                r_db.ldl = e_ldl
-                                                r_db.triglycerides = e_trig
-                                                r_db.glucose = e_glu
-                                                r_db.hba1c = e_a1c
-                                                r_db.pcr_us = e_pcr
-                                                r_db.notes = e_notes if e_notes else None
-                                                s_ed.commit()
-                                                st.success("✅ Examen actualizado exitosamente con los nuevos biomarcadores.")
-                                                st.rerun()
-                                        except Exception as err_ed:
-                                            s_ed.rollback()
-                                            st.error(f"Error actualizando examen: {err_ed}")
-                                        finally:
-                                            s_ed.close()
-
-                        # ── Eliminar registro ─────────────────────────────────
-                        st.markdown("---")
-                        with st.expander("🗑️ Eliminar un registro de hemograma"):
-                            del_options = {f"{r.date.strftime('%d/%m/%Y')} (ID: {r.id})": r.id for r in records}
-                            sel_del = st.selectbox("Selecciona el registro a eliminar:", list(del_options.keys()), key="bw_del_sel")
-
-                            col_del1, col_del2 = st.columns([1, 3])
-                            with col_del1:
-                                if st.button("🗑️ Eliminar", type="primary", key="bw_del_btn"):
-                                    session = SessionLocal()
-                                    try:
-                                        rec_to_delete = session.query(BloodworkRecord).filter(BloodworkRecord.id == del_options[sel_del]).first()
-                                        if rec_to_delete:
-                                            session.delete(rec_to_delete)
-                                            session.commit()
-                                            st.success("✅ Registro eliminado.")
-                                            st.rerun()
-                                    except Exception as e:
-                                        session.rollback()
-                                        st.error(f"Error al eliminar: {e}")
-                                    finally:
-                                        session.close()
+                        st.markdown("### 🗂️ Gestionar Exámenes (Completar, Editar Fecha/Datos o Eliminar)")
+                        render_bloodwork_manager(
+                            records=records,
+                            member_id=member_obj.id,
+                            gender=athlete_gender,
+                            ranges=BLOODWORK_RANGES,
+                            SessionLocal=SessionLocal,
+                            BloodworkRecord=BloodworkRecord,
+                            key_prefix=f"crm_mgr_{member_obj.id}",
+                            is_coach=True,
+                        )
 
                     else:
                         st.info(f"{selected_athlete} aún no tiene exámenes registrados. Ve a la pestaña 'Registrar Nuevo Examen' para cargar uno.")
@@ -1866,210 +1800,22 @@ elif page == "Analíticas AlphaX":
                 # ═══════════════════════════════════════════════════════════
                 with tab_clin_new:
                     st.subheader("📥 Registrar Examen de Sangre y Marcadores")
+                    from bloodwork_ui import render_bloodwork_upload_wizard
 
-                    # ── Extracción Automática por PDF/Imagen ───────────
-                    with st.expander("🤖 Extracción Automática (PDF / Imagen)", expanded=True):
-                        st.info(f"Sube el PDF o foto del examen para extraer automáticamente hasta 15 biomarcadores. Rangos calibrados para perfil: **{gender_badge}**.")
-                        col_u1, col_u2 = st.columns([2, 1])
-                        with col_u1:
-                            auto_file = st.file_uploader("Adjuntar archivo del examen (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="auto_bw_file")
-                        with col_u2:
-                            auto_pwd = st.text_input("Clave del PDF (si requiere):", type="password", key="auto_bw_pwd")
-
-                        if auto_file is not None:
-                            if st.button("⚡ Extraer Datos Automáticamente", use_container_width=True, type="secondary"):
-                                with st.spinner("Leyendo y procesando documento..."):
-                                    try:
-                                        import importlib
-                                        import hemograma_parser
-                                        importlib.reload(hemograma_parser)
-                                        parsed_info = hemograma_parser.process_file(auto_file.getvalue(), auto_file.name, password=auto_pwd if auto_pwd else None)
-                                        raw_text = parsed_info.get("raw_text", "")
-                                        if raw_text.startswith("[ERROR]"):
-                                            st.error(f"⚠️ Error al leer archivo: {raw_text}")
-                                        else:
-                                            st.session_state["parsed_bw_data"] = parsed_info
-                                            st.session_state["parsed_bw_filename"] = auto_file.name
-                                            # Limpiar keys de sesión de widgets para que carguen los nuevos valores parseados
-                                            for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr"]:
-                                                st.session_state.pop(k, None)
-                                            st.success(f"🎉 Extracción exitosa: {parsed_info.get('markers_found', 0)} marcadores encontrados.")
-                                            st.rerun()
-                                    except Exception as parse_err:
-                                        st.error(f"Error procesando el archivo: {parse_err}")
-
-                    parsed_data = st.session_state.get("parsed_bw_data", {})
-
-                    if parsed_data:
-                        st.success(f"📌 **Datos autocompletados desde {st.session_state.get('parsed_bw_filename', 'archivo')}**. Puedes modificarlos o vaciar cualquier casilla antes de guardar.")
-                        if st.button("🗑️ Limpiar autocompletado"):
-                            st.session_state.pop("parsed_bw_data", None)
-                            st.session_state.pop("parsed_bw_filename", None)
-                            for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
-                                st.session_state.pop(k, None)
-                            st.rerun()
-                        with st.expander("🔍 Ver texto extraído del documento (diagnóstico)", expanded=False):
-                            st.text_area("Texto leído:", value=parsed_data.get("raw_text", ""), height=150, disabled=True)
-
-                    init_date = datetime.now().date()
-                    if parsed_data.get("date"):
-                        try:
-                            init_date = datetime.strptime(parsed_data["date"], "%Y-%m-%d").date()
-                        except Exception:
-                            pass
-
-                    def _clean_input_val(v):
-                        if v is None:
-                            return None
-                        try:
-                            f = float(v)
-                            return max(0.0, f)
-                        except (ValueError, TypeError):
-                            return None
-
-                    # Pre-llenados
-                    v_hb = _clean_input_val(parsed_data.get("hemoglobin"))
-                    v_vcm = _clean_input_val(parsed_data.get("vcm"))
-                    v_chcm = _clean_input_val(parsed_data.get("chcm"))
-                    v_rbc = _clean_input_val(parsed_data.get("rbc"))
-                    v_hto = _clean_input_val(parsed_data.get("hematocrit"))
-                    v_fer = _clean_input_val(parsed_data.get("ferritin"))
-                    v_ck = _clean_input_val(parsed_data.get("ck"))
-                    v_b12 = _clean_input_val(parsed_data.get("vitamin_b12"))
-                    v_fol = _clean_input_val(parsed_data.get("folic_acid"))
-                    v_chol = _clean_input_val(parsed_data.get("total_cholesterol"))
-                    v_hdl = _clean_input_val(parsed_data.get("hdl"))
-                    v_ldl = _clean_input_val(parsed_data.get("ldl"))
-                    v_trig = _clean_input_val(parsed_data.get("triglycerides"))
-                    v_glu = _clean_input_val(parsed_data.get("glucose"))
-                    v_a1c = _clean_input_val(parsed_data.get("hba1c"))
-                    v_pcr = _clean_input_val(parsed_data.get("pcr_us"))
-
-                    with st.form("form_bloodwork", clear_on_submit=False):
-                        col_d1, col_d2 = st.columns(2)
-                        with col_d1:
-                            bw_date = st.date_input("Fecha del examen:", value=init_date, key="bw_date")
-                        with col_d2:
-                            attached_name = st.session_state.get("parsed_bw_filename")
-                            bw_pdf = st.file_uploader("Adjuntar PDF del examen (opcional):", type=["pdf"], key="bw_pdf")
-
-                        st.markdown("### 🔴 1. Serie Roja y Transporte de Oxígeno")
-                        c1, c2, c3 = st.columns(3)
-                        with c1:
-                            r_hb = BLOODWORK_RANGES["hemoglobin"]
-                            bw_hb = st.number_input(f"{r_hb['emoji']} {r_hb['name']} ({r_hb['unit']})", min_value=None, max_value=None, value=v_hb, step=0.1, help=r_hb["help"], key="bw_hb")
-                            r_vcm = BLOODWORK_RANGES["vcm"]
-                            bw_vcm = st.number_input(f"{r_vcm['emoji']} {r_vcm['name']} ({r_vcm['unit']})", min_value=None, max_value=None, value=v_vcm, step=0.1, help=r_vcm["help"], key="bw_vcm")
-                        with c2:
-                            r_chcm = BLOODWORK_RANGES["chcm"]
-                            bw_chcm = st.number_input(f"{r_chcm['emoji']} {r_chcm['name']} ({r_chcm['unit']})", min_value=None, max_value=None, value=v_chcm, step=0.1, help=r_chcm["help"], key="bw_chcm")
-                            r_rbc = BLOODWORK_RANGES["rbc"]
-                            bw_rbc = st.number_input(f"{r_rbc['emoji']} {r_rbc['name']} ({r_rbc['unit']})", min_value=None, max_value=None, value=v_rbc, step=0.01, help=r_rbc["help"], key="bw_rbc")
-                        with c3:
-                            r_hto = BLOODWORK_RANGES["hematocrit"]
-                            bw_hto = st.number_input(f"{r_hto['emoji']} {r_hto['name']} ({r_hto['unit']})", min_value=None, max_value=None, value=v_hto, step=0.1, help=r_hto["help"], key="bw_hto")
-                            r_fer = BLOODWORK_RANGES["ferritin"]
-                            bw_fer = st.number_input(f"{r_fer['emoji']} {r_fer['name']} ({r_fer['unit']})", min_value=None, max_value=None, value=v_fer, step=1.0, help=r_fer["help"], key="bw_fer")
-
-                        st.markdown("### ⚡ 2. Daño Muscular y Vitaminas")
-                        c4, c5, c6 = st.columns(3)
-                        with c4:
-                            r_ck = BLOODWORK_RANGES["ck"]
-                            bw_ck = st.number_input(f"{r_ck['emoji']} {r_ck['name']} ({r_ck['unit']})", min_value=None, max_value=None, value=v_ck, step=1.0, help=r_ck["help"], key="bw_ck")
-                        with c5:
-                            r_b12 = BLOODWORK_RANGES["vitamin_b12"]
-                            bw_b12 = st.number_input(f"{r_b12['emoji']} {r_b12['name']} ({r_b12['unit']})", min_value=None, max_value=None, value=v_b12, step=1.0, help=r_b12["help"], key="bw_b12")
-                        with c6:
-                            r_fol = BLOODWORK_RANGES["folic_acid"]
-                            bw_fol = st.number_input(f"{r_fol['emoji']} {r_fol['name']} ({r_fol['unit']})", min_value=None, max_value=None, value=v_fol, step=0.1, help=r_fol["help"], key="bw_fol")
-
-                        st.markdown("### 🫀 3. Perfil Lipídico Cardiovascular")
-                        c7, c8, c9, c10 = st.columns(4)
-                        with c7:
-                            r_chol = BLOODWORK_RANGES["total_cholesterol"]
-                            bw_chol = st.number_input(f"{r_chol['emoji']} {r_chol['name']} ({r_chol['unit']})", min_value=None, max_value=None, value=v_chol, step=1.0, help=r_chol["help"], key="bw_chol")
-                        with c8:
-                            r_hdl = BLOODWORK_RANGES["hdl"]
-                            bw_hdl = st.number_input(f"{r_hdl['emoji']} {r_hdl['name']} ({r_hdl['unit']})", min_value=None, max_value=None, value=v_hdl, step=1.0, help=r_hdl["help"], key="bw_hdl")
-                        with c9:
-                            r_ldl = BLOODWORK_RANGES["ldl"]
-                            bw_ldl = st.number_input(f"{r_ldl['emoji']} {r_ldl['name']} ({r_ldl['unit']})", min_value=None, max_value=None, value=v_ldl, step=1.0, help=r_ldl["help"], key="bw_ldl")
-                        with c10:
-                            r_trig = BLOODWORK_RANGES["triglycerides"]
-                            bw_trig = st.number_input(f"{r_trig['emoji']} {r_trig['name']} ({r_trig['unit']})", min_value=None, max_value=None, value=v_trig, step=1.0, help=r_trig["help"], key="bw_trig")
-
-                        st.markdown("### 🍯 4. Glucemia, HbA1c e Inflamación Sistémica")
-                        c11, c12, c13 = st.columns(3)
-                        with c11:
-                            r_glu = BLOODWORK_RANGES["glucose"]
-                            bw_glu = st.number_input(f"{r_glu['emoji']} {r_glu['name']} ({r_glu['unit']})", min_value=None, max_value=None, value=v_glu, step=1.0, help=r_glu["help"], key="bw_glu")
-                        with c12:
-                            r_a1c = BLOODWORK_RANGES["hba1c"]
-                            bw_a1c = st.number_input(f"{r_a1c['emoji']} {r_a1c['name']} ({r_a1c['unit']})", min_value=None, max_value=None, value=v_a1c, step=0.1, help=r_a1c["help"], key="bw_a1c")
-                        with c13:
-                            r_pcr = BLOODWORK_RANGES["pcr_us"]
-                            bw_pcr = st.number_input(f"{r_pcr['emoji']} {r_pcr['name']} ({r_pcr['unit']})", min_value=None, max_value=None, value=v_pcr, step=0.01, help=r_pcr["help"], key="bw_pcr")
-
-                        bw_notes = st.text_area("Notas / Observaciones (ej. horas de reposo previo, altitud, suplementación, ayuno):", height=80, key="bw_notes")
-                        submitted_bw = st.form_submit_button("💾 Guardar Examen y Marcadores", type="primary", use_container_width=True)
-
-                    if submitted_bw:
-                        def _val_or_none(x):
-                            if x is None:
-                                return None
-                            try:
-                                f = float(x)
-                                return f if f > 0 else None
-                            except (ValueError, TypeError):
-                                return None
-
-                        clean_inputs = [_val_or_none(x) for x in [bw_hb, bw_vcm, bw_chcm, bw_rbc, bw_hto, bw_fer, bw_ck, bw_b12, bw_fol, bw_chol, bw_hdl, bw_ldl, bw_trig, bw_glu, bw_a1c, bw_pcr]]
-                        if all(v is None for v in clean_inputs):
-                            st.error("⚠️ Debes ingresar al menos un valor de los biomarcadores.")
-                        else:
-                            pdf_filename = attached_name if attached_name else (bw_pdf.name if bw_pdf is not None else None)
-                            session = SessionLocal()
-                            try:
-                                new_bw = BloodworkRecord(
-                                    member_id=member_obj.id,
-                                    date=bw_date,
-                                    hemoglobin=_val_or_none(bw_hb),
-                                    vcm=_val_or_none(bw_vcm),
-                                    chcm=_val_or_none(bw_chcm),
-                                    rbc=_val_or_none(bw_rbc),
-                                    hematocrit=_val_or_none(bw_hto),
-                                    ferritin=_val_or_none(bw_fer),
-                                    ck=_val_or_none(bw_ck),
-                                    vitamin_b12=_val_or_none(bw_b12),
-                                    folic_acid=_val_or_none(bw_fol),
-                                    total_cholesterol=_val_or_none(bw_chol),
-                                    hdl=_val_or_none(bw_hdl),
-                                    ldl=_val_or_none(bw_ldl),
-                                    triglycerides=_val_or_none(bw_trig),
-                                    glucose=_val_or_none(bw_glu),
-                                    hba1c=_val_or_none(bw_a1c),
-                                    pcr_us=_val_or_none(bw_pcr),
-                                    pdf_filename=pdf_filename,
-                                    notes=bw_notes if bw_notes else None,
-                                )
-                                session.add(new_bw)
-                                session.commit()
-                                st.session_state.pop("parsed_bw_data", None)
-                                st.session_state.pop("parsed_bw_filename", None)
-                                for k in ["bw_hb", "bw_vcm", "bw_chcm", "bw_rbc", "bw_hto", "bw_fer", "bw_ck", "bw_b12", "bw_fol", "bw_chol", "bw_hdl", "bw_ldl", "bw_trig", "bw_glu", "bw_a1c", "bw_pcr", "bw_notes"]:
-                                    st.session_state.pop(k, None)
-                                st.success(f"🎉 ¡Biomarcadores del {bw_date} para {selected_athlete} ({gender_badge}) guardados exitosamente!")
-                                st.balloons()
-                                st.rerun()
-                            except Exception as e:
-                                session.rollback()
-                                st.error(f"Error al guardar: {e}")
-                            finally:
-                                session.close()
+                    render_bloodwork_upload_wizard(
+                        member_id=member_obj.id,
+                        gender=athlete_gender,
+                        ranges=BLOODWORK_RANGES,
+                        SessionLocal=SessionLocal,
+                        BloodworkRecord=BloodworkRecord,
+                        key_prefix=f"crm_up_{member_obj.id}",
+                        is_coach=True,
+                        athlete_name=selected_athlete,
+                    )
 
                     # ── Tabla de referencia rápida (Hombres y Mujeres Atletas) ──
                     st.markdown("---")
-                    with st.expander(f"📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
+                    with st.expander("📖 Guía y Tabla de Rangos de Referencia (Hombres y Mujeres - Atletas de Resistencia)", expanded=False):
                         ref_html = generate_endurance_reference_table_html(gender=athlete_gender)
                         try:
                             st.html(ref_html)
