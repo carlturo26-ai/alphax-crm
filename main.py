@@ -1585,6 +1585,16 @@ elif page == "Analíticas AlphaX":
 
 
             st.markdown(f"### 🏃‍♂️ {selected_athlete} · Grupo: `{member_obj.group or 'AlphaX'}` · {gender_badge}")
+            try:
+                import wolfy_bot as _wb_prof
+                _wb_prof.render_athlete_biometric_profile_editor(
+                    member_obj.id,
+                    key_prefix=f"crm_prof_{member_obj.id}",
+                    expanded=False,
+                    is_admin=True,
+                )
+            except Exception:
+                pass
             
             tab_clin, tab_lac, tab_sleep = st.tabs([
                 "🩸 Marcadores Clínicos / Hemogramas",

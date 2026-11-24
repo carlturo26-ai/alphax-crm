@@ -1,5 +1,5 @@
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Date, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Date, DateTime, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 import os
@@ -66,7 +66,19 @@ class Member(Base):
     start_month = Column(String, default="ENERO") # Month the member joined the club
     gender = Column(String, default="Hombre", nullable=True) # "Hombre" o "Mujer" (para rangos clínicos)
     notes = Column(String, nullable=True)
-    
+
+    # Perfil biométrico y deportivo (usado por Wolfy AI Coach y Analíticas)
+    height_cm = Column(Float, nullable=True)          # Estatura en cm (ej. 176)
+    weight_kg = Column(Float, nullable=True)          # Peso actual en kg (ej. 68.5)
+    birth_date = Column(Date, nullable=True)          # Fecha de nacimiento (edad exacta)
+    primary_sport = Column(String, nullable=True)     # Ciclismo, Triatlón, Running, Natación, Trail...
+    weekly_hours = Column(Float, nullable=True)       # Horas de entrenamiento promedio por semana
+    resting_hr = Column(Integer, nullable=True)       # Frecuencia cardíaca en reposo (lpm)
+    max_hr = Column(Integer, nullable=True)           # Frecuencia cardíaca máxima (lpm)
+    altitude_m = Column(Integer, nullable=True)       # Altitud habitual de entrenamiento (msnm)
+    athlete_goal = Column(String, nullable=True)      # Objetivo / competencia principal
+    medical_notes = Column(String, nullable=True)     # Alergias, dieta, lesiones o antecedentes
+
     transactions = relationship("Transaction", back_populates="member")
 
 class Transaction(Base):
@@ -211,6 +223,18 @@ class ClubSetting(Base):
     value = Column(String, nullable=True)
     updated_at = Column(Date, default=datetime.now)
 
+
+class WolfyChatMessage(Base):
+    __tablename__ = "wolfy_chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), index=True)
+    role = Column(String)      # "user" o "assistant"
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+
+    member = relationship("Member")
+
 def get_club_setting(key: str, default: str = "") -> str:
     """Obtiene una configuración global del club desde la base de datos central."""
     try:
@@ -251,14 +275,28 @@ def init_db():
         is_sqlite = "sqlite" in str(engine.url)
         
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            # Migración de género en tabla members
-            try:
-                if is_sqlite:
-                    conn.execute(text("ALTER TABLE members ADD COLUMN gender VARCHAR DEFAULT 'Hombre';"))
-                else:
-                    conn.execute(text("ALTER TABLE members ADD COLUMN IF NOT EXISTS gender VARCHAR DEFAULT 'Hombre';"))
-            except Exception:
-                pass
+            # Migración de perfil biométrico y género en tabla members
+            member_cols_to_add = [
+                ("gender", "VARCHAR DEFAULT 'Hombre'"),
+                ("height_cm", "FLOAT"),
+                ("weight_kg", "FLOAT"),
+                ("birth_date", "DATE"),
+                ("primary_sport", "VARCHAR"),
+                ("weekly_hours", "FLOAT"),
+                ("resting_hr", "INTEGER"),
+                ("max_hr", "INTEGER"),
+                ("altitude_m", "INTEGER"),
+                ("athlete_goal", "VARCHAR"),
+                ("medical_notes", "VARCHAR"),
+            ]
+            for col_name, col_type in member_cols_to_add:
+                try:
+                    if is_sqlite:
+                        conn.execute(text(f"ALTER TABLE members ADD COLUMN {col_name} {col_type};"))
+                    else:
+                        conn.execute(text(f"ALTER TABLE members ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
+                except Exception:
+                    pass
 
             # Migración de marcadores en tabla bloodwork_records
             cols_to_add = [
