@@ -630,6 +630,12 @@ def render_race_strategy_page():
             )
 
             st.markdown("##### 📐 Ajuste fino de CdA y Peso de Bici")
+            pending_cda_key = f"rs_apply_cda_pending_{member_id}"
+            if pending_cda_key in st.session_state:
+                pending_cda_val = float(st.session_state.pop(pending_cda_key))
+                st.session_state[f"rs_override_aero_{member_id}"] = True
+                st.session_state[f"rs_manual_cda_{member_id}"] = pending_cda_val
+
             has_cal_cda = bool(ath_defaults.get("calibrated_cda"))
             default_cda_val = float(ath_defaults["calibrated_cda"]) if has_cal_cda else 0.240
             override_label = (
@@ -948,10 +954,10 @@ def render_race_strategy_page():
         )
 
         cal_mode = st.radio(
-            "¿Cómo deseas calibrar el CdA?",
+            "¿Cómo deseas calibrar el CdA? (Totalmente independiente del circuito del simulador):",
             [
-                "📂 Subir archivo real de carrera (.FIT, .TCX o .GPX con potencia)",
-                "📝 Usar circuito GPX actual + Tiempo y Potencia Media oficial de la carrera",
+                "📂 Subir archivo de OTRA carrera mía (.FIT, .TCX, .GPX, .ZIP con potencia)",
+                "📝 Resumen oficial (Tiempo + Potencia Media) sobre un archivo de ruta pasado",
             ],
             horizontal=True,
             key=f"cda_mode_{member_id}",
@@ -1028,30 +1034,34 @@ def render_race_strategy_page():
             with cmw4:
                 man_wd = float(st.number_input("Dirección viento (0-359°):", 0.0, 359.0, 45.0, 5.0, key=f"cda_mwd_{member_id}"))
 
-        # ── MODO 1: ARCHIVO DE COMPETENCIA (.FIT / .TCX / .GPX / .ZIP) ──
+        # ── MODO 1: ARCHIVO INDEPENDIENTE DE COMPETENCIA (.FIT / .TCX / .GPX / .ZIP) ──
         if cal_mode.startswith("📂"):
+            st.caption(
+                "💡 Este cargador es **100% independiente** del circuito del simulador de arriba: "
+                "puedes subir cualquier carrera pasada tuya (ej. tu 70.3 del año pasado) para estimar tu CdA real y luego aplicarlo al nuevo circuito."
+            )
+            act_file = st.file_uploader(
+                "📂 Sube TU archivo de carrera o entreno con potencia (.fit, .tcx, .gpx, .zip o .gz):",
+                type=["fit", "tcx", "gpx", "zip", "gz"],
+                key=f"cda_file_up_{member_id}",
+            )
+
             use_top_file = False
-            if uploaded_custom_file and route_file_bytes:
+            if act_file is None and uploaded_custom_file and route_file_bytes:
                 use_top_file = st.checkbox(
-                    f"♻️ Usar el mismo archivo cargado arriba (`{route_file_label}`)",
-                    value=True,
-                    key=f"cda_reuse_top_{member_id}",
+                    f"♻️ Opcional: usar en su lugar el mismo archivo cargado arriba (`{route_file_label}`)",
+                    value=False,
+                    key=f"cda_reuse_top_v2_{member_id}",
                 )
 
             act_bytes = None
             act_name = None
-            if use_top_file:
+            if act_file is not None:
+                act_bytes = act_file.getvalue()
+                act_name = act_file.name
+            elif use_top_file:
                 act_bytes = route_file_bytes
                 act_name = route_file_label
-            else:
-                act_file = st.file_uploader(
-                    "Sube el archivo de tu carrera (.fit, .tcx, .gpx, .zip o .gz exportado de Garmin Connect, Strava, TrainingPeaks o Wahoo):",
-                    type=["fit", "tcx", "gpx", "zip", "gz"],
-                    key=f"cda_file_up_{member_id}",
-                )
-                if act_file is not None:
-                    act_bytes = act_file.getvalue()
-                    act_name = act_file.name
 
             if act_bytes is not None and act_name:
                 try:
@@ -1142,73 +1152,93 @@ def render_race_strategy_page():
                 except Exception as act_err:
                     st.error(f"⚠️ Error leyendo archivo de carrera: {act_err}")
 
-        # ── MODO 2: RESUMEN OFICIAL + GPX ACTUAL ────────────────────
+        # ── MODO 2: RESUMEN OFICIAL + ARCHIVO DE RUTA INDEPENDIENTE ──
         else:
-            st.caption(f"Usando circuito cargado arriba: **`{route_data['route_name']}`** ({route_data['total_distance_km']:.1f} km · +{route_data['elevation_gain_m']:.0f} m)")
-            cs1, cs2, cs3, cs4, cs5 = st.columns([1.2, 0.9, 0.7, 0.7, 1.1])
-            with cs1:
-                sum_date = st.date_input(
-                    "📅 Fecha de esa carrera:",
-                    value=date.today() - timedelta(days=180),
-                    min_value=date(2015, 1, 1),
-                    max_value=date.today(),
-                    key=f"cda_sum_dt_{member_id}",
+            sum_route_file = st.file_uploader(
+                "📂 Sube el archivo de la ruta de ESA carrera pasada (.fit, .gpx, .tcx, .zip) — opcional si es el mismo circuito de arriba:",
+                type=["fit", "gpx", "tcx", "zip", "gz"],
+                key=f"cda_sum_route_up_{member_id}",
+            )
+            sum_route_data = route_data
+            if sum_route_file is not None:
+                try:
+                    sum_route_data = parse_route_from_any_file(sum_route_file.getvalue(), sum_route_file.name, laps=1)
+                except Exception as sr_err:
+                    st.error(f"⚠️ No se pudo leer la ruta pasada: {sr_err}")
+                    sum_route_data = None
+
+            if sum_route_data:
+                sum_segs = sum_route_data["segments"]
+                sum_lat = sum(seg["lat"] for seg in sum_segs) / max(1, len(sum_segs))
+                sum_lon = sum(seg["lon"] for seg in sum_segs) / max(1, len(sum_segs))
+                st.caption(
+                    f"🗺️ Ruta para calibración: **`{sum_route_data['route_name']}`** "
+                    f"({sum_route_data['total_distance_km']:.1f} km · +{sum_route_data['elevation_gain_m']:.0f} m)"
                 )
-            with cs2:
-                sum_hour_str = st.selectbox("⏰ Hora salida bici:", [f"{h:02d}:00" for h in range(5, 19)], index=2, key=f"cda_sum_hr_{member_id}")
-                sum_hour = int(sum_hour_str.split(":")[0])
-            with cs3:
-                t_hh = st.number_input("Horas:", 0, 12, 2, 1, key=f"cda_hh_{member_id}")
-            with cs4:
-                t_mm = st.number_input("Minutos:", 0, 59, 25, 1, key=f"cda_mm_{member_id}")
-            with cs5:
-                sum_pwr = st.number_input("⚡ Potencia Media (W):", 60.0, 500.0, float(round(ath_defaults["ftp_w"] * 0.80)), 5.0, key=f"cda_sum_p_{member_id}")
+                cs1, cs2, cs3, cs4, cs5 = st.columns([1.2, 0.9, 0.7, 0.7, 1.1])
+                with cs1:
+                    sum_date = st.date_input(
+                        "📅 Fecha de esa carrera:",
+                        value=date.today() - timedelta(days=180),
+                        min_value=date(2015, 1, 1),
+                        max_value=date.today(),
+                        key=f"cda_sum_dt_{member_id}",
+                    )
+                with cs2:
+                    sum_hour_str = st.selectbox("⏰ Hora salida bici:", [f"{h:02d}:00" for h in range(5, 19)], index=2, key=f"cda_sum_hr_{member_id}")
+                    sum_hour = int(sum_hour_str.split(":")[0])
+                with cs3:
+                    t_hh = st.number_input("Horas:", 0, 12, 2, 1, key=f"cda_hh_{member_id}")
+                with cs4:
+                    t_mm = st.number_input("Minutos:", 0, 59, 25, 1, key=f"cda_mm_{member_id}")
+                with cs5:
+                    sum_pwr = st.number_input("⚡ Potencia Media (W):", 60.0, 500.0, float(round(ath_defaults["ftp_w"] * 0.80)), 5.0, key=f"cda_sum_p_{member_id}")
 
-            if st.button("📐 Calcular CdA Real desde Resumen de Carrera", type="primary", use_container_width=True, key=f"cda_run_sum_{member_id}"):
-                total_real_s = (int(t_hh) * 3600) + (int(t_mm) * 60)
-                if total_real_s < 120:
-                    st.error("Ingresa un tiempo real de carrera válido (mínimo 2 minutos).")
-                else:
-                    with st.spinner("Consultando clima histórico ERA5 de esa fecha y despejando tu CdA exacto..."):
-                        w_hist = None
-                        t_used, h_used, ws_used, wd_used = man_t, man_h, man_ws, man_wd
-                        hourly_used = None
-                        if use_auto_era5:
-                            w_hist = fetch_race_weather(
-                                lat=route_lat,
-                                lon=route_lon,
-                                race_date=sum_date,
-                                start_hour=sum_hour,
-                                duration_hours=max(3, int(t_hh) + 2),
+                if st.button("📐 Calcular CdA Real desde Resumen de Carrera", type="primary", use_container_width=True, key=f"cda_run_sum_{member_id}"):
+                    total_real_s = (int(t_hh) * 3600) + (int(t_mm) * 60)
+                    if total_real_s < 120:
+                        st.error("Ingresa un tiempo real de carrera válido (mínimo 2 minutos).")
+                    else:
+                        with st.spinner("Consultando clima histórico ERA5 de esa fecha y despejando tu CdA exacto..."):
+                            w_hist = None
+                            t_used, h_used, ws_used, wd_used = man_t, man_h, man_ws, man_wd
+                            hourly_used = None
+                            if use_auto_era5:
+                                w_hist = fetch_race_weather(
+                                    lat=sum_lat,
+                                    lon=sum_lon,
+                                    race_date=sum_date,
+                                    start_hour=sum_hour,
+                                    duration_hours=max(3, int(t_hh) + 2),
+                                )
+                                if w_hist.get("ok") and w_hist.get("summary"):
+                                    t_used = w_hist["summary"]["temp_c"]
+                                    h_used = w_hist["summary"]["humidity_pct"]
+                                    ws_used = w_hist["summary"]["wind_kmh"]
+                                    wd_used = w_hist["summary"]["wind_deg"]
+                                    hourly_used = w_hist["hourly"]
+
+                            res_cda = estimate_cda_from_race_summary(
+                                route_data=sum_route_data,
+                                actual_time_sec=float(total_real_s),
+                                actual_avg_power_w=float(sum_pwr),
+                                rider_weight_kg=cal_rider_w,
+                                bike_and_gear_kg=cal_bike_w,
+                                crr=cal_crr,
+                                efficiency=cal_eff,
+                                temp_c=t_used,
+                                rel_humidity_pct=h_used,
+                                wind_speed_kmh=ws_used,
+                                wind_from_deg=wd_used,
+                                hourly_weather=hourly_used,
                             )
-                            if w_hist.get("ok") and w_hist.get("summary"):
-                                t_used = w_hist["summary"]["temp_c"]
-                                h_used = w_hist["summary"]["humidity_pct"]
-                                ws_used = w_hist["summary"]["wind_kmh"]
-                                wd_used = w_hist["summary"]["wind_deg"]
-                                hourly_used = w_hist["hourly"]
-
-                        res_cda = estimate_cda_from_race_summary(
-                            route_data=route_data,
-                            actual_time_sec=float(total_real_s),
-                            actual_avg_power_w=float(sum_pwr),
-                            rider_weight_kg=cal_rider_w,
-                            bike_and_gear_kg=cal_bike_w,
-                            crr=cal_crr,
-                            efficiency=cal_eff,
-                            temp_c=t_used,
-                            rel_humidity_pct=h_used,
-                            wind_speed_kmh=ws_used,
-                            wind_from_deg=wd_used,
-                            hourly_weather=hourly_used,
-                        )
-                        res_cda["race_date"] = sum_date
-                        res_cda["bike_label"] = cal_bike_lbl
-                        res_cda["weather_used"] = w_hist if (w_hist and w_hist.get("ok")) else {
-                            "source_label": "Manual",
-                            "summary": {"temp_c": t_used, "humidity_pct": h_used, "wind_kmh": ws_used, "wind_deg": wd_used, "wind_compass": deg_to_compass(wd_used)},
-                        }
-                        st.session_state[cda_res_key] = res_cda
+                            res_cda["race_date"] = sum_date
+                            res_cda["bike_label"] = cal_bike_lbl
+                            res_cda["weather_used"] = w_hist if (w_hist and w_hist.get("ok")) else {
+                                "source_label": "Manual",
+                                "summary": {"temp_c": t_used, "humidity_pct": h_used, "wind_kmh": ws_used, "wind_deg": wd_used, "wind_compass": deg_to_compass(wd_used)},
+                            }
+                            st.session_state[cda_res_key] = res_cda
 
         # ── RESULTADO DE CALIBRACIÓN DE CdA ─────────────────────────
         cal_res = st.session_state.get(cda_res_key)
@@ -1270,6 +1300,7 @@ def render_race_strategy_page():
                     line_dash="dash",
                     line_color="#00FF88",
                     annotation_text=f"CdA Global: {cal_res['cda']:.3f} m²",
+                    annotation_position="top left",
                     annotation_font=dict(color="#00FF88"),
                 )
                 fig_cda.update_layout(
@@ -1277,11 +1308,17 @@ def render_race_strategy_page():
                     paper_bgcolor="#0E121C",
                     plot_bgcolor="#0E121C",
                     font=dict(color="#E2E8F0"),
-                    height=300,
+                    height=310,
                     margin=dict(l=15, r=15, t=45, b=15),
                     yaxis_title="CdA (m²)",
+                    yaxis=dict(range=[0, max(df_ch["CdA Est. (m²)"]) * 1.18]),
                 )
                 st.plotly_chart(fig_cda, use_container_width=True)
+
+            # Mostrar confirmación si recién se guardó
+            cda_flash_key = f"cda_saved_flash_{member_id}"
+            if st.session_state.get(cda_flash_key):
+                st.success(st.session_state.pop(cda_flash_key))
 
             # Botón 1 clic para guardar en perfil y aplicar al simulador
             if st.button(
@@ -1298,9 +1335,9 @@ def render_race_strategy_page():
                             m_db.calibrated_cda_bike = cal_res.get("bike_label")
                             m_db.calibrated_cda_date = cal_res.get("race_date")
                             s_up.commit()
-                    st.session_state[f"rs_override_aero_{member_id}"] = True
-                    st.session_state[f"rs_manual_cda_{member_id}"] = float(cal_res["cda"])
-                    st.success(
+                    # Guardar en flag pendiente para aplicar ANTES de instanciar los widgets de Tab 1 en el rerun
+                    st.session_state[f"rs_apply_cda_pending_{member_id}"] = float(cal_res["cda"])
+                    st.session_state[cda_flash_key] = (
                         f"🎉 CdA real (`{cal_res['cda']:.3f} m²`) guardado en el perfil de **{ath_defaults['name']}** "
                         "y aplicado automáticamente en **⚙️ Simulador y Plan de Carrera**."
                     )
