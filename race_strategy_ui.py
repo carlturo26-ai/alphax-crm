@@ -19,6 +19,7 @@ from cda_estimator import (
     estimate_cda_from_race_summary,
     parse_activity_file,
     parse_route_from_any_file,
+    trim_activity_range,
 )
 from race_strategy_engine import (
     APPAREL_OPTIONS,
@@ -1073,6 +1074,26 @@ def render_race_strategy_page():
                             f"🏊‍♂️➡️🚴‍♂️➡️🏃‍♂️ **Archivo Multideporte (Triatlón) detectado:** se aisló automáticamente únicamente el segmento de **Ciclismo** "
                             f"({activity['distance_km']:.1f} km · {activity['moving_time_str']})."
                         )
+
+                    # Recorte manual opcional por km (por si el archivo trae bici+carrera pegados o tramos neutralizados)
+                    max_km_act = max(2.0, float(activity["distance_km"]))
+                    km_lo, km_hi = st.slider(
+                        "✂️ Recortar tramo a analizar (Km inicio – Km fin):",
+                        min_value=0.0,
+                        max_value=round(max_km_act, 1),
+                        value=(0.0, round(max_km_act, 1)),
+                        step=1.0,
+                        help="Si tu archivo tiene la carrera a pie pegada al final o tráfico inicial, recorta exactamente los kilómetros de bici (ej. 0 a 180 km).",
+                        key=f"cda_trim_{member_id}_{act_name}_{round(max_km_act, 1)}",
+                    )
+                    if km_lo > 0.1 or km_hi < (max_km_act - 0.5):
+                        activity = trim_activity_range(activity, km_lo, km_hi)
+                        pwr_txt = (
+                            f"⚡ Potencia: **{activity['avg_power_w']:.0f} W** (NP: {activity['norm_power_w']:.0f} W)"
+                            if activity["has_power"]
+                            else "⚠️ Sin canal de potencia segundo a segundo (puedes ingresar tu Potencia Media abajo)"
+                        )
+
                     sensor_t_txt = f" · 🌡️ Sensor bici: **{activity['sensor_avg_temp_c']}°C**" if activity.get("sensor_avg_temp_c") is not None else ""
                     st.info(
                         f"📄 **{activity['name']}** · 📅 Fecha: **{act_dt.strftime('%d/%m/%Y')}** · "

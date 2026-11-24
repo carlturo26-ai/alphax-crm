@@ -814,6 +814,77 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
     }
 
 
+def trim_activity_range(activity: dict, km_start: float, km_end: float) -> dict:
+    """
+    Recorta una actividad ya parseada al rango [km_start, km_end] (ideal para quitar
+    salidas neutralizadas, tráfico o una carrera a pie pegada al final del archivo).
+    """
+    recs = activity.get("records") or []
+    lo_km = max(0.0, float(km_start))
+    hi_km = max(lo_km + 0.5, float(km_end))
+    sub = [r for r in recs if lo_km <= r["dist_mid_km"] <= hi_km]
+    if len(sub) < 5:
+        return activity
+
+    # Recalcular acumulados limpios sobre el tramo recortado
+    cum_d = 0.0
+    cum_t = 0.0
+    elev_gain = 0.0
+    p_samps = []
+    t_samps = []
+    new_recs = []
+    for r in sub:
+        nr = dict(r)
+        nr["dist_start_m"] = cum_d
+        cum_d += nr["length_m"]
+        nr["dist_end_m"] = cum_d
+        nr["dist_mid_km"] = (nr["dist_start_m"] + nr["length_m"] / 2.0) / 1000.0
+        cum_t += nr["dt"]
+        nr["cum_time_s"] = cum_t
+        de = nr["ele_end"] - nr["ele_start"]
+        if de > 0:
+            elev_gain += de
+        if nr.get("power_w") is not None:
+            p_samps.append(nr["power_w"])
+            t_samps.append(nr["dt"])
+        new_recs.append(nr)
+
+    dist_km = round(cum_d / 1000.0, 2)
+    avg_spd = round(dist_km / max(1e-4, cum_t / 3600.0), 2)
+    has_p = len(p_samps) >= max(5, int(len(new_recs) * 0.4))
+    avg_p = round(sum(p * t for p, t in zip(p_samps, t_samps)) / sum(t_samps), 1) if (has_p and sum(t_samps) > 0) else None
+    np_w = round(_compute_normalized_power(p_samps, t_samps), 1) if has_p else None
+    eles = [r["ele_m"] for r in new_recs]
+    grades = [r["grade"] * 100.0 for r in new_recs]
+
+    out = dict(activity)
+    out.update({
+        "distance_km": dist_km,
+        "elevation_gain_m": round(elev_gain, 0),
+        "moving_time_s": round(cum_t, 1),
+        "moving_time_str": format_hms(cum_t),
+        "avg_speed_kmh": avg_spd,
+        "has_power": has_p,
+        "avg_power_w": avg_p,
+        "norm_power_w": np_w,
+        "records": new_recs,
+        "route_data": {
+            "route_name": f"{activity['name']} (Km {lo_km:.0f}–{hi_km:.0f})",
+            "laps": 1,
+            "total_distance_km": dist_km,
+            "elevation_gain_m": round(elev_gain, 0),
+            "elevation_loss_m": 0.0,
+            "min_ele_m": round(min(eles), 0),
+            "max_ele_m": round(max(eles), 0),
+            "avg_ele_m": round(sum(eles) / len(eles), 0),
+            "max_grade_pct": round(max(grades), 1),
+            "min_grade_pct": round(min(grades), 1),
+            "segments": new_recs,
+        },
+    })
+    return out
+
+
 # ═════════════════════════════════════════════════════════════════════
 #  MÉTODO A: ESTIMACIÓN INVERSA DE CdA DESDE TELEMETRÍA CON POTENCIA
 # ═════════════════════════════════════════════════════════════════════
