@@ -15,25 +15,55 @@ Combina:
 """
 
 from datetime import date, datetime, timedelta, timezone
+import gzip
 import io
 import math
 import struct
 import xml.etree.ElementTree as ET
+import zipfile
 
 from race_strategy_engine import (
     GRAVITY,
+    _angle_diff_deg,
     _bearing_deg,
     _compute_normalized_power,
     _haversine_m,
     _sample_hourly_weather,
     calc_air_density,
     format_hms,
+    parse_gpx_bytes,
     simulate_race_strategy,
 )
 
 
 FIT_EPOCH = datetime(1989, 12, 31, 0, 0, 0, tzinfo=timezone.utc)
 SEMICIRCLES_TO_DEG = 180.0 / (2 ** 31)
+
+
+def unwrap_activity_bytes(file_bytes: bytes, filename: str) -> tuple:
+    """
+    Si el archivo viene comprimido en .zip (ej. 'Export Original' de Garmin Connect)
+    o .gz (ej. Strava .fit.gz), extrae automáticamente el .fit, .tcx o .gpx interior.
+    Retorna (bytes_extraidos, nombre_archivo_interno).
+    """
+    low = (filename or "").lower()
+    if low.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            candidates = [
+                n for n in zf.namelist()
+                if not n.endswith("/") and n.lower().rsplit(".", 1)[-1] in ("fit", "tcx", "gpx")
+            ]
+            if not candidates:
+                raise ValueError("El archivo .zip no contiene ningún archivo .fit, .tcx ni .gpx.")
+            # Priorizar .fit > .tcx > .gpx
+            candidates.sort(key=lambda n: {"fit": 0, "tcx": 1, "gpx": 2}.get(n.lower().rsplit(".", 1)[-1], 9))
+            inner_name = candidates[0]
+            return zf.read(inner_name), inner_name
+    if low.endswith(".gz"):
+        decompressed = gzip.decompress(file_bytes)
+        inner_name = filename[:-3] if len(filename) > 3 else "actividad.fit"
+        return decompressed, inner_name
+    return file_bytes, filename
 
 
 def _strip_ns(tag: str) -> str:
@@ -166,20 +196,33 @@ def _parse_tcx_activity(file_bytes: bytes) -> tuple:
 
 
 def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
-    """Lee un archivo binario .FIT usando `fitdecode` (soporte completo Garmin/Wahoo/Hammerhead)."""
+    """Lee un archivo binario .FIT usando `fitdecode` (soporte completo Garmin/Wahoo/Hammerhead/Courses)."""
     import fitdecode
 
     pts = []
-    with fitdecode.FitReader(io.BytesIO(file_bytes)) as fit:
+    fit_name = "Actividad FIT"
+    crc_opt = getattr(fitdecode, "CrcCheck", None)
+    reader_kwargs = {"check_crc": crc_opt.DISABLED} if crc_opt is not None else {}
+
+    with fitdecode.FitReader(io.BytesIO(file_bytes), **reader_kwargs) as fit:
         for frame in fit:
-            if isinstance(frame, fitdecode.FitDataMessage) and frame.name == "record":
+            if not isinstance(frame, fitdecode.FitDataMessage):
+                continue
+            if frame.name == "course":
+                c_name = frame.get_value("name", fallback=None)
+                if c_name:
+                    fit_name = str(c_name).strip()
+            elif frame.name == "record":
                 lat = frame.get_value("position_lat", fallback=None)
                 lon = frame.get_value("position_long", fallback=None)
                 if lat is None or lon is None:
                     continue
-                lat_deg = float(lat) * SEMICIRCLES_TO_DEG
-                lon_deg = float(lon) * SEMICIRCLES_TO_DEG
+                lat_f, lon_f = float(lat), float(lon)
+                lat_deg = lat_f * SEMICIRCLES_TO_DEG if abs(lat_f) > 180.0 else lat_f
+                lon_deg = lon_f * SEMICIRCLES_TO_DEG if abs(lon_f) > 180.0 else lon_f
                 if not (-90.0 <= lat_deg <= 90.0 and -180.0 <= lon_deg <= 180.0):
+                    continue
+                if abs(lat_deg) < 1e-5 and abs(lon_deg) < 1e-5:
                     continue
                 ele = frame.get_value("enhanced_altitude", fallback=None)
                 if ele is None:
@@ -199,7 +242,7 @@ def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
                     "dist_m": float(dist) if dist is not None else None,
                     "speed_ms": float(spd) if spd is not None else None,
                 })
-    return "Actividad FIT", pts
+    return fit_name, pts
 
 
 def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
@@ -337,12 +380,137 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
     return "Actividad FIT", pts
 
 
+def parse_route_from_any_file(file_bytes: bytes, filename: str, laps: int = 1, target_step_m: float = 100.0) -> dict:
+    """
+    Carga un circuito de ciclismo desde cualquier archivo compatible:
+    .GPX, .FIT (actividad o course de Garmin/Wahoo/Strava), .TCX, .ZIP o .GZ.
+    Retorna `route_data` listo para `simulate_race_strategy` con soporte multi-vuelta.
+    """
+    raw_bytes, inner_name = unwrap_activity_bytes(file_bytes, filename)
+    ext = (inner_name.lower().rsplit(".", 1)[-1] if "." in inner_name else "").strip()
+
+    if ext == "gpx":
+        return parse_gpx_bytes(raw_bytes, laps=laps, target_step_m=target_step_m)
+
+    if ext == "tcx":
+        r_name, raw_pts = _parse_tcx_activity(raw_bytes)
+    elif ext == "fit":
+        try:
+            r_name, raw_pts = _parse_fit_with_fitdecode(raw_bytes)
+        except ImportError:
+            r_name, raw_pts = _parse_fit_pure_python(raw_bytes)
+        except Exception:
+            r_name, raw_pts = _parse_fit_pure_python(raw_bytes)
+    else:
+        raise ValueError(f"Formato no soportado: .{ext}. Sube un archivo .fit, .gpx, .tcx o .zip.")
+
+    if len(raw_pts) < 2:
+        raise ValueError("El archivo no contiene suficientes puntos GPS (mínimo 2 puntos).")
+
+    if r_name in ("Actividad FIT", "Actividad TCX"):
+        r_name = inner_name.rsplit(".", 1)[0]
+
+    # Rellenar elevaciones faltantes
+    first_ele = next((p["ele"] for p in raw_pts if p["ele"] is not None), 0.0)
+    last_e = first_ele
+    lap_pts = []
+    cum_d = 0.0
+    prev_lat, prev_lon = None, None
+    for p in raw_pts:
+        e = p["ele"] if p["ele"] is not None else last_e
+        last_e = e
+        if prev_lat is not None:
+            step_d = _haversine_m(prev_lat, prev_lon, p["lat"], p["lon"])
+            if step_d < 0.5:
+                continue
+            cum_d += step_d
+        lap_pts.append((p["lat"], p["lon"], e, cum_d))
+        prev_lat, prev_lon = p["lat"], p["lon"]
+
+    if len(lap_pts) < 2 or cum_d < 100.0:
+        raise ValueError("La ruta del archivo es demasiado corta (< 100 metros).")
+
+    lap_count = max(1, int(laps))
+    eff_step = target_step_m if (cum_d * lap_count) <= 120000 else 150.0
+    sampled = [lap_pts[0]]
+    last_d = 0.0
+    for pt in lap_pts[1:-1]:
+        if pt[3] - last_d >= eff_step:
+            sampled.append(pt)
+            last_d = pt[3]
+    if lap_pts[-1][3] - sampled[-1][3] >= 5.0:
+        sampled.append(lap_pts[-1])
+
+    n_s = len(sampled)
+    smooth_eles = []
+    for i in range(n_s):
+        lo, hi = max(0, i - 1), min(n_s, i + 2)
+        smooth_eles.append(sum(sampled[j][2] for j in range(lo, hi)) / float(hi - lo))
+
+    lap_segments = []
+    for i in range(n_s - 1):
+        lat1, lon1, _, d1 = sampled[i]
+        lat2, lon2, _, d2 = sampled[i + 1]
+        seg_len = max(5.0, d2 - d1)
+        e1, e2 = smooth_eles[i], smooth_eles[i + 1]
+        grade = max(-0.22, min(0.25, (e2 - e1) / seg_len))
+        lap_segments.append({
+            "lat": (lat1 + lat2) / 2.0,
+            "lon": (lon1 + lon2) / 2.0,
+            "ele_m": (e1 + e2) / 2.0,
+            "ele_start": e1,
+            "ele_end": e2,
+            "length_m": seg_len,
+            "grade": grade,
+            "bearing_deg": _bearing_deg(lat1, lon1, lat2, lon2),
+            "turn_deg": 0.0,
+        })
+    for i in range(1, len(lap_segments)):
+        lap_segments[i]["turn_deg"] = _angle_diff_deg(lap_segments[i - 1]["bearing_deg"], lap_segments[i]["bearing_deg"])
+
+    segments = []
+    cum_dist = 0.0
+    elev_gain = 0.0
+    elev_loss = 0.0
+    for lap_idx in range(lap_count):
+        for seg in lap_segments:
+            sc = dict(seg)
+            sc["dist_start_m"] = cum_dist
+            cum_dist += sc["length_m"]
+            sc["dist_end_m"] = cum_dist
+            sc["dist_mid_km"] = (sc["dist_start_m"] + sc["length_m"] / 2.0) / 1000.0
+            sc["lap"] = lap_idx + 1
+            de = sc["ele_end"] - sc["ele_start"]
+            if de > 0:
+                elev_gain += de
+            else:
+                elev_loss += abs(de)
+            segments.append(sc)
+
+    eles = [s["ele_m"] for s in segments]
+    grades = [s["grade"] * 100.0 for s in segments]
+    return {
+        "route_name": r_name if lap_count == 1 else f"{r_name} ({lap_count} vueltas)",
+        "laps": lap_count,
+        "total_distance_km": round(cum_dist / 1000.0, 2),
+        "elevation_gain_m": round(elev_gain, 0),
+        "elevation_loss_m": round(elev_loss, 0),
+        "min_ele_m": round(min(eles), 0),
+        "max_ele_m": round(max(eles), 0),
+        "avg_ele_m": round(sum(eles) / len(eles), 0),
+        "max_grade_pct": round(max(grades), 1),
+        "min_grade_pct": round(min(grades), 1),
+        "segments": segments,
+    }
+
+
 def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
     """
-    Lee un archivo de carrera/entreno (.fit, .tcx, .gpx) y retorna telemetría limpia,
+    Lee un archivo de carrera/entreno (.fit, .tcx, .gpx, .zip o .gz) y retorna telemetría limpia,
     metadatos de fecha/hora/ubicación, métricas reales (tiempo, velocidad, AP, NP)
     y `route_data` compatible con el simulador.
     """
+    file_bytes, filename = unwrap_activity_bytes(file_bytes, filename)
     ext = (filename.lower().rsplit(".", 1)[-1] if "." in filename else "").strip()
     if ext == "gpx":
         name, raw_pts = _parse_gpx_activity(file_bytes)

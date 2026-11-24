@@ -18,6 +18,7 @@ from cda_estimator import (
     estimate_cda_from_activity,
     estimate_cda_from_race_summary,
     parse_activity_file,
+    parse_route_from_any_file,
 )
 from race_strategy_engine import (
     APPAREL_OPTIONS,
@@ -393,28 +394,32 @@ def render_race_strategy_page():
     with col_top2:
         route_source = st.radio(
             "🗺️ Origen del Circuito de Ciclismo:",
-            ["📂 Subir archivo GPX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
+            ["📂 Subir archivo FIT / GPX / TCX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
             horizontal=True,
             key="rs_route_source",
         )
 
-        gpx_bytes = None
-        gpx_label = ""
+        route_file_bytes = None
+        route_file_label = ""
+        uploaded_custom_file = False
         c_gpx1, c_gpx2 = st.columns([2.2, 1])
         with c_gpx1:
-            if route_source == "📂 Subir archivo GPX":
+            if route_source.startswith("📂"):
                 up_gpx = st.file_uploader(
-                    "Sube la ruta del circuito (.gpx de Strava, Garmin, RideWithGPS o Komoot):",
-                    type=["gpx"],
+                    "Sube la ruta o actividad (.fit, .gpx, .tcx o .zip de Garmin/Strava/Wahoo/TrainingPeaks):",
+                    type=["fit", "gpx", "tcx", "zip", "gz"],
                     key="rs_gpx_uploader",
                 )
                 if up_gpx is not None:
-                    gpx_bytes = up_gpx.getvalue()
-                    gpx_label = up_gpx.name
+                    route_file_bytes = up_gpx.getvalue()
+                    route_file_label = up_gpx.name
+                    uploaded_custom_file = True
             elif "Cartagena" in route_source:
-                gpx_bytes, gpx_label = generate_demo_gpx("cartagena_703")
+                route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
+                route_file_label = "demo_cartagena.gpx"
             else:
-                gpx_bytes, gpx_label = generate_demo_gpx("rionegro_climb")
+                route_file_bytes, route_file_label = generate_demo_gpx("rionegro_climb")
+                route_file_label = "demo_rionegro.gpx"
         with c_gpx2:
             laps = st.number_input(
                 "🔁 Vueltas al circuito:",
@@ -422,18 +427,18 @@ def render_race_strategy_page():
                 max_value=15,
                 value=1,
                 step=1,
-                help="Si tu GPX es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
+                help="Si tu archivo es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
                 key="rs_laps",
             )
 
-    if not gpx_bytes:
-        st.info("📂 Sube un archivo `.gpx` arriba o selecciona una de las rutas de demostración para empezar a simular escenarios.")
+    if not route_file_bytes:
+        st.info("📂 Sube un archivo `.fit`, `.gpx`, `.tcx` o `.zip` arriba, o selecciona una de las rutas de demostración para empezar.")
         return
 
     try:
-        route_data = parse_gpx_bytes(gpx_bytes, laps=int(laps))
+        route_data = parse_route_from_any_file(route_file_bytes, route_file_label, laps=int(laps))
     except Exception as gpx_err:
-        st.error(f"⚠️ No se pudo leer el archivo GPX: {gpx_err}")
+        st.error(f"⚠️ No se pudo leer el archivo `{route_file_label}`: {gpx_err}")
         return
 
     # Banner compacto del circuito cargado
@@ -1023,16 +1028,34 @@ def render_race_strategy_page():
             with cmw4:
                 man_wd = float(st.number_input("Dirección viento (0-359°):", 0.0, 359.0, 45.0, 5.0, key=f"cda_mwd_{member_id}"))
 
-        # ── MODO 1: ARCHIVO DE COMPETENCIA (.FIT / .TCX / .GPX) ─────
+        # ── MODO 1: ARCHIVO DE COMPETENCIA (.FIT / .TCX / .GPX / .ZIP) ──
         if cal_mode.startswith("📂"):
-            act_file = st.file_uploader(
-                "Sube el archivo de tu carrera (.fit, .tcx o .gpx exportado de Garmin Connect, Strava, TrainingPeaks o Wahoo):",
-                type=["fit", "tcx", "gpx"],
-                key=f"cda_file_up_{member_id}",
-            )
-            if act_file is not None:
+            use_top_file = False
+            if uploaded_custom_file and route_file_bytes:
+                use_top_file = st.checkbox(
+                    f"♻️ Usar el mismo archivo cargado arriba (`{route_file_label}`)",
+                    value=True,
+                    key=f"cda_reuse_top_{member_id}",
+                )
+
+            act_bytes = None
+            act_name = None
+            if use_top_file:
+                act_bytes = route_file_bytes
+                act_name = route_file_label
+            else:
+                act_file = st.file_uploader(
+                    "Sube el archivo de tu carrera (.fit, .tcx, .gpx, .zip o .gz exportado de Garmin Connect, Strava, TrainingPeaks o Wahoo):",
+                    type=["fit", "tcx", "gpx", "zip", "gz"],
+                    key=f"cda_file_up_{member_id}",
+                )
+                if act_file is not None:
+                    act_bytes = act_file.getvalue()
+                    act_name = act_file.name
+
+            if act_bytes is not None and act_name:
                 try:
-                    activity = parse_activity_file(act_file.getvalue(), act_file.name)
+                    activity = parse_activity_file(act_bytes, act_name)
                     act_dt = activity["activity_date"] or (date.today() - timedelta(days=30))
                     pwr_txt = (
                         f"⚡ Potencia: **{activity['avg_power_w']:.0f} W** (NP: {activity['norm_power_w']:.0f} W)"
