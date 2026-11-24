@@ -352,7 +352,8 @@ def render_race_strategy_page():
                     border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px;
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
-                🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (GPX)</span>
+                🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.4</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -1067,10 +1068,16 @@ def render_race_strategy_page():
                         if activity["has_power"]
                         else "⚠️ Sin canal de potencia segundo a segundo (puedes ingresar tu Potencia Media abajo)"
                     )
+                    if activity.get("is_multisport"):
+                        st.success(
+                            f"🏊‍♂️➡️🚴‍♂️➡️🏃‍♂️ **Archivo Multideporte (Triatlón) detectado:** se aisló automáticamente únicamente el segmento de **Ciclismo** "
+                            f"({activity['distance_km']:.1f} km · {activity['moving_time_str']})."
+                        )
+                    sensor_t_txt = f" · 🌡️ Sensor bici: **{activity['sensor_avg_temp_c']}°C**" if activity.get("sensor_avg_temp_c") is not None else ""
                     st.info(
-                        f"📄 **{activity['name']}** · 📅 Fecha detectada: **{act_dt.strftime('%d/%m/%Y')}** (~{activity['start_hour']:02d}:00) · "
+                        f"📄 **{activity['name']}** · 📅 Fecha: **{act_dt.strftime('%d/%m/%Y')}** · "
                         f"Distancia: **{activity['distance_km']:.1f} km** · Tiempo en movimiento: **{activity['moving_time_str']}** "
-                        f"({activity['avg_speed_kmh']:.1f} km/h) · {pwr_txt}"
+                        f"({activity['avg_speed_kmh']:.1f} km/h) · {pwr_txt}{sensor_t_txt}"
                     )
 
                     fallback_avg_p = None
@@ -1101,6 +1108,7 @@ def render_race_strategy_page():
                                     race_date=act_dt,
                                     start_hour=activity["start_hour"],
                                     duration_hours=max(3, int(math.ceil(activity["moving_time_s"] / 3600.0)) + 1),
+                                    start_ts_utc=activity.get("start_ts_utc"),
                                 )
                                 if w_hist.get("ok") and w_hist.get("summary"):
                                     t_used = w_hist["summary"]["temp_c"]

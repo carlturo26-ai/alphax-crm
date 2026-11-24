@@ -195,11 +195,49 @@ def _parse_tcx_activity(file_bytes: bytes) -> tuple:
     return name, pts
 
 
+def _filter_cycling_session_points(pts: list, sessions: list) -> tuple:
+    """
+    Si el archivo .FIT contiene múltiples sesiones (ej. Triatlón / Ironman: Natación + T1 + Ciclismo + T2 + Carrera),
+    aísla automáticamente ÚNICAMENTE los puntos GPS del segmento de Ciclismo (sport == 'cycling' o código 2).
+    Retorna (pts_filtrados, meta_sesion_dict).
+    """
+    meta = {"is_multisport": False, "cycling_session": None, "sessions_count": len(sessions)}
+    if not sessions or not pts:
+        return pts, meta
+
+    cycling_sessions = [
+        s for s in sessions
+        if str(s.get("sport", "")).lower() in ("cycling", "2", "biking")
+    ]
+    if len(sessions) > 1 and cycling_sessions:
+        # Elegir la sesión de ciclismo más larga (por distancia o tiempo)
+        best_c = max(
+            cycling_sessions,
+            key=lambda s: (float(s.get("total_distance") or 0.0), float(s.get("total_elapsed_time") or 0.0)),
+        )
+        t_start = best_c.get("start_time")
+        t_end = best_c.get("end_time")
+        if t_start is not None and t_end is not None:
+            filtered = [p for p in pts if p.get("ts") is not None and (t_start - timedelta(seconds=2)) <= p["ts"] <= (t_end + timedelta(seconds=2))]
+            if len(filtered) >= 10:
+                meta["is_multisport"] = True
+                meta["cycling_session"] = best_c
+                return filtered, meta
+    elif len(cycling_sessions) == 1:
+        meta["cycling_session"] = cycling_sessions[0]
+
+    return pts, meta
+
+
 def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
-    """Lee un archivo binario .FIT usando `fitdecode` (soporte completo Garmin/Wahoo/Hammerhead/Courses)."""
+    """
+    Lee un archivo binario .FIT usando `fitdecode` (soporte completo Garmin/Wahoo/Hammerhead/Courses).
+    Detecta sesiones multideporte (Triatlón/Ironman) y aísla automáticamente solo el segmento de Ciclismo.
+    """
     import fitdecode
 
     pts = []
+    sessions = []
     fit_name = "Actividad FIT"
     crc_opt = getattr(fitdecode, "CrcCheck", None)
     reader_kwargs = {"check_crc": crc_opt.DISABLED} if crc_opt is not None else {}
@@ -212,6 +250,42 @@ def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
                 c_name = frame.get_value("name", fallback=None)
                 if c_name:
                     fit_name = str(c_name).strip()
+            elif frame.name == "session":
+                sport_val = frame.get_value("sport", fallback=None)
+                s_start = frame.get_value("start_time", fallback=None)
+                s_end = frame.get_value("timestamp", fallback=None)
+                s_elapsed = frame.get_value("total_elapsed_time", fallback=None)
+                s_timer = frame.get_value("total_timer_time", fallback=None)
+                s_dist = frame.get_value("total_distance", fallback=None)
+                s_ascent = frame.get_value("total_ascent", fallback=None)
+                s_avg_p = frame.get_value("avg_power", fallback=None)
+                s_np = frame.get_value("normalized_power", fallback=None)
+                s_avg_t = frame.get_value("avg_temperature", fallback=None)
+                if s_start is not None and s_end is None and s_elapsed is not None:
+                    try:
+                        s_end = s_start + timedelta(seconds=float(s_elapsed))
+                    except Exception:
+                        pass
+                elif s_start is not None and s_elapsed is not None:
+                    # En algunos FIT `timestamp` de la sesión está después de T2; usar min(s_end, start+elapsed)
+                    try:
+                        cand_end = s_start + timedelta(seconds=float(s_elapsed))
+                        if s_end is None or abs((s_end - cand_end).total_seconds()) > 15:
+                            s_end = cand_end
+                    except Exception:
+                        pass
+                sessions.append({
+                    "sport": str(sport_val).lower() if sport_val is not None else "",
+                    "start_time": s_start if isinstance(s_start, datetime) else None,
+                    "end_time": s_end if isinstance(s_end, datetime) else None,
+                    "total_elapsed_time": float(s_elapsed) if s_elapsed is not None else None,
+                    "total_timer_time": float(s_timer) if s_timer is not None else None,
+                    "total_distance": float(s_dist) if s_dist is not None else None,
+                    "total_ascent": float(s_ascent) if s_ascent is not None else None,
+                    "avg_power": float(s_avg_p) if s_avg_p is not None else None,
+                    "normalized_power": float(s_np) if s_np is not None else None,
+                    "avg_temperature": float(s_avg_t) if s_avg_t is not None else None,
+                })
             elif frame.name == "record":
                 lat = frame.get_value("position_lat", fallback=None)
                 lon = frame.get_value("position_long", fallback=None)
@@ -233,6 +307,7 @@ def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
                 dist = frame.get_value("distance", fallback=None)
                 pwr = frame.get_value("power", fallback=None)
                 ts = frame.get_value("timestamp", fallback=None)
+                temp = frame.get_value("temperature", fallback=None)
                 pts.append({
                     "lat": lat_deg,
                     "lon": lon_deg,
@@ -241,14 +316,18 @@ def _parse_fit_with_fitdecode(file_bytes: bytes) -> tuple:
                     "power": float(pwr) if pwr is not None else None,
                     "dist_m": float(dist) if dist is not None else None,
                     "speed_ms": float(spd) if spd is not None else None,
+                    "temp_c": float(temp) if temp is not None else None,
                 })
-    return fit_name, pts
+
+    pts, meta = _filter_cycling_session_points(pts, sessions)
+    return fit_name, pts, meta
 
 
 def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
     """
     Decodificador binario FIT ligero en Python puro (respaldo sin dependencias)
-    para mensajes globales `record` (#20): timestamp, lat, lon, altitude, distance, speed, power.
+    para mensajes globales `session` (#18) y `record` (#20):
+    soporta detección de segmento de ciclismo en archivos multideporte (Triatlón/Ironman).
     """
     if len(file_bytes) < 14:
         raise ValueError("Archivo FIT inválido o demasiado corto.")
@@ -261,6 +340,7 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
     end = min(len(file_bytes), hdr_size + data_size)
     local_defs = {}
     pts = []
+    sessions = []
     last_ts_int = 0
 
     BASE_FMT = {
@@ -288,7 +368,6 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
         pos += 1
 
         if header & 0x80:
-            # Compressed timestamp header
             local_msg_type = (header >> 5) & 0x03
             time_offset = header & 0x1F
             if last_ts_int:
@@ -333,13 +412,14 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
                 break
             global_num, endian, fields, dev_size = defn
             rec_vals = {}
+            wanted = (253, 0, 1, 2, 5, 6, 7, 13, 73, 78) if global_num == 20 else ((253, 2, 5, 7, 8, 9, 20, 22, 34, 57) if global_num == 18 else ())
             for f_num, f_size, b_type in fields:
                 if pos + f_size > end:
                     pos = end
                     break
                 raw_slice = file_bytes[pos : pos + f_size]
                 pos += f_size
-                if global_num == 20 and f_num in (253, 0, 1, 2, 5, 6, 7, 73, 78):
+                if wanted and f_num in wanted:
                     fmt_c, sz, inv = BASE_FMT.get(b_type, ("B", 1, None))
                     if fmt_c != "s" and f_size == sz:
                         val = struct.unpack(endian + fmt_c, raw_slice)[0]
@@ -347,13 +427,34 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
                             rec_vals[f_num] = val
             pos += dev_size
 
-            if global_num == 20 and 0 in rec_vals and 1 in rec_vals:
+            if global_num == 18 and 2 in rec_vals:
+                # Session message: 2=start_time, 5=sport (2=cycling), 7=elapsed(ms), 8=timer(ms), 9=distance(cm)
+                s_start = FIT_EPOCH + timedelta(seconds=rec_vals[2])
+                s_elapsed = (rec_vals[7] / 1000.0) if 7 in rec_vals else None
+                s_timer = (rec_vals[8] / 1000.0) if 8 in rec_vals else None
+                s_dist = (rec_vals[9] / 100.0) if 9 in rec_vals else None
+                s_end = (s_start + timedelta(seconds=s_elapsed)) if s_elapsed else (FIT_EPOCH + timedelta(seconds=rec_vals[253]) if 253 in rec_vals else None)
+                sessions.append({
+                    "sport": str(rec_vals.get(5, "")),
+                    "start_time": s_start,
+                    "end_time": s_end,
+                    "total_elapsed_time": s_elapsed,
+                    "total_timer_time": s_timer,
+                    "total_distance": s_dist,
+                    "total_ascent": float(rec_vals[22]) if 22 in rec_vals else None,
+                    "avg_power": float(rec_vals[20]) if 20 in rec_vals else None,
+                    "normalized_power": float(rec_vals[34]) if 34 in rec_vals else None,
+                    "avg_temperature": float(rec_vals[57]) if 57 in rec_vals else None,
+                })
+            elif global_num == 20 and 0 in rec_vals and 1 in rec_vals:
                 if 253 in rec_vals:
                     last_ts_int = rec_vals[253]
                 ts_dt = FIT_EPOCH + timedelta(seconds=last_ts_int) if last_ts_int else None
                 lat_deg = rec_vals[0] * SEMICIRCLES_TO_DEG
                 lon_deg = rec_vals[1] * SEMICIRCLES_TO_DEG
                 if not (-90.0 <= lat_deg <= 90.0 and -180.0 <= lon_deg <= 180.0):
+                    continue
+                if abs(lat_deg) < 1e-5 and abs(lon_deg) < 1e-5:
                     continue
                 ele = None
                 if 78 in rec_vals:
@@ -367,6 +468,7 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
                     spd = rec_vals[6] / 1000.0
                 dist = (rec_vals[5] / 100.0) if 5 in rec_vals else None
                 pwr = float(rec_vals[7]) if 7 in rec_vals else None
+                temp = float(rec_vals[13]) if 13 in rec_vals else None
                 pts.append({
                     "lat": lat_deg,
                     "lon": lon_deg,
@@ -375,9 +477,11 @@ def _parse_fit_pure_python(file_bytes: bytes) -> tuple:
                     "power": pwr,
                     "dist_m": dist,
                     "speed_ms": spd,
+                    "temp_c": temp,
                 })
 
-    return "Actividad FIT", pts
+    pts, meta = _filter_cycling_session_points(pts, sessions)
+    return "Actividad FIT", pts, meta
 
 
 def parse_route_from_any_file(file_bytes: bytes, filename: str, laps: int = 1, target_step_m: float = 100.0) -> dict:
@@ -396,11 +500,11 @@ def parse_route_from_any_file(file_bytes: bytes, filename: str, laps: int = 1, t
         r_name, raw_pts = _parse_tcx_activity(raw_bytes)
     elif ext == "fit":
         try:
-            r_name, raw_pts = _parse_fit_with_fitdecode(raw_bytes)
+            r_name, raw_pts, _ = _parse_fit_with_fitdecode(raw_bytes)
         except ImportError:
-            r_name, raw_pts = _parse_fit_pure_python(raw_bytes)
+            r_name, raw_pts, _ = _parse_fit_pure_python(raw_bytes)
         except Exception:
-            r_name, raw_pts = _parse_fit_pure_python(raw_bytes)
+            r_name, raw_pts, _ = _parse_fit_pure_python(raw_bytes)
     else:
         raise ValueError(f"Formato no soportado: .{ext}. Sube un archivo .fit, .gpx, .tcx o .zip.")
 
@@ -512,17 +616,18 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
     """
     file_bytes, filename = unwrap_activity_bytes(file_bytes, filename)
     ext = (filename.lower().rsplit(".", 1)[-1] if "." in filename else "").strip()
+    fit_meta = {"is_multisport": False, "cycling_session": None, "sessions_count": 0}
     if ext == "gpx":
         name, raw_pts = _parse_gpx_activity(file_bytes)
     elif ext == "tcx":
         name, raw_pts = _parse_tcx_activity(file_bytes)
     elif ext == "fit":
         try:
-            name, raw_pts = _parse_fit_with_fitdecode(file_bytes)
+            name, raw_pts, fit_meta = _parse_fit_with_fitdecode(file_bytes)
         except ImportError:
-            name, raw_pts = _parse_fit_pure_python(file_bytes)
+            name, raw_pts, fit_meta = _parse_fit_pure_python(file_bytes)
         except Exception:
-            name, raw_pts = _parse_fit_pure_python(file_bytes)
+            name, raw_pts, fit_meta = _parse_fit_pure_python(file_bytes)
     else:
         raise ValueError(f"Formato no soportado: .{ext}. Sube un archivo .fit, .tcx o .gpx.")
 
@@ -557,9 +662,12 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
     time_samples = []
 
     anchor = raw_pts[0]
-    anchor_dist = anchor["dist_m"] if anchor["dist_m"] is not None else 0.0
+    block_powers = [anchor["power"]] if anchor.get("power") is not None else []
     for i in range(1, n):
         curr = raw_pts[i]
+        if curr.get("power") is not None:
+            block_powers.append(curr["power"])
+
         seg_d = _haversine_m(anchor["lat"], anchor["lon"], curr["lat"], curr["lon"])
         if curr["dist_m"] is not None and anchor["dist_m"] is not None:
             d_sensor = curr["dist_m"] - anchor["dist_m"]
@@ -569,6 +677,8 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         dt = None
         if curr["ts"] is not None and anchor["ts"] is not None:
             dt = (curr["ts"] - anchor["ts"]).total_seconds()
+            if dt <= 0:
+                continue
 
         # Esperar al menos 3s o 25m para reducir ruido GPS en pendiente/velocidad
         if (dt is not None and dt < 3.0) and seg_d < 25.0 and i < n - 1:
@@ -576,10 +686,11 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         if seg_d < 3.0 and (dt is None or dt < 1.0):
             continue
 
-        if dt is None or dt <= 0 or dt > 60.0:
-            # Pausa larga o sin timestamps: avanzar ancla sin contar ese hueco
+        if dt is None or dt > 60.0:
+            # Pausa larga (>60s) o sin timestamps: avanzar ancla sin contar ese hueco
             if dt is not None and dt > 60.0:
                 anchor = curr
+                block_powers = [curr["power"]] if curr.get("power") is not None else []
                 continue
             v_est = curr["speed_ms"] if (curr["speed_ms"] and curr["speed_ms"] > 1.0) else 8.5
             dt = seg_d / v_est
@@ -587,6 +698,7 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         v_ms = seg_d / dt
         if v_ms > 30.0:  # glitch GPS > 108 km/h
             anchor = curr
+            block_powers = [curr["power"]] if curr.get("power") is not None else []
             continue
 
         de = curr["ele"] - anchor["ele"]
@@ -595,8 +707,8 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         grade = max(-0.20, min(0.22, de / max(5.0, seg_d)))
         bearing = _bearing_deg(anchor["lat"], anchor["lon"], curr["lat"], curr["lon"])
 
-        # Promediar potencia del bloque [anchor..curr]
-        pwr_val = curr["power"] if curr["power"] is not None else anchor["power"]
+        # Promediar potencia real del bloque [anchor..curr]
+        pwr_val = (sum(block_powers) / len(block_powers)) if block_powers else None
 
         if v_ms >= 1.5:  # en movimiento (>= 5.4 km/h)
             moving_time_s += dt
@@ -626,6 +738,7 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
             })
 
         anchor = curr
+        block_powers = [curr["power"]] if curr.get("power") is not None else []
 
     if len(records) < 5 or cum_dist < 500.0:
         raise ValueError("No se encontraron suficientes tramos válidos en movimiento (>= 500 m).")
@@ -642,11 +755,13 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
     lat_avg = sum(r["lat"] for r in records) / len(records)
     lon_avg = sum(r["lon"] for r in records) / len(records)
 
-    # Estimar hora local aproximada desde longitud si timestamp viene en UTC
+    # Preservar timestamp UTC exacto para consultar clima ERA5 sin errores de zona horaria / DST
     race_date_obj = None
     start_hour_local = 7
+    start_ts_utc = None
     if first_ts is not None:
         if first_ts.tzinfo is not None:
+            start_ts_utc = first_ts.astimezone(timezone.utc)
             tz_offset_h = int(round(lon_avg / 15.0))
             local_ts = first_ts.astimezone(timezone(timedelta(hours=tz_offset_h)))
             race_date_obj = local_ts.date()
@@ -654,6 +769,10 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         else:
             race_date_obj = first_ts.date()
             start_hour_local = first_ts.hour
+
+    # Si el archivo .FIT trajo temperatura de sensor en bici, calcular promedio para referencia
+    temp_vals = [p["temp_c"] for p in raw_pts if p.get("temp_c") is not None and -10.0 <= p["temp_c"] <= 55.0]
+    sensor_avg_temp = round(sum(temp_vals) / len(temp_vals), 1) if temp_vals else None
 
     total_dist_km = round(cum_dist / 1000.0, 2)
     avg_speed_kmh = round(total_dist_km / max(1e-4, moving_time_s / 3600.0), 2)
@@ -677,6 +796,9 @@ def parse_activity_file(file_bytes: bytes, filename: str) -> dict:
         "filename": filename,
         "activity_date": race_date_obj,
         "start_hour": start_hour_local,
+        "start_ts_utc": start_ts_utc,
+        "is_multisport": bool(fit_meta.get("is_multisport")),
+        "sensor_avg_temp_c": sensor_avg_temp,
         "lat": round(lat_avg, 5),
         "lon": round(lon_avg, 5),
         "distance_km": total_dist_km,

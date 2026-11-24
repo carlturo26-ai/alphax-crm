@@ -129,7 +129,7 @@ def _extract_hourly_window(hourly_dict: dict, start_hour: int, duration_hours: i
     return window
 
 
-def _fetch_open_meteo_forecast(lat: float, lon: float, target_date: date, start_hour: int, duration_hours: int) -> dict:
+def _fetch_open_meteo_forecast(lat: float, lon: float, target_date: date, start_hour: int, duration_hours: int, tz_param: str = "auto") -> dict:
     """Consulta el pronóstico horario de Open-Meteo (ECMWF/GFS) para fechas dentro de los próximos 16 días."""
     end_date = target_date + timedelta(days=1) if (start_hour + duration_hours) > 23 else target_date
     url = "https://api.open-meteo.com/v1/forecast"
@@ -138,7 +138,7 @@ def _fetch_open_meteo_forecast(lat: float, lon: float, target_date: date, start_
         "longitude": round(lon, 5),
         "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,precipitation_probability,precipitation,weather_code",
         "wind_speed_unit": "kmh",
-        "timezone": "auto",
+        "timezone": tz_param,
         "start_date": target_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
     }
@@ -149,13 +149,13 @@ def _fetch_open_meteo_forecast(lat: float, lon: float, target_date: date, start_
     if not window:
         raise ValueError("El proveedor de pronóstico no devolvió datos horarios para esa fecha.")
     return {
-        "timezone": data.get("timezone", "auto"),
+        "timezone": data.get("timezone", tz_param),
         "elevation_api_m": data.get("elevation"),
         "hourly": window,
     }
 
 
-def _fetch_open_meteo_archive_day(lat: float, lon: float, hist_date: date, start_hour: int, duration_hours: int) -> dict:
+def _fetch_open_meteo_archive_day(lat: float, lon: float, hist_date: date, start_hour: int, duration_hours: int, tz_param: str = "auto") -> dict:
     """Consulta el archivo histórico ERA5 de Open-Meteo para una fecha pasada concreta."""
     end_date = hist_date + timedelta(days=1) if (start_hour + duration_hours) > 23 else hist_date
     url = "https://archive-api.open-meteo.com/v1/archive"
@@ -164,7 +164,7 @@ def _fetch_open_meteo_archive_day(lat: float, lon: float, hist_date: date, start
         "longitude": round(lon, 5),
         "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,precipitation,weather_code",
         "wind_speed_unit": "kmh",
-        "timezone": "auto",
+        "timezone": tz_param,
         "start_date": hist_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
     }
@@ -175,7 +175,7 @@ def _fetch_open_meteo_archive_day(lat: float, lon: float, hist_date: date, start
     if not window:
         raise ValueError(f"Sin datos históricos ERA5 para {hist_date}.")
     return {
-        "timezone": data.get("timezone", "auto"),
+        "timezone": data.get("timezone", tz_param),
         "elevation_api_m": data.get("elevation"),
         "hourly": window,
     }
@@ -195,55 +195,62 @@ def fetch_race_weather(
     race_date: date,
     start_hour: int = 7,
     duration_hours: int = 7,
+    start_ts_utc: datetime = None,
 ) -> dict:
     """
     Obtiene el estado del tiempo más preciso posible para una competencia en (lat, lon)
     en `race_date` comenzando a las `start_hour`:00:
+      - Si se entrega `start_ts_utc` (desde un archivo .FIT/.TCX/.GPX con timestamp UTC),
+        consulta en UTC exacto (`timezone='GMT'`) eliminando errores de zona horaria o horario de verano (DST).
       - Hoy hasta +15 días: Pronóstico horario real (Open-Meteo ECMWF/GFS).
       - Fecha pasada (> 2 días atrás): Clima histórico real ERA5 de ese día.
       - Fecha futura (> +15 días): Climatología ERA5 promediada de los últimos 3 años
         en esa misma fecha y hora (igual que Best Bike Split para carreras futuras).
     """
     today = date.today()
+    tz_param = "auto"
+    if start_ts_utc is not None:
+        race_date = start_ts_utc.date()
+        start_hour = start_ts_utc.hour
+        tz_param = "GMT"
+
     days_ahead = (race_date - today).days
     dur = max(2, min(12, int(duration_hours)))
     sh = max(0, min(23, int(start_hour)))
 
     try:
         if -1 <= days_ahead <= 15:
-            res = _fetch_open_meteo_forecast(lat, lon, race_date, sh, dur)
+            res = _fetch_open_meteo_forecast(lat, lon, race_date, sh, dur, tz_param=tz_param)
             source_type = "forecast"
             source_label = "📡 Pronóstico Meteorológico Real (Open-Meteo ECMWF / GFS)"
             years_used = [race_date.year]
             hourly = res["hourly"]
             tz = res["timezone"]
         elif days_ahead < -1:
-            # Fecha pasada: buscar clima real del archivo ERA5 (si fue hace 2-5 días, ERA5 puede tener lag de 5 días -> fallback a forecast/past_days)
             try:
-                res = _fetch_open_meteo_archive_day(lat, lon, race_date, sh, dur)
+                res = _fetch_open_meteo_archive_day(lat, lon, race_date, sh, dur, tz_param=tz_param)
                 source_type = "historical_exact"
                 source_label = f"📚 Clima Histórico Real del Día ({race_date.strftime('%d/%m/%Y')} · ERA5)"
                 years_used = [race_date.year]
                 hourly = res["hourly"]
                 tz = res["timezone"]
             except Exception:
-                res = _fetch_open_meteo_forecast(lat, lon, race_date, sh, dur)
+                res = _fetch_open_meteo_forecast(lat, lon, race_date, sh, dur, tz_param=tz_param)
                 source_type = "historical_exact"
                 source_label = f"📚 Clima Reciente Registrado ({race_date.strftime('%d/%m/%Y')})"
                 years_used = [race_date.year]
                 hourly = res["hourly"]
                 tz = res["timezone"]
         else:
-            # Carrera futura (>15 días): Promedio histórico ERA5 de los últimos 3 años en esa fecha calendario
             ref_year = today.year if _safe_replace_year(race_date, today.year) < (today - timedelta(days=7)) else (today.year - 1)
             candidate_years = [ref_year, ref_year - 1, ref_year - 2]
             yearly_windows = []
-            tz = "auto"
+            tz = tz_param
             used_years = []
             for yr in candidate_years:
                 try:
                     h_dt = _safe_replace_year(race_date, yr)
-                    r_yr = _fetch_open_meteo_archive_day(lat, lon, h_dt, sh, dur)
+                    r_yr = _fetch_open_meteo_archive_day(lat, lon, h_dt, sh, dur, tz_param=tz_param)
                     if r_yr["hourly"]:
                         yearly_windows.append(r_yr["hourly"])
                         used_years.append(yr)
