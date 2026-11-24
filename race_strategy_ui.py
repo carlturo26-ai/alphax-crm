@@ -354,7 +354,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.5</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.6</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -1376,87 +1376,137 @@ def render_race_strategy_page():
     with tab_comp:
         st.subheader("🎚️ Simulador Interactivo 'Qué Pasa Si...' (Estilo Best Bike Split)")
         st.caption(
-            f"Desliza cualquier variable para ver al instante su impacto real en tiempo, velocidad y TSS para **{ath_defaults['name']}** "
-            f"en `{route_data['route_name']}` (Base: **{s['total_time_str']}** · CdA `{s['cda']:.3f}` · FTP `{ftp_w:.0f} W` · Peso `{s['total_mass_kg']:.1f} kg` · IF `{target_if:.2f}`)."
+            f"Desliza cualquier variable desde tu escenario objetivo para ver al instante su impacto real en tiempo, velocidad y TSS para **{ath_defaults['name']}** "
+            f"en `{route_data['route_name']}` (Base: **{s['total_time_str']}** · CdA `{s['cda']:.3f}` · NP `{s['norm_power_w']:.0f} W` · Peso `{rider_weight:.1f} kg` · IF `{target_if:.2f}` · Viento `{wind_kmh:.0f} km/h`)."
         )
 
         wi_ver_key = f"rs_wi_ver_{member_id}"
         wi_ver = st.session_state.get(wi_ver_key, 0)
 
-        # Panel de controles deslizantes dinámicos (6 palancas simultáneas)
+        # Valores base exactos tomados del Simulador y Plan de Carrera (centrados en cada slider)
+        base_cda = max(0.145, min(0.545, round(float(equipment["cda"]), 3)))
+        base_np_target = max(70, min(490, int(round(float(ftp_w) * float(target_if)))))
+        base_rw = max(36.0, min(149.0, round(float(rider_weight), 1)))
+        base_if_val = max(0.46, min(1.11, round(float(target_if), 2)))
+        base_crr = max(0.0021, min(0.0094, round(float(equipment["crr"]), 4)))
+        base_wind = max(0, min(55, int(round(float(wind_kmh)))))
+
+        # Firma de base para que si cambia el escenario en Tab 1, los sliders se recentren solos
+        base_sig = f"{base_cda:.3f}_{base_np_target}_{base_rw:.1f}_{base_if_val:.2f}_{base_crr:.4f}_{base_wind}_v{wi_ver}"
+
+        # Rangos simétricos centrados en el valor base de cada variable
+        cda_span = round(min(0.080, max(0.030, min(base_cda - 0.140, 0.550 - base_cda))), 3)
+        cda_min = round(max(0.140, base_cda - cda_span), 3)
+        cda_max = round(min(0.550, base_cda + cda_span), 3)
+
+        np_span = int(min(60, max(25, min(base_np_target - 60, 500 - base_np_target))))
+        np_min = max(60, base_np_target - np_span)
+        np_max = min(500, base_np_target + np_span)
+
+        rw_span = round(min(10.0, max(5.0, min(base_rw - 35.0, 150.0 - base_rw))), 1)
+        rw_min = round(max(35.0, base_rw - rw_span), 1)
+        rw_max = round(min(150.0, base_rw + rw_span), 1)
+        rw_step = 0.5 if abs(base_rw * 2 - round(base_rw * 2)) < 1e-6 else 0.1
+
+        if_span = round(min(0.12, max(0.05, min(base_if_val - 0.45, 1.12 - base_if_val))), 2)
+        if_min = round(max(0.45, base_if_val - if_span), 2)
+        if_max = round(min(1.12, base_if_val + if_span), 2)
+
+        crr_span = round(min(0.0016, max(0.0006, min(base_crr - 0.0020, 0.0095 - base_crr))), 4)
+        crr_min = round(max(0.0020, base_crr - crr_span), 4)
+        crr_max = round(min(0.0095, base_crr + crr_span), 4)
+
+        if base_wind >= 15:
+            wind_min, wind_max = base_wind - 15, min(60, base_wind + 15)
+        elif base_wind > 0:
+            wind_min, wind_max = 0, max(base_wind * 2, 24)
+        else:
+            wind_min, wind_max = 0, 30
+
+        # Panel de controles deslizantes dinámicos (6 palancas centradas en los valores objetivo)
         with st.container(border=True):
             c_wi_hdr1, c_wi_hdr2 = st.columns([3.2, 1])
             with c_wi_hdr1:
-                st.markdown("##### 🎛️ Ajusta una o varias palancas a la vez")
+                st.markdown("##### 🎛️ Ajusta los valores reales (el punto inicial es tu escenario base del simulador)")
             with c_wi_hdr2:
-                if st.button("🔄 Restablecer a 0", use_container_width=True, key=f"wi_reset_{member_id}_{wi_ver}"):
+                if st.button("🔄 Restablecer al Base", use_container_width=True, key=f"wi_reset_{member_id}_{wi_ver}"):
                     st.session_state[wi_ver_key] = wi_ver + 1
                     st.rerun()
 
             w_c1, w_c2, w_c3 = st.columns(3)
             with w_c1:
-                d_cda = st.slider(
-                    "🌬️ Cambio en CdA (m²):",
-                    min_value=-0.080,
-                    max_value=0.080,
-                    value=0.000,
-                    step=0.005,
-                    format="%+.3f",
-                    help="Negativo = más aerodinámico (ej. -0.020 m² por mejor postura, casco o ruedas).",
-                    key=f"wi_cda_{member_id}_v{wi_ver}",
+                sel_cda = st.slider(
+                    f"🌬️ CdA (m²) · Base: {base_cda:.3f}",
+                    min_value=cda_min,
+                    max_value=cda_max,
+                    value=base_cda,
+                    step=0.001,
+                    format="%.3f",
+                    help="Desliza a la izquierda para mejorar aerodinámica (menor CdA = más rápido).",
+                    key=f"wi_cda_{member_id}_{base_sig}",
                 )
-                d_crr = st.slider(
-                    "🛞 Cambio en Rodamiento Crr:",
-                    min_value=-0.0016,
-                    max_value=0.0020,
-                    value=0.0000,
-                    step=0.0002,
-                    format="%+.4f",
-                    help="Negativo = llantas más rápidas o asfalto más liso.",
-                    key=f"wi_crr_{member_id}_v{wi_ver}",
+                sel_crr = st.slider(
+                    f"🛞 Rodamiento Crr · Base: {base_crr:.4f}",
+                    min_value=crr_min,
+                    max_value=crr_max,
+                    value=base_crr,
+                    step=0.0001,
+                    format="%.4f",
+                    help="Menor Crr = llantas más rápidas o asfalto más liso.",
+                    key=f"wi_crr_{member_id}_{base_sig}",
                 )
             with w_c2:
-                d_watts = st.slider(
-                    "🔥 Cambio en Potencia / FTP (W):",
-                    min_value=-40,
-                    max_value=60,
-                    value=0,
-                    step=5,
-                    format="%+d W",
-                    help="Simula subir o bajar tu FTP manteniendo el mismo IF (o súbelo junto con IF).",
-                    key=f"wi_w_{member_id}_v{wi_ver}",
+                sel_np_w = st.slider(
+                    f"🔥 Potencia Objetivo NP (W) · Base: {base_np_target} W",
+                    min_value=int(np_min),
+                    max_value=int(np_max),
+                    value=int(base_np_target),
+                    step=1,
+                    format="%d W",
+                    help="Parte desde tu potencia objetivo actual del plan de carrera.",
+                    key=f"wi_w_{member_id}_{base_sig}",
                 )
-                d_if = st.slider(
-                    "🎯 Cambio en Intensidad (IF):",
-                    min_value=-0.10,
-                    max_value=0.10,
-                    value=0.00,
+                sel_if = st.slider(
+                    f"🎯 Intensidad (IF) · Base: {base_if_val:.2f}",
+                    min_value=if_min,
+                    max_value=if_max,
+                    value=base_if_val,
                     step=0.01,
-                    format="%+.2f",
-                    help="Simula competir más conservador (-IF para correr mejor) o más agresivo (+IF).",
-                    key=f"wi_if_{member_id}_v{wi_ver}",
+                    format="%.2f",
+                    help="Ajusta el Factor de Intensidad (IF) desde tu escenario actual.",
+                    key=f"wi_if_{member_id}_{base_sig}",
                 )
             with w_c3:
-                d_weight = st.slider(
-                    "⚖️ Cambio en Peso Total (kg):",
-                    min_value=-10.0,
-                    max_value=10.0,
-                    value=0.0,
-                    step=0.5,
-                    format="%+.1f kg",
-                    help="Negativo = bajar peso corporal o aligerar la bicicleta.",
-                    key=f"wi_kg_{member_id}_v{wi_ver}",
+                sel_rw = st.slider(
+                    f"⚖️ Peso Atleta (kg) · Base: {base_rw:.1f} kg",
+                    min_value=rw_min,
+                    max_value=rw_max,
+                    value=base_rw,
+                    step=rw_step,
+                    format="%.1f kg",
+                    help="Parte desde el peso actual del atleta en el simulador.",
+                    key=f"wi_kg_{member_id}_{base_sig}",
                 )
-                d_wind = st.slider(
-                    "💨 Cambio en Velocidad del Viento (km/h):",
-                    min_value=-15,
-                    max_value=25,
-                    value=0,
+                sel_wind = st.slider(
+                    f"💨 Velocidad del Viento (km/h) · Base: {base_wind} km/h",
+                    min_value=int(wind_min),
+                    max_value=int(wind_max),
+                    value=int(base_wind),
                     step=1,
-                    format="%+d km/h",
-                    help="Prueba qué pasa si el viento aumenta o disminuye el día de carrera.",
-                    key=f"wi_wind_{member_id}_v{wi_ver}",
+                    format="%d km/h",
+                    help="Parte desde la velocidad del viento configurada en tu escenario.",
+                    key=f"wi_wind_{member_id}_{base_sig}",
                 )
+
+        # Calcular deltas internos exactos respecto al escenario base
+        d_cda = round(sel_cda - base_cda, 4)
+        d_np_w = int(sel_np_w - base_np_target)
+        # Equivalente en FTP para que el cambio de Potencia Objetivo NP actúe exactamente en vatios
+        d_watts = round(d_np_w / max(0.45, float(target_if)), 1)
+        d_weight = round(sel_rw - base_rw, 2)
+        d_if = round(sel_if - base_if_val, 3)
+        d_crr = round(sel_crr - base_crr, 5)
+        d_wind = int(sel_wind - base_wind)
 
         def _shift_hourly_wind(h_weather, delta_w_kmh):
             if not h_weather or delta_w_kmh == 0:
@@ -1497,7 +1547,7 @@ def render_race_strategy_page():
         base_t = s["total_time_s"]
         any_changed = any([
             abs(d_cda) > 1e-6,
-            d_watts != 0,
+            d_np_w != 0,
             abs(d_weight) > 1e-6,
             abs(d_if) > 1e-6,
             abs(d_crr) > 1e-6,
@@ -1559,22 +1609,22 @@ def render_race_strategy_page():
             contrib_items = []
             if abs(d_cda) > 1e-6:
                 dt_c = _run_whatif(delta_cda=d_cda)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🌬️ CdA ({d_cda:+.3f} m²)", dt_c))
-            if d_watts != 0:
+                contrib_items.append((f"🌬️ CdA → {sel_cda:.3f} m² ({d_cda:+.3f})", dt_c))
+            if d_np_w != 0:
                 dt_w = _run_whatif(delta_w=d_watts)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🔥 Potencia ({d_watts:+d} W)", dt_w))
+                contrib_items.append((f"🔥 Potencia → {sel_np_w} W ({d_np_w:+d} W)", dt_w))
             if abs(d_weight) > 1e-6:
                 dt_kg = _run_whatif(delta_kg=d_weight)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"⚖️ Peso ({d_weight:+.1f} kg)", dt_kg))
+                contrib_items.append((f"⚖️ Peso → {sel_rw:.1f} kg ({d_weight:+.1f})", dt_kg))
             if abs(d_if) > 1e-6:
                 dt_if = _run_whatif(delta_if=d_if)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🎯 Intensidad ({d_if:+.2f} IF)", dt_if))
+                contrib_items.append((f"🎯 Intensidad → {sel_if:.2f} IF ({d_if:+.2f})", dt_if))
             if abs(d_crr) > 1e-6:
                 dt_cr = _run_whatif(delta_crr=d_crr)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🛞 Rodamiento ({d_crr:+.4f})", dt_cr))
+                contrib_items.append((f"🛞 Crr → {sel_crr:.4f} ({d_crr:+.4f})", dt_cr))
             if d_wind != 0:
                 dt_wd = _run_whatif(delta_wind=d_wind)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"💨 Viento ({d_wind:+d} km/h)", dt_wd))
+                contrib_items.append((f"💨 Viento → {sel_wind} km/h ({d_wind:+d})", dt_wd))
 
             c_attr1, c_attr2 = st.columns([2.2, 1])
             with c_attr1:
@@ -1647,34 +1697,35 @@ def render_race_strategy_page():
                 cda_steps = [-0.04, -0.02, 0.0, 0.02, 0.04]
                 cda_mins = [(_run_whatif(delta_cda=x)["summary"]["total_time_s"] - base_t) / 60.0 for x in cda_steps]
                 fig_sw1 = go.Figure()
-                fig_sw1.add_trace(go.Scatter(x=[equipment["cda"] + x for x in cda_steps], y=cda_mins, mode="lines+markers", line=dict(color="#00EEFF", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                fig_sw1.add_trace(go.Scatter(x=[base_cda + x for x in cda_steps], y=cda_mins, mode="lines+markers", line=dict(color="#00EEFF", width=3), marker=dict(size=8), name="Δ Tiempo"))
                 if abs(d_cda) > 1e-6:
                     cur_y = (_run_whatif(delta_cda=d_cda)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw1.add_trace(go.Scatter(x=[equipment["cda"] + d_cda], y=[cur_y], mode="markers", marker=dict(size=13, color="#00FF88", symbol="star"), name="Tu ajuste"))
+                    fig_sw1.add_trace(go.Scatter(x=[sel_cda], y=[cur_y], mode="markers", marker=dict(size=13, color="#00FF88", symbol="star"), name="Tu ajuste"))
                 fig_sw1.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw1.update_layout(title="🌬️ Sensibilidad a CdA (m²)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="CdA (m²)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw1, use_container_width=True)
 
             with c_sw2:
-                w_steps = [-20, -10, 0, 10, 20, 30]
-                w_mins = [(_run_whatif(delta_w=x)["summary"]["total_time_s"] - base_t) / 60.0 for x in w_steps]
+                np_steps = [-25, -15, 0, 15, 25, 35]
+                if_div = max(0.45, float(target_if))
+                np_mins = [(_run_whatif(delta_w=x / if_div)["summary"]["total_time_s"] - base_t) / 60.0 for x in np_steps]
                 fig_sw2 = go.Figure()
-                fig_sw2.add_trace(go.Scatter(x=[ftp_w + x for x in w_steps], y=w_mins, mode="lines+markers", line=dict(color="#00FF88", width=3), marker=dict(size=8), name="Δ Tiempo"))
-                if d_watts != 0:
+                fig_sw2.add_trace(go.Scatter(x=[base_np_target + x for x in np_steps], y=np_mins, mode="lines+markers", line=dict(color="#00FF88", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                if d_np_w != 0:
                     cur_y = (_run_whatif(delta_w=d_watts)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw2.add_trace(go.Scatter(x=[ftp_w + d_watts], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFD700", symbol="star"), name="Tu ajuste"))
+                    fig_sw2.add_trace(go.Scatter(x=[sel_np_w], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFD700", symbol="star"), name="Tu ajuste"))
                 fig_sw2.add_hline(y=0, line_dash="dot", line_color="#64748B")
-                fig_sw2.update_layout(title="🔥 Sensibilidad a FTP (W)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="FTP (W)", yaxis_title="Δ Minutos", showlegend=False)
+                fig_sw2.update_layout(title="🔥 Sensibilidad a Potencia Objetivo (W)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="Potencia Objetivo NP (W)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw2, use_container_width=True)
 
             with c_sw3:
                 kg_steps = [-6.0, -3.0, 0.0, 3.0, 6.0]
                 kg_mins = [(_run_whatif(delta_kg=x)["summary"]["total_time_s"] - base_t) / 60.0 for x in kg_steps]
                 fig_sw3 = go.Figure()
-                fig_sw3.add_trace(go.Scatter(x=[rider_weight + x for x in kg_steps], y=kg_mins, mode="lines+markers", line=dict(color="#FFD700", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                fig_sw3.add_trace(go.Scatter(x=[base_rw + x for x in kg_steps], y=kg_mins, mode="lines+markers", line=dict(color="#FFD700", width=3), marker=dict(size=8), name="Δ Tiempo"))
                 if abs(d_weight) > 1e-6:
                     cur_y = (_run_whatif(delta_kg=d_weight)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw3.add_trace(go.Scatter(x=[rider_weight + d_weight], y=[cur_y], mode="markers", marker=dict(size=13, color="#00EEFF", symbol="star"), name="Tu ajuste"))
+                    fig_sw3.add_trace(go.Scatter(x=[sel_rw], y=[cur_y], mode="markers", marker=dict(size=13, color="#00EEFF", symbol="star"), name="Tu ajuste"))
                 fig_sw3.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw3.update_layout(title="⚖️ Sensibilidad a Peso (kg)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="Peso Atleta (kg)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw3, use_container_width=True)
