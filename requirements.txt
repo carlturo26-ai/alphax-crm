@@ -11,4 +11,5 @@ pdfplumber
 PyMuPDF
 pytesseract
 Pillow
+fitdecode
 

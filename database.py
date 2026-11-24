@@ -78,6 +78,9 @@ class Member(Base):
     altitude_m = Column(Integer, nullable=True)       # Altitud habitual de entrenamiento (msnm)
     athlete_goal = Column(String, nullable=True)      # Objetivo / competencia principal
     medical_notes = Column(String, nullable=True)     # Alergias, dieta, lesiones o antecedentes
+    calibrated_cda = Column(Float, nullable=True)     # CdA real calibrado desde carrera (m²)
+    calibrated_cda_bike = Column(String, nullable=True)  # Bici usada en la calibración de CdA
+    calibrated_cda_date = Column(Date, nullable=True)    # Fecha de la carrera usada para calibrar CdA
 
     transactions = relationship("Transaction", back_populates="member")
 
@@ -312,6 +315,9 @@ def init_db():
                 ("altitude_m", "INTEGER"),
                 ("athlete_goal", "VARCHAR"),
                 ("medical_notes", "VARCHAR"),
+                ("calibrated_cda", "FLOAT"),
+                ("calibrated_cda_bike", "VARCHAR"),
+                ("calibrated_cda_date", "DATE"),
             ]
             for col_name, col_type in member_cols_to_add:
                 try:
