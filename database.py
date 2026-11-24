@@ -235,6 +235,30 @@ class WolfyChatMessage(Base):
 
     member = relationship("Member")
 
+
+class RaceStrategyScenario(Base):
+    __tablename__ = "race_strategy_scenarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), index=True)
+    scenario_name = Column(String)
+    route_name = Column(String)
+    distance_km = Column(Float)
+    elevation_gain_m = Column(Float)
+    estimated_time_sec = Column(Float)
+    avg_speed_kmh = Column(Float)
+    avg_power_w = Column(Float)
+    norm_power_w = Column(Float)
+    intensity_factor = Column(Float)
+    tss = Column(Float)
+    cda = Column(Float)
+    total_mass_kg = Column(Float)
+    config_json = Column(Text)
+    splits_json = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+
+    member = relationship("Member")
+
 def get_club_setting(key: str, default: str = "") -> str:
     """Obtiene una configuración global del club desde la base de datos central."""
     try:

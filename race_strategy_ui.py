@@ -1,0 +1,1019 @@
+"""
+race_strategy_ui.py — Interfaz interactiva de Estrategias de Carrera en Ciclismo
+(AlphaX Race Split — estilo Best Bike Split) para el CRM de Entrenadores.
+"""
+
+import json
+import math
+from datetime import datetime
+
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
+
+from database import LactateTest, Member, RaceStrategyScenario, SessionLocal, init_db
+from race_strategy_engine import (
+    APPAREL_OPTIONS,
+    BIKE_TYPES,
+    DRIVETRAINS,
+    HELMETS,
+    HYDRATION_SETUP,
+    RACE_PRESETS,
+    ROAD_SURFACES,
+    TIRES_CRR,
+    WHEEL_SETS,
+    WIND_DIRECTIONS,
+    calc_air_density,
+    estimate_equipment_specs,
+    format_hms,
+    format_time_delta,
+    generate_demo_gpx,
+    parse_gpx_bytes,
+    simulate_race_strategy,
+)
+
+
+def _render_html(html_str: str):
+    if hasattr(st, "html"):
+        st.html(html_str)
+    else:
+        st.markdown(html_str, unsafe_allow_html=True)
+
+
+def _load_athlete_defaults(member_id: int) -> dict:
+    """Obtiene peso, estatura y FTP/LT2 reales del deportista desde la base de datos."""
+    out = {
+        "name": "Deportista",
+        "weight_kg": 70.0,
+        "weight_src": "estimado",
+        "height_cm": 175.0,
+        "height_src": "estimado",
+        "ftp_w": 250.0,
+        "ftp_src": "estimado",
+        "lt1_w": None,
+        "lt2_w": None,
+    }
+    if not member_id:
+        return out
+
+    try:
+        with SessionLocal() as session:
+            m = session.query(Member).filter(Member.id == member_id).first()
+            if m:
+                out["name"] = m.name
+                if m.weight_kg and 35.0 <= m.weight_kg <= 160.0:
+                    out["weight_kg"] = float(m.weight_kg)
+                    out["weight_src"] = "perfil CRM"
+                if m.height_cm and 130.0 <= m.height_cm <= 220.0:
+                    out["height_cm"] = float(m.height_cm)
+                    out["height_src"] = "perfil CRM"
+
+            # Última prueba de lactato (preferir ciclismo si existe)
+            lacs = (
+                session.query(LactateTest)
+                .filter(LactateTest.member_id == member_id)
+                .order_by(LactateTest.date.desc(), LactateTest.id.desc())
+                .limit(5)
+                .all()
+            )
+            chosen_lac = None
+            for l in lacs:
+                if "cicl" in str(l.sport or "").lower():
+                    chosen_lac = l
+                    break
+            if not chosen_lac and lacs:
+                chosen_lac = lacs[0]
+
+            if chosen_lac:
+                if out["weight_src"] == "estimado" and chosen_lac.weight and 35.0 <= chosen_lac.weight <= 160.0:
+                    out["weight_kg"] = float(chosen_lac.weight)
+                    out["weight_src"] = f"test lactato ({chosen_lac.date.strftime('%d/%m/%Y') if chosen_lac.date else 'último'})"
+                if chosen_lac.ftp and 80.0 <= chosen_lac.ftp <= 550.0:
+                    out["ftp_w"] = float(chosen_lac.ftp)
+                    out["ftp_src"] = f"FTP test ({chosen_lac.date.strftime('%d/%m/%Y') if chosen_lac.date else 'último'})"
+                elif chosen_lac.lt2_power and 80.0 <= chosen_lac.lt2_power <= 550.0:
+                    out["ftp_w"] = float(chosen_lac.lt2_power)
+                    out["ftp_src"] = f"LT2 lactato ({chosen_lac.date.strftime('%d/%m/%Y') if chosen_lac.date else 'último'})"
+                out["lt1_w"] = chosen_lac.lt1_power
+                out["lt2_w"] = chosen_lac.lt2_power
+    except Exception:
+        pass
+    return out
+
+
+def _build_elevation_power_chart(segments: list, ftp_w: float) -> go.Figure:
+    """Gráfica principal estilo Best Bike Split: Altimetría + Potencia Objetivo + Velocidad."""
+    df = pd.DataFrame(segments)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Perfil altimétrico relleno en el fondo (eje secundario o normalizado visualmente — usamos eje primario para Potencia y secundario para Elevación)
+    fig.add_trace(
+        go.Scatter(
+            x=df["dist_km"],
+            y=df["ele_m"],
+            name="Altimetría (m)",
+            mode="lines",
+            fill="tozeroy",
+            line=dict(color="rgba(148, 163, 184, 0.55)", width=1.5),
+            fillcolor="rgba(148, 163, 184, 0.16)",
+            hovertemplate="Km %{x:.1f}<br>Altitud: %{y:.0f} m<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    # Curva de potencia objetivo (W)
+    fig.add_trace(
+        go.Scatter(
+            x=df["dist_km"],
+            y=df["power_w"],
+            name="Potencia Objetivo (W)",
+            mode="lines",
+            line=dict(color="#00EEFF", width=2.8),
+            hovertemplate="Km %{x:.1f}<br>Potencia: %{y:.0f} W<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    # Velocidad estimada (escalada visualmente o trazada en hover? Mejor en un segundo subplot limpio!)
+    fig.add_hline(
+        y=ftp_w,
+        line_dash="dot",
+        line_color="#FF5577",
+        annotation_text=f"FTP ({ftp_w:.0f} W)",
+        annotation_position="top right",
+        annotation_font=dict(color="#FF7799", size=11),
+        secondary_y=False,
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="📈 Plan de Potencia Objetivo vs Perfil Altimétrico del Circuito",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#00EEFF", size=15),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0"),
+        height=390,
+        margin=dict(l=15, r=15, t=55, b=15),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(title_text="Distancia (km)", gridcolor="rgba(255,255,255,0.06)")
+    fig.update_yaxes(
+        title_text="Potencia (W)",
+        gridcolor="rgba(255,255,255,0.08)",
+        secondary_y=False,
+    )
+    fig.update_yaxes(
+        title_text="Elevación (m)",
+        showgrid=False,
+        secondary_y=True,
+    )
+    return fig
+
+
+def _build_speed_wind_chart(segments: list) -> go.Figure:
+    """Gráfica de Velocidad Estimada (km/h) y Viento Relativo (km/h) a lo largo de la ruta."""
+    df = pd.DataFrame(segments)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["dist_km"],
+            y=df["speed_kmh"],
+            name="Velocidad Estimada (km/h)",
+            mode="lines",
+            line=dict(color="#FFD700", width=2.5),
+            hovertemplate="Km %{x:.1f}<br>Velocidad: %{y:.1f} km/h<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=df["dist_km"],
+            y=df["headwind_kmh"],
+            name="Viento (+Contra / -Favor km/h)",
+            marker_color=["rgba(255, 75, 75, 0.45)" if v > 0 else "rgba(0, 255, 136, 0.45)" for v in df["headwind_kmh"]],
+            hovertemplate="Km %{x:.1f}<br>Viento relativo: %{y:+.1f} km/h<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="🚀 Velocidad Estimada y Viento Relativo por Kilómetro",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#FFD700", size=14),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0"),
+        height=290,
+        margin=dict(l=15, r=15, t=48, b=15),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(title_text="Distancia (km)", gridcolor="rgba(255,255,255,0.06)")
+    fig.update_yaxes(title_text="Velocidad (km/h)", gridcolor="rgba(255,255,255,0.08)", secondary_y=False)
+    fig.update_yaxes(title_text="Viento (+Contra / -Favor)", showgrid=False, secondary_y=True)
+    return fig
+
+
+def _build_gps_map_chart(segments: list, color_mode: str = "wind", wind_from_deg: float = 0.0, wind_kmh: float = 0.0) -> go.Figure:
+    """Mapa 2D del circuito GPX coloreado por viento relativo o potencia objetivo."""
+    # Usar solo la primera vuelta para que el trazo sea nítido en circuitos multi-vuelta
+    lap1 = [s for s in segments if s.get("lap", 1) == 1] or segments
+    df = pd.DataFrame(lap1)
+
+    if color_mode == "power":
+        c_vals = df["power_w"]
+        c_title = "Potencia (W)"
+        c_scale = "Turbo"
+        hover_txt = [f"Km {r['dist_km']:.1f}<br>Potencia: {r['power_w']:.0f} W<br>Pend: {r['grade_pct']:+.1f}%<br>Vel: {r['speed_kmh']:.1f} km/h" for _, r in df.iterrows()]
+    else:
+        c_vals = df["headwind_kmh"]
+        c_title = "Viento (+Contra / -Favor)"
+        c_scale = [[0.0, "#00FF88"], [0.5, "#38BDF8"], [1.0, "#FF4B4B"]]
+        hover_txt = [f"Km {r['dist_km']:.1f}<br>Viento: {r['headwind_kmh']:+.1f} km/h<br>Potencia: {r['power_w']:.0f} W<br>Vel: {r['speed_kmh']:.1f} km/h" for _, r in df.iterrows()]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["lon"],
+            y=df["lat"],
+            mode="markers+lines",
+            line=dict(color="rgba(255,255,255,0.18)", width=2),
+            marker=dict(
+                size=6,
+                color=c_vals,
+                colorscale=c_scale,
+                colorbar=dict(title=dict(text=c_title, font=dict(size=10)), thickness=12),
+                showscale=True,
+            ),
+            text=hover_txt,
+            hoverinfo="text",
+            name="Circuito GPX",
+        )
+    )
+    # Punto de salida
+    fig.add_trace(
+        go.Scatter(
+            x=[df["lon"].iloc[0]],
+            y=[df["lat"].iloc[0]],
+            mode="markers+text",
+            marker=dict(size=12, color="#00FF88", symbol="star", line=dict(width=1.5, color="#000")),
+            text=["SALIDA"],
+            textposition="top center",
+            textfont=dict(color="#00FF88", size=10),
+            showlegend=False,
+        )
+    )
+
+    wind_note = f" · Viento desde {wind_from_deg:.0f}° ({wind_kmh:.0f} km/h)" if wind_kmh > 0 else " · Sin viento"
+    fig.update_layout(
+        title=dict(
+            text=f"🗺️ Trazado GPS del Circuito{wind_note}",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#00EEFF", size=13),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0"),
+        height=350,
+        margin=dict(l=10, r=10, t=45, b=10),
+        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, scaleanchor="y", scaleratio=1),
+        yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+        showlegend=False,
+    )
+    return fig
+
+
+def _build_resistance_donut(resistance: dict) -> go.Figure:
+    """Gráfica de dona del reparto de energía entre Aerodinámica, Gravedad y Rodamiento."""
+    labels = ["Aerodinámica (CdA)", "Gravedad (Subidas)", "Rodamiento (Crr)"]
+    values = [resistance["aero_pct"], resistance["gravity_pct"], resistance["rolling_pct"]]
+    colors = ["#00EEFF", "#FF5577", "#FFD700"]
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=labels,
+                values=values,
+                hole=0.58,
+                marker=dict(colors=colors, line=dict(color="#0E121C", width=2)),
+                textinfo="label+percent",
+                textfont=dict(color="#FFFFFF", size=11),
+            )
+        ]
+    )
+    fig.update_layout(
+        title=dict(
+            text="⚖️ ¿Dónde se va tu energía?",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#00EEFF", size=13),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0"),
+        height=270,
+        margin=dict(l=10, r=10, t=42, b=10),
+        showlegend=False,
+    )
+    return fig
+
+
+def render_race_strategy_page():
+    """Renderiza el módulo completo de Estrategias de Carrera (AlphaX Race Split) en el CRM Admin."""
+    init_db()
+
+    _render_html(
+        """
+        <div style="background: linear-gradient(135deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98));
+                    border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px;
+                    margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
+            <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
+                🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (GPX)</span>
+            </div>
+            <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
+                Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
+            </div>
+        </div>
+        """
+    )
+
+    # ── 1. SELECCIÓN DE DEPORTISTA Y CARGA DE RUTA GPX ──────────────
+    with SessionLocal() as session:
+        members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
+        if not members:
+            members = session.query(Member).order_by(Member.name).all()
+        member_map = {f"{m.name} ({m.group or 'AlphaX'})": m.id for m in members}
+
+    if not member_map:
+        st.warning("Aún no hay deportistas registrados en el CRM.")
+        return
+
+    col_top1, col_top2 = st.columns([1.15, 1.85])
+    with col_top1:
+        sel_member_label = st.selectbox(
+            "🏃‍♂️ Seleccionar Deportista:",
+            list(member_map.keys()),
+            key="rs_athlete_select",
+        )
+        member_id = member_map[sel_member_label]
+        ath_defaults = _load_athlete_defaults(member_id)
+        st.caption(
+            f"📌 Datos cargados del CRM: Peso **{ath_defaults['weight_kg']:.1f} kg** ({ath_defaults['weight_src']}) · "
+            f"Estatura **{ath_defaults['height_cm']:.0f} cm** ({ath_defaults['height_src']}) · "
+            f"FTP **{ath_defaults['ftp_w']:.0f} W** ({ath_defaults['ftp_src']})"
+        )
+
+    with col_top2:
+        route_source = st.radio(
+            "🗺️ Origen del Circuito de Ciclismo:",
+            ["📂 Subir archivo GPX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
+            horizontal=True,
+            key="rs_route_source",
+        )
+
+        gpx_bytes = None
+        gpx_label = ""
+        c_gpx1, c_gpx2 = st.columns([2.2, 1])
+        with c_gpx1:
+            if route_source == "📂 Subir archivo GPX":
+                up_gpx = st.file_uploader(
+                    "Sube la ruta del circuito (.gpx de Strava, Garmin, RideWithGPS o Komoot):",
+                    type=["gpx"],
+                    key="rs_gpx_uploader",
+                )
+                if up_gpx is not None:
+                    gpx_bytes = up_gpx.getvalue()
+                    gpx_label = up_gpx.name
+            elif "Cartagena" in route_source:
+                gpx_bytes, gpx_label = generate_demo_gpx("cartagena_703")
+            else:
+                gpx_bytes, gpx_label = generate_demo_gpx("rionegro_climb")
+        with c_gpx2:
+            laps = st.number_input(
+                "🔁 Vueltas al circuito:",
+                min_value=1,
+                max_value=15,
+                value=1,
+                step=1,
+                help="Si tu GPX es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
+                key="rs_laps",
+            )
+
+    if not gpx_bytes:
+        st.info("📂 Sube un archivo `.gpx` arriba o selecciona una de las rutas de demostración para empezar a simular escenarios.")
+        return
+
+    try:
+        route_data = parse_gpx_bytes(gpx_bytes, laps=int(laps))
+    except Exception as gpx_err:
+        st.error(f"⚠️ No se pudo leer el archivo GPX: {gpx_err}")
+        return
+
+    # Banner compacto del circuito cargado
+    _render_html(
+        f"""
+        <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:6px 0 14px 0;">
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Circuito</div>
+                <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{route_data['route_name'][:32]}</div>
+            </div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Distancia Total</div>
+                <div style="color:#00EEFF; font-size:1.1rem; font-weight:900;">{route_data['total_distance_km']:.1f} km</div>
+            </div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Desnivel Positivo</div>
+                <div style="color:#FF6B6B; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
+            </div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Altitud (Mín–Máx)</div>
+                <div style="color:#F8FAFC; font-size:1.0rem; font-weight:800;">{route_data['min_ele_m']:.0f}–{route_data['max_ele_m']:.0f} m</div>
+            </div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Pendiente Máx</div>
+                <div style="color:#FFD700; font-size:1.1rem; font-weight:900;">{route_data['max_grade_pct']:.1f}%</div>
+            </div>
+        </div>
+        """
+    )
+
+    tab_sim, tab_comp, tab_saved = st.tabs([
+        "⚙️ Simulador y Plan de Carrera",
+        "⚔️ Comparador 'Qué Pasa Si...'",
+        "🗂️ Escenarios Guardados",
+    ])
+
+    # ═════════════════════════════════════════════════════════════════
+    #  TAB 1: SIMULADOR COMPLETO ESTILO BEST BIKE SPLIT
+    # ═════════════════════════════════════════════════════════════════
+    with tab_sim:
+        col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+
+        # ── COL 1: BICICLETA, COMPONENTES Y CDA ─────────────────────
+        with col_cfg1:
+            st.markdown("#### 🚲 Bicicleta, Componentes y CdA")
+            bike_type = st.selectbox("Tipo de Bicicleta:", list(BIKE_TYPES.keys()), key="rs_bike_type")
+            wheels = st.selectbox("Juego de Ruedas:", list(WHEEL_SETS.keys()), index=1, key="rs_wheels")
+            helmet = st.selectbox("Casco:", list(HELMETS.keys()), index=0 if "TT" in bike_type else 1, key="rs_helmet")
+            tires = st.selectbox("Llantas / Cubiertas (Crr):", list(TIRES_CRR.keys()), index=1, key="rs_tires")
+            drivetrain = st.selectbox("Transmisión:", list(DRIVETRAINS.keys()), index=1, key="rs_drivetrain")
+            apparel = st.selectbox("Indumentaria:", list(APPAREL_OPTIONS.keys()), index=0 if "TT" in bike_type else 1, key="rs_apparel")
+            hydration = st.selectbox("Hidratación / Carga:", list(HYDRATION_SETUP.keys()), index=0 if "TT" in bike_type else 1, key="rs_hydration")
+            surface = st.selectbox("Superficie del Asfalto:", list(ROAD_SURFACES.keys()), index=1, key="rs_surface")
+
+        # ── COL 2: CLIMA, VIENTO Y DENSIDAD DEL AIRE ────────────────
+        with col_cfg2:
+            st.markdown("#### 🌬️ Clima, Viento y Altitud")
+            temp_c = st.slider("🌡️ Temperatura estimada (°C):", min_value=5, max_value=42, value=24, step=1, key="rs_temp")
+            humidity_pct = st.slider("💧 Humedad relativa (%):", min_value=15, max_value=100, value=65, step=5, key="rs_hum")
+            wind_kmh = st.slider("💨 Velocidad del viento (km/h):", min_value=0, max_value=50, value=12, step=1, key="rs_wind_spd")
+            wind_dir_lbl = st.selectbox(
+                "🧭 Dirección desde donde sopla el viento:",
+                list(WIND_DIRECTIONS.keys()) + ["Personalizado (grados)"],
+                index=1,
+                key="rs_wind_dir_lbl",
+            )
+            if wind_dir_lbl == "Personalizado (grados)":
+                wind_deg = float(st.slider("Ángulo del viento (0°=N, 90°=E, 180°=S, 270°=O):", 0, 355, 45, 5, key="rs_wind_deg_custom"))
+            else:
+                wind_deg = WIND_DIRECTIONS[wind_dir_lbl]
+
+            rho_preview = calc_air_density(route_data["avg_ele_m"], temp_c, humidity_pct)
+            st.info(
+                f"🌬️ **Densidad del aire media (ρ):** `{rho_preview:.4f} kg/m³`\n\n"
+                f"Calculada dinámicamente tramo a tramo para altitud media de **{route_data['avg_ele_m']:.0f} m**, "
+                f"**{temp_c}°C** y **{humidity_pct}% HR**."
+            )
+
+            st.markdown("##### 📐 Ajuste fino de CdA y Peso de Bici")
+            override_aero = st.checkbox("Ingresar CdA o peso exacto manualmente", value=False, key="rs_override_aero")
+            manual_cda = None
+            manual_bike_kg = None
+            if override_aero:
+                manual_cda = st.number_input("CdA Exacto (m²):", min_value=0.160, max_value=0.550, value=0.240, step=0.005, format="%.3f", key="rs_manual_cda")
+                manual_bike_kg = st.number_input("Peso bici + agua + equipo (kg):", min_value=5.5, max_value=18.0, value=9.5, step=0.2, key="rs_manual_bkg")
+
+        # ── COL 3: DEPORTISTA Y ESTRATEGIA DE POTENCIA ──────────────
+        with col_cfg3:
+            st.markdown("#### ⚡ Atleta y Estrategia de Potencia")
+            preset_lbl = st.selectbox("🎯 Preset de Distancia / Prueba:", list(RACE_PRESETS.keys()), index=3, key="rs_preset")
+            preset_cfg = RACE_PRESETS[preset_lbl]
+
+            c_ath1, c_ath2 = st.columns(2)
+            with c_ath1:
+                rider_weight = st.number_input(
+                    "⚖️ Peso atleta (kg):",
+                    min_value=35.0,
+                    max_value=150.0,
+                    value=float(ath_defaults["weight_kg"]),
+                    step=0.5,
+                    key=f"rs_rw_{member_id}",
+                )
+            with c_ath2:
+                rider_height = st.number_input(
+                    "📏 Estatura (cm):",
+                    min_value=135.0,
+                    max_value=215.0,
+                    value=float(ath_defaults["height_cm"]),
+                    step=1.0,
+                    key=f"rs_rh_{member_id}",
+                )
+
+            ftp_w = st.number_input(
+                "🔥 FTP del Atleta (W):",
+                min_value=80.0,
+                max_value=550.0,
+                value=float(ath_defaults["ftp_w"]),
+                step=5.0,
+                key=f"rs_ftp_{member_id}",
+            )
+
+            default_if = preset_cfg["target_if"] if preset_cfg else 0.82
+            default_cap = int(round((preset_cfg["max_climb_pct"] if preset_cfg else 1.08) * 100))
+
+            target_if = st.slider(
+                "🎯 Factor de Intensidad objetivo (IF):",
+                min_value=0.55,
+                max_value=1.05,
+                value=float(default_if),
+                step=0.01,
+                help=f"NP Objetivo ≈ {ftp_w * default_if:.0f} W",
+                key=f"rs_if_{preset_lbl}",
+            )
+
+            strategy_map = {
+                "⚡ Óptimo AlphaX (Variable por Pendiente y Viento)": "optimal",
+                "📏 Potencia Constante (Isopotencia)": "constant",
+                "🛡️ Conservador / Negative Split (-3.5% → +3.5%)": "negative_split",
+            }
+            strat_label = st.selectbox("🧠 Modo de Pacing:", list(strategy_map.keys()), key="rs_strategy_mode")
+            strategy_code = strategy_map[strat_label]
+
+            c_cap1, c_cap2 = st.columns(2)
+            with c_cap1:
+                max_climb_pct = st.slider("Techo en subidas (% FTP):", 85, 130, default_cap, 1, key=f"rs_cap_{preset_lbl}") / 100.0
+            with c_cap2:
+                max_desc_kmh = st.slider("Vel. máx bajada (km/h):", 45, 85, 68, 1, key="rs_max_desc")
+
+            split_step_km = st.selectbox("Intervalo de Splits (km):", [2.0, 5.0, 10.0, 15.0], index=1, key="rs_split_km")
+
+        # Calcular especificaciones físicas del equipo
+        equipment = estimate_equipment_specs(
+            bike_type=bike_type,
+            wheels=wheels,
+            helmet=helmet,
+            tires=tires,
+            drivetrain=drivetrain,
+            apparel=apparel,
+            hydration=hydration,
+            surface=surface,
+            rider_height_cm=rider_height,
+            manual_cda=manual_cda,
+            manual_bike_weight_kg=manual_bike_kg,
+        )
+
+        # Ejecutar simulación principal
+        sim = simulate_race_strategy(
+            route_data=route_data,
+            rider_weight_kg=rider_weight,
+            ftp_w=ftp_w,
+            target_if=target_if,
+            equipment=equipment,
+            temp_c=float(temp_c),
+            rel_humidity_pct=float(humidity_pct),
+            wind_speed_kmh=float(wind_kmh),
+            wind_from_deg=float(wind_deg),
+            strategy=strategy_code,
+            max_climb_pct_ftp=max_climb_pct,
+            max_descent_kmh=float(max_desc_kmh),
+            split_interval_km=float(split_step_km),
+        )
+        s = sim["summary"]
+        nut = sim["nutrition"]
+
+        # ── TARJETAS HERO DE RESULTADO DE SIMULACIÓN ────────────────
+        st.markdown("---")
+        _render_html(
+            f"""
+            <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; margin-bottom:14px;">
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid #00EEFF; border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">⏱️ Tiempo Estimado</div>
+                    <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; margin-top:4px;">{s['total_time_str']}</div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">{s['distance_km']:.1f} km · +{s['elevation_gain_m']:.0f} m</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.45); border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">🚀 Velocidad Media</div>
+                    <div style="color:#FFD700; font-size:1.45rem; font-weight:900; margin-top:4px;">{s['avg_speed_kmh']:.1f} <span style="font-size:0.8rem;">km/h</span></div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">Máx: {s['max_speed_kmh']:.1f} km/h</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(0,255,136,0.45); border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">⚡ Potencia NP / AP</div>
+                    <div style="color:#00FF88; font-size:1.4rem; font-weight:900; margin-top:4px;">{s['norm_power_w']:.0f} <span style="font-size:0.8rem;">W</span></div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">AP: {s['avg_power_w']:.0f} W · {s['w_per_kg_np']:.2f} W/kg</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(165,94,234,0.45); border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">🎯 IF · VI · TSS</div>
+                    <div style="color:#C084FC; font-size:1.4rem; font-weight:900; margin-top:4px;">{s['intensity_factor']:.2f} <span style="font-size:0.85rem;">IF</span></div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">VI: {s['vi']:.2f} · TSS: {s['tss']:.0f}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,107,107,0.45); border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">🔋 Gasto Energético</div>
+                    <div style="color:#FF8787; font-size:1.4rem; font-weight:900; margin-top:4px;">{s['work_kj']:.0f} <span style="font-size:0.8rem;">kJ</span></div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">≈ {s['work_kj']:.0f} kcal</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(56,189,248,0.45); border-radius:12px; padding:12px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:800; text-transform:uppercase;">🌬️ CdA & Masa Total</div>
+                    <div style="color:#38BDF8; font-size:1.35rem; font-weight:900; margin-top:4px;">{s['cda']:.3f} <span style="font-size:0.78rem;">m²</span></div>
+                    <div style="color:#94A3B8; font-size:0.7rem;">{s['total_mass_kg']:.1f} kg · Crr {s['crr']:.4f}</div>
+                </div>
+            </div>
+            """
+        )
+
+        # Gráfica principal: Potencia + Altimetría
+        st.plotly_chart(_build_elevation_power_chart(sim["segments"], ftp_w), use_container_width=True)
+        st.plotly_chart(_build_speed_wind_chart(sim["segments"]), use_container_width=True)
+
+        # Fila de Mapa GPS + Desglose de Resistencias y Nutrición
+        col_vis1, col_vis2 = st.columns([1.35, 1])
+        with col_vis1:
+            map_color = st.radio(
+                "Colorear mapa del circuito por:",
+                ["🌬️ Viento relativo", "⚡ Potencia objetivo (W)"],
+                horizontal=True,
+                key="rs_map_color",
+            )
+            st.plotly_chart(
+                _build_gps_map_chart(
+                    sim["segments"],
+                    color_mode="power" if "Potencia" in map_color else "wind",
+                    wind_from_deg=wind_deg,
+                    wind_kmh=wind_kmh,
+                ),
+                use_container_width=True,
+            )
+
+        with col_vis2:
+            st.plotly_chart(_build_resistance_donut(sim["resistance"]), use_container_width=True)
+            _render_html(
+                f"""
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,255,136,0.35); border-radius:12px; padding:12px 14px; margin-top:4px;">
+                    <div style="color:#00FF88; font-weight:800; font-size:0.86rem; margin-bottom:6px;">
+                        🥤 Plan Nutricional e Hidratación Sugerido ({temp_c}°C · {humidity_pct}% HR)
+                    </div>
+                    <div style="color:#E2E8F0; font-size:0.82rem; line-height:1.55;">
+                        • <b>Carbohidratos:</b> <code>{nut['cho_g_per_h']} g/h</code> → <b>Total: {nut['cho_total_g']} g</b><br>
+                        • <b>Líquidos:</b> <code>{nut['fluid_ml_per_h']} mL/h</code> → <b>Total: {nut['fluid_total_l']} L</b><br>
+                        • <b>Sodio (Electrolitos):</b> <code>{nut['sodium_mg_per_h']} mg/h</code> → <b>Total: {nut['sodium_total_mg']} mg</b>
+                    </div>
+                </div>
+                """
+            )
+
+        # Tabla de Splits + Descarga CSV
+        st.markdown("---")
+        st.markdown("### 📋 Plan de Splits (Hoja de Ruta de Potencia para Carrera)")
+        df_splits = pd.DataFrame(sim["splits"])
+        st.dataframe(df_splits, use_container_width=True, hide_index=True)
+
+        c_dl, c_save1, c_save2 = st.columns([1, 1.8, 1])
+        with c_dl:
+            csv_bytes = df_splits.to_csv(index=False).encode("utf-8-sig")
+            safe_file = f"plan_carrera_{ath_defaults['name'].replace(' ', '_')}_{route_data['total_distance_km']:.0f}km.csv"
+            st.download_button(
+                "⬇️ Descargar Splits (CSV)",
+                data=csv_bytes,
+                file_name=safe_file,
+                mime="text/csv",
+                use_container_width=True,
+                key="rs_dl_csv",
+            )
+
+        default_scen_name = (
+            f"{route_data['route_name'][:28]} · {bike_type.split('(')[0].strip()} · "
+            f"IF {target_if:.2f} · Viento {wind_kmh} km/h"
+        )
+        with c_save1:
+            scen_name_input = st.text_input(
+                "Nombre del escenario para guardar y comparar:",
+                value=default_scen_name,
+                label_visibility="collapsed",
+                key="rs_save_name",
+            )
+        with c_save2:
+            if st.button("💾 Guardar Escenario", type="primary", use_container_width=True, key="rs_save_btn"):
+                try:
+                    cfg_dump = {
+                        "bike_type": bike_type,
+                        "wheels": wheels,
+                        "helmet": helmet,
+                        "tires": tires,
+                        "drivetrain": drivetrain,
+                        "apparel": apparel,
+                        "hydration": hydration,
+                        "surface": surface,
+                        "temp_c": temp_c,
+                        "humidity_pct": humidity_pct,
+                        "wind_kmh": wind_kmh,
+                        "wind_deg": wind_deg,
+                        "rider_weight_kg": rider_weight,
+                        "rider_height_cm": rider_height,
+                        "ftp_w": ftp_w,
+                        "target_if": target_if,
+                        "strategy": strat_label,
+                        "resistance": sim["resistance"],
+                        "nutrition": nut,
+                    }
+                    with SessionLocal() as s_db:
+                        new_sc = RaceStrategyScenario(
+                            member_id=member_id,
+                            scenario_name=(scen_name_input.strip() or default_scen_name),
+                            route_name=route_data["route_name"],
+                            distance_km=s["distance_km"],
+                            elevation_gain_m=s["elevation_gain_m"],
+                            estimated_time_sec=s["total_time_s"],
+                            avg_speed_kmh=s["avg_speed_kmh"],
+                            avg_power_w=s["avg_power_w"],
+                            norm_power_w=s["norm_power_w"],
+                            intensity_factor=s["intensity_factor"],
+                            tss=s["tss"],
+                            cda=s["cda"],
+                            total_mass_kg=s["total_mass_kg"],
+                            config_json=json.dumps(cfg_dump, ensure_ascii=False),
+                            splits_json=json.dumps(sim["splits"], ensure_ascii=False),
+                            created_at=datetime.now(),
+                        )
+                        s_db.add(new_sc)
+                        s_db.commit()
+                    st.success(f"✅ Escenario guardado para **{ath_defaults['name']}**. Ya puedes compararlo en la pestaña **⚔️ Comparador**.")
+                    st.toast("Escenario de carrera guardado", icon="🏁")
+                except Exception as save_err:
+                    st.error(f"Error guardando escenario: {save_err}")
+
+    # ═════════════════════════════════════════════════════════════════
+    #  TAB 2: COMPARADOR "QUÉ PASA SI..." (BENCHMARKS AUTOMÁTICOS + GUARDADOS)
+    # ═════════════════════════════════════════════════════════════════
+    with tab_comp:
+        st.subheader("⚡ Análisis 'Qué Pasa Si...' en Tiempo Real sobre este Circuito")
+        st.caption(
+            f"Simulaciones automáticas instantáneas para **{ath_defaults['name']}** en `{route_data['route_name']}` "
+            f"(FTP {ftp_w:.0f} W · IF {target_if:.2f} · Viento {wind_kmh} km/h · {temp_c}°C)."
+        )
+
+        col_b1, col_b2 = st.columns(2)
+
+        # ── A. BENCHMARK DE ESTRATEGIA DE PACING (MISMO IF) ─────────
+        with col_b1:
+            st.markdown("##### 🧠 1. Estrategia de Pacing (al mismo desgaste IF)")
+            pacing_rows = []
+            p_base_t = None
+            for p_lbl, p_code in [
+                ("⚡ Óptimo AlphaX (Variable)", "optimal"),
+                ("📏 Potencia Constante", "constant"),
+                ("🛡️ Negative Split", "negative_split"),
+            ]:
+                p_sim = simulate_race_strategy(
+                    route_data=route_data,
+                    rider_weight_kg=rider_weight,
+                    ftp_w=ftp_w,
+                    target_if=target_if,
+                    equipment=equipment,
+                    temp_c=float(temp_c),
+                    rel_humidity_pct=float(humidity_pct),
+                    wind_speed_kmh=float(wind_kmh),
+                    wind_from_deg=float(wind_deg),
+                    strategy=p_code,
+                    max_climb_pct_ftp=max_climb_pct,
+                    max_descent_kmh=float(max_desc_kmh),
+                )["summary"]
+                if p_code == "constant":
+                    p_base_t = p_sim["total_time_s"]
+                pacing_rows.append((p_lbl, p_sim))
+
+            p_table = []
+            for p_lbl, ps in pacing_rows:
+                delta_vs_const = ps["total_time_s"] - (p_base_t or ps["total_time_s"])
+                p_table.append({
+                    "Estrategia": p_lbl,
+                    "Tiempo": ps["total_time_str"],
+                    "vs Constante": "Base" if abs(delta_vs_const) < 0.5 else format_time_delta(delta_vs_const),
+                    "Vel. (km/h)": ps["avg_speed_kmh"],
+                    "NP / AP (W)": f"{ps['norm_power_w']:.0f} / {ps['avg_power_w']:.0f}",
+                    "VI": ps["vi"],
+                    "TSS": ps["tss"],
+                })
+            st.dataframe(pd.DataFrame(p_table), use_container_width=True, hide_index=True)
+
+        # ── B. SENSIBILIDAD AERODINÁMICA VS PESO EN ESTA RUTA ───────
+        with col_b2:
+            st.markdown("##### 🔬 2. ¿Qué da más ganancia aquí: Aero, Peso o Potencia?")
+            base_t = sim["summary"]["total_time_s"]
+
+            eq_aero_better = dict(equipment, cda=max(0.16, round(equipment["cda"] - 0.020, 4)))
+            t_aero = simulate_race_strategy(
+                route_data, rider_weight, ftp_w, target_if, eq_aero_better,
+                float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
+                strategy_code, max_climb_pct, float(max_desc_kmh),
+            )["summary"]["total_time_s"]
+
+            t_weight = simulate_race_strategy(
+                route_data, max(35.0, rider_weight - 2.0), ftp_w, target_if, equipment,
+                float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
+                strategy_code, max_climb_pct, float(max_desc_kmh),
+            )["summary"]["total_time_s"]
+
+            t_ftp = simulate_race_strategy(
+                route_data, rider_weight, ftp_w + 10.0, target_if, equipment,
+                float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
+                strategy_code, max_climb_pct, float(max_desc_kmh),
+            )["summary"]["total_time_s"]
+
+            eq_crr_better = dict(equipment, crr=max(0.0022, round(equipment["crr"] - 0.0010, 5)))
+            t_crr = simulate_race_strategy(
+                route_data, rider_weight, ftp_w, target_if, eq_crr_better,
+                float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
+                strategy_code, max_climb_pct, float(max_desc_kmh),
+            )["summary"]["total_time_s"]
+
+            sens_df = pd.DataFrame([
+                {"Mejora Simulada": "🌬️ Mejorar CdA en -0.020 m² (posición/casco)", "Nuevo Tiempo": format_hms(t_aero), "Ahorro": format_time_delta(t_aero - base_t)},
+                {"Mejora Simulada": "🔥 Subir FTP en +10 W (mismo IF)", "Nuevo Tiempo": format_hms(t_ftp), "Ahorro": format_time_delta(t_ftp - base_t)},
+                {"Mejora Simulada": "⚖️ Bajar 2.0 kg (atleta o bici)", "Nuevo Tiempo": format_hms(t_weight), "Ahorro": format_time_delta(t_weight - base_t)},
+                {"Mejora Simulada": "🛞 Mejores llantas (-0.0010 Crr)", "Nuevo Tiempo": format_hms(t_crr), "Ahorro": format_time_delta(t_crr - base_t)},
+            ])
+            st.dataframe(sens_df, use_container_width=True, hide_index=True)
+
+        # ── C. BENCHMARK DE TIPOS DE BICICLETA SOBRE THIS GPX ───────
+        st.markdown("##### 🚲 3. Comparación Directa de Bicicletas en este Circuito")
+        bike_bench = []
+        for b_name, w_name, h_name in [
+            ("Contrarreloj / Triatlón (TT / Cabra)", "Lenticular trasera + Perfil Alto 80 mm", "Casco Aero TT con visor"),
+            ("Ruta Aero con acoples", "Perfil Alto Carbono (60–80 mm)", "Casco Aero Ruta (semi-cerrado)"),
+            ("Ruta Aero (manubrio normal / drops)", "Perfil Medio Carbono (45–50 mm)", "Casco Aero Ruta (semi-cerrado)"),
+            ("Ruta Escaladora / Ligera", "Ultraligeras Escaladoras (28–35 mm)", "Casco Ruta Ventilado estándar"),
+        ]:
+            b_eq = estimate_equipment_specs(
+                bike_type=b_name, wheels=w_name, helmet=h_name, tires=tires,
+                drivetrain=drivetrain, apparel=apparel, hydration=hydration,
+                surface=surface, rider_height_cm=rider_height,
+            )
+            b_sim = simulate_race_strategy(
+                route_data, rider_weight, ftp_w, target_if, b_eq,
+                float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
+                strategy_code, max_climb_pct, float(max_desc_kmh),
+            )["summary"]
+            bike_bench.append((b_name, b_sim))
+
+        fastest_b = min(x[1]["total_time_s"] for x in bike_bench)
+        bike_df = pd.DataFrame([
+            {
+                "Configuración": bn,
+                "CdA (m²)": bs["cda"],
+                "Masa Total (kg)": bs["total_mass_kg"],
+                "Tiempo Estimado": bs["total_time_str"],
+                "Diferencia vs Más Rápida": "🥇 Más rápida" if abs(bs["total_time_s"] - fastest_b) < 0.5 else format_time_delta(bs["total_time_s"] - fastest_b),
+                "Vel. Media (km/h)": bs["avg_speed_kmh"],
+            }
+            for bn, bs in bike_bench
+        ])
+        st.dataframe(bike_df, use_container_width=True, hide_index=True)
+
+        # ── D. COMPARADOR DE ESCENARIOS GUARDADOS EN DB ─────────────
+        st.markdown("---")
+        st.markdown(f"### 📊 Comparar Escenarios Guardados de {ath_defaults['name']}")
+        with SessionLocal() as s_db:
+            saved_list = (
+                s_db.query(RaceStrategyScenario)
+                .filter(RaceStrategyScenario.member_id == member_id)
+                .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
+                .all()
+            )
+        if len(saved_list) >= 2:
+            sc_map = {f"{sc.scenario_name} ({format_hms(sc.estimated_time_sec)} · ID:{sc.id})": sc for sc in saved_list}
+            sel_comp = st.multiselect(
+                "Selecciona de 2 a 4 escenarios para comparar lado a lado:",
+                list(sc_map.keys()),
+                default=list(sc_map.keys())[: min(3, len(sc_map))],
+                max_selections=4,
+                key=f"rs_comp_multi_{member_id}",
+            )
+            if len(sel_comp) >= 2:
+                chosen_scs = [sc_map[k] for k in sel_comp]
+                min_t_sc = min(c.estimated_time_sec for c in chosen_scs)
+                comp_rows = []
+                for c in chosen_scs:
+                    comp_rows.append({
+                        "Escenario": c.scenario_name,
+                        "Ruta": c.route_name,
+                        "Tiempo": format_hms(c.estimated_time_sec),
+                        "Delta": "🥇 Más rápido" if abs(c.estimated_time_sec - min_t_sc) < 0.5 else format_time_delta(c.estimated_time_sec - min_t_sc),
+                        "Vel. (km/h)": round(c.avg_speed_kmh or 0, 2),
+                        "NP (W)": round(c.norm_power_w or 0, 0),
+                        "IF": round(c.intensity_factor or 0, 2),
+                        "TSS": round(c.tss or 0, 0),
+                        "CdA": round(c.cda or 0, 3),
+                        "Masa (kg)": round(c.total_mass_kg or 0, 1),
+                    })
+                st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+
+                fig_bar = go.Figure(
+                    data=[
+                        go.Bar(
+                            x=[c.estimated_time_sec / 60.0 for c in chosen_scs],
+                            y=[c.scenario_name[:35] for c in chosen_scs],
+                            orientation="h",
+                            marker_color=["#00FF88" if abs(c.estimated_time_sec - min_t_sc) < 0.5 else "#00EEFF" for c in chosen_scs],
+                            text=[format_hms(c.estimated_time_sec) for c in chosen_scs],
+                            textposition="auto",
+                        )
+                    ]
+                )
+                fig_bar.update_layout(
+                    title="Comparación de Tiempo Total (minutos)",
+                    paper_bgcolor="#0E121C",
+                    plot_bgcolor="#0E121C",
+                    font=dict(color="#E2E8F0"),
+                    height=260,
+                    margin=dict(l=15, r=15, t=42, b=15),
+                    xaxis_title="Minutos",
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("Guarda al menos 2 escenarios desde la pestaña **⚙️ Simulador y Plan de Carrera** para compararlos aquí lado a lado.")
+
+    # ═════════════════════════════════════════════════════════════════
+    #  TAB 3: HISTORIAL Y GESTIÓN DE ESCENARIOS GUARDADOS
+    # ═════════════════════════════════════════════════════════════════
+    with tab_saved:
+        st.subheader(f"🗂️ Escenarios Guardados — {ath_defaults['name']}")
+        with SessionLocal() as s_db:
+            saved_recs = (
+                s_db.query(RaceStrategyScenario)
+                .filter(RaceStrategyScenario.member_id == member_id)
+                .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
+                .all()
+            )
+        if not saved_recs:
+            st.info(f"{ath_defaults['name']} aún no tiene escenarios de carrera guardados.")
+        else:
+            summary_rows = []
+            for r in saved_recs:
+                summary_rows.append({
+                    "ID": r.id,
+                    "Fecha": r.created_at.strftime("%d/%m/%Y") if r.created_at else "—",
+                    "Escenario": r.scenario_name,
+                    "Ruta": r.route_name,
+                    "Dist. (km)": r.distance_km,
+                    "Desnivel (m)": r.elevation_gain_m,
+                    "Tiempo": format_hms(r.estimated_time_sec),
+                    "Vel. (km/h)": r.avg_speed_kmh,
+                    "NP (W)": r.norm_power_w,
+                    "IF": r.intensity_factor,
+                    "TSS": r.tss,
+                    "CdA": r.cda,
+                })
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+            sc_pick_map = {f"{r.scenario_name} ({format_hms(r.estimated_time_sec)} · ID:{r.id})": r for r in saved_recs}
+            sel_sc_lbl = st.selectbox("Inspeccionar o eliminar un escenario:", list(sc_pick_map.keys()), key=f"rs_saved_pick_{member_id}")
+            sel_sc = sc_pick_map[sel_sc_lbl]
+
+            c_det1, c_det2 = st.columns([3, 1])
+            with c_det1:
+                try:
+                    splits_saved = json.loads(sel_sc.splits_json or "[]")
+                    if splits_saved:
+                        with st.expander("📋 Ver Plan de Splits guardado", expanded=False):
+                            df_sp = pd.DataFrame(splits_saved)
+                            st.dataframe(df_sp, use_container_width=True, hide_index=True)
+                            st.download_button(
+                                "⬇️ Descargar Splits CSV",
+                                data=df_sp.to_csv(index=False).encode("utf-8-sig"),
+                                file_name=f"escenario_{sel_sc.id}.csv",
+                                mime="text/csv",
+                                key=f"rs_dl_saved_{sel_sc.id}",
+                            )
+                except Exception:
+                    pass
+            with c_det2:
+                if st.button("🗑️ Eliminar Escenario", type="secondary", use_container_width=True, key=f"rs_del_sc_{sel_sc.id}"):
+                    try:
+                        with SessionLocal() as s_del:
+                            obj = s_del.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == sel_sc.id).first()
+                            if obj:
+                                s_del.delete(obj)
+                                s_del.commit()
+                        st.toast("Escenario eliminado", icon="🗑️")
+                        st.rerun()
+                    except Exception as err_d:
+                        st.error(f"Error al eliminar: {err_d}")

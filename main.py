@@ -307,7 +307,16 @@ with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00EEFF; margin-top: 10px;'>ALPHAX TEAM ADMIN</h2>", unsafe_allow_html=True)
     
     st.markdown("---")
-    nav_options = ["Dashboard", "Socios", "Novedades/Pagos", "Gastos", "Configuración", "Analíticas AlphaX", "Wolfy AI Coach"]
+    nav_options = [
+        "Dashboard",
+        "Socios",
+        "Novedades/Pagos",
+        "Gastos",
+        "Configuración",
+        "Analíticas AlphaX",
+        "🏁 Estrategias de Carrera",
+        "Wolfy AI Coach",
+    ]
     target_nav = st.session_state.get("crm_nav_radio", "Dashboard")
     if target_nav not in nav_options:
         target_nav = "Dashboard"
@@ -2738,6 +2747,10 @@ elif page == "Analíticas AlphaX":
                 session_int.close()
 
                 session.close()
+
+elif page == "🏁 Estrategias de Carrera":
+    import race_strategy_ui
+    race_strategy_ui.render_race_strategy_page()
 
 elif page == "Wolfy AI Coach":
     session = SessionLocal()
