@@ -20,6 +20,10 @@ import streamlit as st
 
 from database import LactateTest, Member, RaceStrategyScenario, SessionLocal, init_db
 from weather_service import deg_to_compass, fetch_race_weather
+from interactive_course_charts import (
+    render_interactive_pacing_zoom_widget,
+    render_synced_elevation_planimetry_widget,
+)
 from cda_estimator import (
     estimate_cda_from_activity,
     estimate_cda_from_race_summary,
@@ -2070,7 +2074,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.20</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.21</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
@@ -2403,43 +2407,47 @@ def render_race_strategy_page():
     if active_section in ("sim", "comp") and route_data:
         _render_html(
             f"""
-            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:6px 0 12px 0;">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap:8px; margin:6px 0 12px 0;">
                 <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
                     <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Circuito</div>
-                    <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{route_data['route_name'][:32]}</div>
+                    <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{html.escape(str(route_data['route_name'])[:32])}</div>
                 </div>
                 <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
                     <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Distancia Total</div>
                     <div style="color:#00EEFF; font-size:1.1rem; font-weight:900;">{route_data['total_distance_km']:.1f} km</div>
                 </div>
-                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Desnivel Positivo</div>
-                    <div style="color:#FF6B6B; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(255,82,82,0.32); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">⛰️ Desnivel Positivo</div>
+                    <div style="color:#FF5252; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
+                </div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(56,189,248,0.32); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">⬇️ Desnivel Negativo</div>
+                    <div style="color:#38BDF8; font-size:1.1rem; font-weight:900;">−{float(route_data.get('elevation_loss_m', 0)):.0f} m</div>
                 </div>
                 <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
                     <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Altitud (Mín–Máx)</div>
                     <div style="color:#F8FAFC; font-size:1.0rem; font-weight:800;">{route_data['min_ele_m']:.0f}–{route_data['max_ele_m']:.0f} m</div>
                 </div>
-                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Pendiente Máx</div>
-                    <div style="color:#FFD700; font-size:1.1rem; font-weight:900;">{route_data['max_grade_pct']:.1f}%</div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(255,215,0,0.28); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Pendiente Máx / Mín</div>
+                    <div style="color:#FFD700; font-size:1.05rem; font-weight:900;">+{route_data['max_grade_pct']:.1f}% / {route_data['min_grade_pct']:.1f}%</div>
                 </div>
             </div>
             """
         )
 
-        # ── PLANIMETRÍA Y ALTIMETRÍA CON MAPA DE CALOR DE DESNIVELES (CACHEADOS) ──
-        fig_elev_heat, t_stats, fig_plan_heat = _cached_course_heatmaps(route_sig, route_data)
+        # ── PLANIMETRÍA Y ALTIMETRÍA SINCRONIZADAS CON MAPA DE CALOR Y ZOOM EN VIVO ──
+        _fig_elev_h, t_stats, _fig_plan_h = _cached_course_heatmaps(route_sig, route_data)
 
         with st.expander(
-            "🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles",
+            "🗺️ Planimetría GPS y Altimetría del Circuito — Cursor Sincronizado & Zoom (+D / −D)",
             expanded=(active_section == "sim"),
         ):
             _render_html(
                 f"""
                 <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
                             background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
-                            padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#CBD5E1;">
+                            padding:8px 12px; margin-bottom:8px; font-size:0.75rem; color:#CBD5E1;">
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
                         <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
                         <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz (≤-3.5%)</span>
@@ -2458,11 +2466,7 @@ def render_race_strategy_page():
                 </div>
                 """
             )
-            c_hm1, c_hm2 = st.columns([1.55, 1])
-            with c_hm1:
-                st.plotly_chart(fig_elev_heat, use_container_width=True)
-            with c_hm2:
-                st.plotly_chart(fig_plan_heat, use_container_width=True)
+            render_synced_elevation_planimetry_widget(route_data, height=475)
 
     sim_ctx_key = f"rs_sim_ctx_{member_id}_{route_sig}" if route_sig else None
 
@@ -2830,8 +2834,8 @@ def render_race_strategy_page():
             """
         )
 
-        # Gráfica principal: Potencia + Altimetría
-        st.plotly_chart(_build_elevation_power_chart(sim["segments"], ftp_w), use_container_width=True)
+        # Gráfica principal interactiva: Plan de Pacing con Zoom en vivo (Distancia, Velocidad, Potencia, % FTP y +D/-D)
+        render_interactive_pacing_zoom_widget(sim, sport="cycling", ftp_or_rcp=ftp_w, height=535)
         st.plotly_chart(_build_speed_wind_chart(sim["segments"]), use_container_width=True)
 
         # Fila de Mapa GPS + Desglose de Resistencias y Nutrición

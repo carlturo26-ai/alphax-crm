@@ -20,6 +20,10 @@ import streamlit as st
 
 from database import LactateTest, Member, RaceStrategyScenario, SessionLocal
 from weather_service import deg_to_compass, fetch_race_weather
+from interactive_course_charts import (
+    render_interactive_pacing_zoom_widget,
+    render_synced_elevation_planimetry_widget,
+)
 from race_strategy_engine import format_hms, format_time_delta
 from running_strategy_engine import (
     PB_DISTANCES_KM,
@@ -1246,10 +1250,10 @@ def render_running_strategy_section(
         )
         return
 
-    # ── BANNER DEL CIRCUITO + PLANIMETRÍA & ALTIMETRÍA MAPA DE CALOR ─
+    # ── BANNER DEL CIRCUITO + PLANIMETRÍA & ALTIMETRÍA SINCRONIZADAS ─
     _render_html(
         f"""
-        <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:6px 0 12px 0;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap:8px; margin:6px 0 12px 0;">
             <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,255,136,0.28); border-radius:10px; padding:8px 10px; text-align:center;">
                 <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">🏃‍♂️ Circuito Running</div>
                 <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{html.escape(route_data['route_name'][:32])}</div>
@@ -1258,9 +1262,13 @@ def render_running_strategy_section(
                 <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Distancia Total</div>
                 <div style="color:#00EEFF; font-size:1.1rem; font-weight:900;">{route_data['total_distance_km']:.2f} km</div>
             </div>
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(255,59,48,0.28); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Desnivel Positivo</div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(255,59,48,0.32); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">⛰️ Desnivel Positivo</div>
                 <div style="color:#FF5252; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
+            </div>
+            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(56,189,248,0.32); border-radius:10px; padding:8px 10px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">⬇️ Desnivel Negativo</div>
+                <div style="color:#38BDF8; font-size:1.1rem; font-weight:900;">−{float(route_data.get('elevation_loss_m', 0)):.0f} m</div>
             </div>
             <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(255,215,0,0.28); border-radius:10px; padding:8px 10px; text-align:center;">
                 <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Altitud Media / Máx</div>
@@ -1275,13 +1283,31 @@ def render_running_strategy_section(
     )
 
     if active_section == "sim":
-        with st.expander("🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles", expanded=True):
-            fig_elev_hm, _t_stats_hm, fig_plan_hm = _cached_course_heatmaps(route_sig, route_data)
-            hm_c1, hm_c2 = st.columns([1.35, 1.0])
-            with hm_c1:
-                st.plotly_chart(fig_elev_hm, use_container_width=True)
-            with hm_c2:
-                st.plotly_chart(fig_plan_hm, use_container_width=True)
+        with st.expander("🗺️ Planimetría GPS y Altimetría del Circuito — Cursor Sincronizado & Zoom (+D / −D)", expanded=True):
+            _fig_e_r, t_stats_r, _fig_p_r = _cached_course_heatmaps(route_sig, route_data)
+            _render_html(
+                f"""
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
+                            background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
+                            padding:8px 12px; margin-bottom:8px; font-size:0.75rem; color:#CBD5E1;">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
+                        <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz</span>
+                        <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada</span>
+                        <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
+                        <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
+                        <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida</span>
+                        <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte</span>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
+                        <span style="color:#FF6B6B;">⛰️ Subida: {t_stats_r.get('climb_km', 0)} km</span>
+                        <span style="color:#94A3B8;">➡️ Llano: {t_stats_r.get('flat_km', 0)} km</span>
+                        <span style="color:#00E676;">⬇️ Bajada: {t_stats_r.get('descent_km', 0)} km</span>
+                    </div>
+                </div>
+                """
+            )
+            render_synced_elevation_planimetry_widget(route_data, height=475)
 
     # ── COMPARADOR DIRECTO SI SE ELIGIÓ 'QUÉ PASA SI...' ────────────
     if active_section == "comp":
@@ -1869,8 +1895,8 @@ def render_running_strategy_section(
             st.dataframe(pd.DataFrame(re_sens_rows), use_container_width=True, hide_index=True)
             st.caption("💡 **Tiempo en Llano (Palladino)** = `v = RE × (W/kg)` sin desnivel ni clima. **Tiempo en ESTE Circuito** incluye las subidas/bajadas reales del GPX/FIT, el viento y la altitud respecto a donde entrena.")
 
-    # ── GRÁFICA PRINCIPAL DE PACING + MAPA GPS ──────────────────────
-    st.plotly_chart(_build_running_pacing_chart(sim), use_container_width=True)
+    # ── GRÁFICA PRINCIPAL DE PACING INTERACTIVO CON ZOOM EN VIVO + MAPA GPS ──
+    render_interactive_pacing_zoom_widget(sim, sport="running", ftp_or_rcp=run_cp_w, height=535)
 
     with st.expander("🗺️ Mapa GPS Interactivo del Circuito Running (con Flechas de Viento)", expanded=False):
         _render_running_gps_map_fragment(sim, wind_deg, wind_kmh, member_id)

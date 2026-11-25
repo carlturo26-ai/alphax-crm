@@ -8,13 +8,13 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
-    for _m in ("wolfy_bot", "birthday_service", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+    for _m in ("wolfy_bot", "birthday_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
         if _m in sys.modules:
             del sys.modules[_m]
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.20)
+# Configuración de página principal del CRM Administrador (Build v2.21)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -36,7 +36,7 @@ try:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = athlete_cookie
         import sys
-        for _m in ("wolfy_bot", "birthday_service", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+        for _m in ("wolfy_bot", "birthday_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
             if _m in sys.modules:
                 del sys.modules[_m]
         import app_atletas
@@ -2883,14 +2883,16 @@ elif page == "Analíticas AlphaX":
 
 elif page == "🏁 Estrategias de Carrera":
     import race_strategy_ui
-    _RS_BUILD_TAG = "2.20"
+    _RS_BUILD_TAG = "2.21"
     if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
         import importlib
+        import interactive_course_charts
         import race_strategy_engine
         import running_strategy_engine
         import running_strategy_ui
         import weather_service
         import cda_estimator
+        importlib.reload(interactive_course_charts)
         importlib.reload(race_strategy_engine)
         importlib.reload(running_strategy_engine)
         importlib.reload(weather_service)
