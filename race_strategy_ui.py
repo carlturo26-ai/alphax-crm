@@ -6,6 +6,7 @@ race_strategy_ui.py — Interfaz interactiva de Estrategias de Carrera en Ciclis
 import html
 import json
 import math
+import urllib.parse
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -885,53 +886,99 @@ def render_saved_scenarios_library(
                 + "</div>"
             )
 
-    # ── ACCIONES: DESCARGAS (+ ELIMINAR SOLO EN ADMIN) ───────────────
+    # ── ACCIONES: DESCARGAS / COMPARTIR (+ ELIMINAR SOLO EN ADMIN) ───
     txt_card = _build_race_plan_text_card(sel_sc, sel_cfg, sel_nut, sel_splits, athlete_name)
     safe_slug = "".join(c if c.isalnum() else "_" for c in str(sel_sc.scenario_name or f"plan_{sel_sc.id}"))[:35]
 
-    if allow_delete:
-        c_act1, c_act2, c_act3 = st.columns([1.2, 1.2, 0.9])
-    else:
-        c_act1, c_act2 = st.columns(2)
-        c_act3 = None
-
-    with c_act1:
+    if is_athlete_portal:
+        # En la App móvil / iOS PWA (pantalla de inicio), st.download_button navega el WebView
+        # a /media/... y deja al usuario sin botón "Atrás". Usamos WhatsApp + Copia inline 100% segura.
+        wa_lines = [
+            f"🏁 *PLAN DE CARRERA ALPHAX — {athlete_name}*",
+            f"📌 *{sel_sc.scenario_name}*",
+            f"🗺️ {sel_sc.route_name} ({float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m)",
+            f"⏱️ Tiempo Obj: *{format_hms(t_sec)}* ({float(sel_sc.avg_speed_kmh or 0):.1f} km/h)",
+            f"⚡ Potencia: *NP {float(sel_sc.norm_power_w or 0):.0f} W* (AP {float(sel_sc.avg_power_w or 0):.0f} W) · IF {float(sel_sc.intensity_factor or 0):.2f} · TSS {float(sel_sc.tss or 0):.0f}",
+            "",
+            "🥤 *NUTRICIÓN E HIDRATACIÓN:*",
+            f"• Carbos: *{sel_nut.get('cho_g_per_h', 0)} g/h* (Total {sel_nut.get('cho_total_g', 0)} g · ~{cho_per_20m} g c/20m)",
+            f"• Líquidos: *{sel_nut.get('fluid_ml_per_h', 0)} mL/h* (Total {sel_nut.get('fluid_total_l', 0)} L · ~{bottles_750} bidones)",
+            f"• Sodio: *{sel_nut.get('sodium_mg_per_h', 0)} mg/h* (Total {sel_nut.get('sodium_total_mg', 0)} mg)",
+        ]
         if sel_splits:
-            st.download_button(
-                "⬇️ Descargar Pacing (CSV)",
-                data=pd.DataFrame(sel_splits).to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"pacing_{safe_slug}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                key=f"rs_dl_csv_{key_prefix}_{sel_sc.id}",
-            )
-    with c_act2:
-        st.download_button(
-            "🏷️ Descargar Ficha Manillar + Nutrición (TXT)",
-            data=txt_card.encode("utf-8"),
-            file_name=f"plan_carrera_{safe_slug}.txt",
-            mime="text/plain",
-            use_container_width=True,
-            key=f"rs_dl_txt_{key_prefix}_{sel_sc.id}",
+            wa_lines.append("")
+            wa_lines.append("📋 *PACING POR TRAMO:*")
+            for sp in sel_splits[:18]:
+                wa_lines.append(
+                    f"• {sp.get('Tramo', '')}: *{sp.get('Potencia Obj. (W)', 0)}W* ({sp.get('% FTP', '')}) · {sp.get('Vel. Est. (km/h)', 0)} km/h · Acum {sp.get('Tiempo Acum.', '')}"
+                )
+            if len(sel_splits) > 18:
+                wa_lines.append(f"_(+{len(sel_splits) - 18} tramos más en tu App AlphaX)_")
+
+        wa_text = "\n".join(wa_lines)[:1800]
+        wa_url = f"https://wa.me/?text={urllib.parse.quote(wa_text)}"
+
+        _render_html(
+            f"""
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0 12px 0;">
+                <a href="{wa_url}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; flex:1 1 220px;">
+                    <div style="background:linear-gradient(135deg,#25D366,#128C7E); color:#FFFFFF; text-align:center;
+                                padding:11px 16px; border-radius:10px; font-weight:800; font-size:0.88rem;
+                                box-shadow:0 4px 14px rgba(37,211,102,0.32);">
+                        📲 Guardar / Enviar Plan por WhatsApp
+                    </div>
+                </a>
+            </div>
+            """
         )
-    if allow_delete and c_act3 is not None:
-        with c_act3:
-            if st.button(
-                "🗑️ Eliminar Plan",
-                type="secondary",
+
+        with st.expander("📋 Ver y Copiar Ficha Completa (Manillar + Nutrición para Notas)", expanded=False):
+            st.caption("Toca el ícono de copiar en la esquina superior derecha del recuadro para pegarlo en Notas de tu teléfono sin salir de la app:")
+            st.code(txt_card, language="text")
+    else:
+        if allow_delete:
+            c_act1, c_act2, c_act3 = st.columns([1.2, 1.2, 0.9])
+        else:
+            c_act1, c_act2 = st.columns(2)
+            c_act3 = None
+
+        with c_act1:
+            if sel_splits:
+                st.download_button(
+                    "⬇️ Descargar Pacing (CSV)",
+                    data=pd.DataFrame(sel_splits).to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"pacing_{safe_slug}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=f"rs_dl_csv_{key_prefix}_{sel_sc.id}",
+                )
+        with c_act2:
+            st.download_button(
+                "🏷️ Descargar Ficha Manillar + Nutrición (TXT)",
+                data=txt_card.encode("utf-8"),
+                file_name=f"plan_carrera_{safe_slug}.txt",
+                mime="text/plain",
                 use_container_width=True,
-                key=f"rs_del_sc_{key_prefix}_{sel_sc.id}",
-            ):
-                try:
-                    with SessionLocal() as s_del:
-                        obj = s_del.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == sel_sc.id).first()
-                        if obj:
-                            s_del.delete(obj)
-                            s_del.commit()
-                    st.toast("Escenario eliminado", icon="🗑️")
-                    st.rerun()
-                except Exception as err_d:
-                    st.error(f"Error al eliminar: {err_d}")
+                key=f"rs_dl_txt_{key_prefix}_{sel_sc.id}",
+            )
+        if allow_delete and c_act3 is not None:
+            with c_act3:
+                if st.button(
+                    "🗑️ Eliminar Plan",
+                    type="secondary",
+                    use_container_width=True,
+                    key=f"rs_del_sc_{key_prefix}_{sel_sc.id}",
+                ):
+                    try:
+                        with SessionLocal() as s_del:
+                            obj = s_del.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == sel_sc.id).first()
+                            if obj:
+                                s_del.delete(obj)
+                                s_del.commit()
+                        st.toast("Escenario eliminado", icon="🗑️")
+                        st.rerun()
+                    except Exception as err_d:
+                        st.error(f"Error al eliminar: {err_d}")
 
 
 def render_athlete_race_plans_tab(member_id: int, athlete_name: str):
@@ -970,7 +1017,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.7</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.8</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
