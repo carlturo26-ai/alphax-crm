@@ -966,7 +966,7 @@ def render_running_strategy_section(
     Renderiza el módulo completo de Running (Pace / PB 5K-42K y Potencia Stryd) dentro de Estrategias de Carrera.
     """
     from race_strategy_ui import (
-        _build_route_heatmaps_cached,
+        _cached_course_heatmaps,
         _cached_parse_route,
         render_saved_scenarios_library,
     )
@@ -1215,7 +1215,7 @@ def render_running_strategy_section(
 
     if active_section == "sim":
         with st.expander("🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles", expanded=True):
-            fig_elev_hm, fig_plan_hm = _build_route_heatmaps_cached(route_sig, route_data)
+            fig_elev_hm, _t_stats_hm, fig_plan_hm = _cached_course_heatmaps(route_sig, route_data)
             hm_c1, hm_c2 = st.columns([1.35, 1.0])
             with hm_c1:
                 st.plotly_chart(fig_elev_hm, use_container_width=True)
@@ -1558,12 +1558,13 @@ def render_running_strategy_section(
                         start_hour=int(race_time_str.split(":")[0]),
                         duration_hours=4,
                     )
-                    if w_res and not w_res.get("error"):
+                    if w_res and w_res.get("ok") and w_res.get("summary"):
+                        ws_sum = w_res["summary"]
                         st.session_state[f"run_w_data_{route_sig}"] = w_res
-                        st.session_state[f"run_temp_{route_sig}"] = round(float(w_res.get("temp_c", 20.0)), 1)
-                        st.session_state[f"run_hum_{route_sig}"] = int(round(float(w_res.get("humidity_pct", 65.0))))
-                        st.session_state[f"run_wind_{route_sig}"] = round(float(w_res.get("wind_kmh", 8.0)), 1)
-                        st.session_state[f"run_wdeg_{route_sig}"] = int(round(float(w_res.get("wind_deg", 45.0))))
+                        st.session_state[f"run_temp_sl_{route_sig}"] = max(4.0, min(40.0, round(float(ws_sum.get("temp_c", 20.0)), 1)))
+                        st.session_state[f"run_hum_sl_{route_sig}"] = max(20, min(100, int(round(float(ws_sum.get("humidity_pct", 65.0))))))
+                        st.session_state[f"run_wind_sl_{route_sig}"] = max(0.0, min(45.0, round(float(ws_sum.get("wind_kmh", 8.0)), 1)))
+                        st.session_state[f"run_wdeg_sl_{route_sig}"] = max(0, min(355, int(round(float(ws_sum.get("wind_deg", 45.0)) / 15.0) * 15)))
                         st.toast(f"Clima cargado: {w_res.get('source_label', 'Open-Meteo')}", icon="🌦️")
                     else:
                         st.warning(f"⚠️ No se pudo obtener el clima: {w_res.get('error', 'sin respuesta')}. Puedes ajustarlo manualmente.")
