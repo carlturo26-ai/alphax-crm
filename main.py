@@ -14,7 +14,7 @@ if st.query_params.get("app") == "atletas":
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.11)
+# Configuración de página principal del CRM Administrador (Build v2.12)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",

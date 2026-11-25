@@ -1416,7 +1416,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.11</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.12</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -2504,33 +2504,36 @@ def render_race_strategy_page():
         wi_ver = st.session_state.get(wi_ver_key, 0)
 
         # Valores base exactos tomados del Simulador y Plan de Carrera (centrados en cada slider)
+        ftp_ref = max(70.0, float(ftp_w))
         base_cda = max(0.145, min(0.545, round(float(equipment["cda"]), 3)))
-        base_np_target = max(70, min(490, int(round(float(ftp_w) * float(target_if)))))
-        base_rw = max(36.0, min(149.0, round(float(rider_weight), 1)))
         base_if_val = max(0.46, min(1.11, round(float(target_if), 2)))
+        base_rw = max(36.0, min(149.0, round(float(rider_weight), 1)))
         base_crr = max(0.0021, min(0.0094, round(float(equipment["crr"]), 4)))
         base_wind = max(0, min(55, int(round(float(wind_kmh)))))
-
-        # Firma de base para que si cambia el escenario en Tab 1, los sliders se recentren solos
-        base_sig = f"{base_cda:.3f}_{base_np_target}_{base_rw:.1f}_{base_if_val:.2f}_{base_crr:.4f}_{base_wind}_v{wi_ver}"
 
         # Rangos simétricos centrados en el valor base de cada variable
         cda_span = round(min(0.080, max(0.030, min(base_cda - 0.140, 0.550 - base_cda))), 3)
         cda_min = round(max(0.140, base_cda - cda_span), 3)
         cda_max = round(min(0.550, base_cda + cda_span), 3)
 
-        np_span = int(min(60, max(25, min(base_np_target - 60, 500 - base_np_target))))
-        np_min = max(60, base_np_target - np_span)
-        np_max = min(500, base_np_target + np_span)
+        # IF y Potencia Objetivo NP comparten exactamente el mismo rango sincronizado (NP = FTP × IF)
+        if_span = round(min(0.15, max(0.06, min(base_if_val - 0.45, 1.12 - base_if_val))), 2)
+        if_min = round(max(0.45, base_if_val - if_span), 2)
+        if_max = round(min(1.12, base_if_val + if_span), 2)
+
+        np_min = max(60, int(round(ftp_ref * if_min)))
+        np_max = min(550, int(round(ftp_ref * if_max)))
+        if np_max <= np_min:
+            np_max = np_min + 20
+        base_np_target = max(np_min, min(np_max, int(round(ftp_ref * base_if_val))))
+
+        # Firma de base para que si cambia el escenario en Tab 1, los sliders se recentren solos
+        base_sig = f"{base_cda:.3f}_{base_np_target}_{round(ftp_ref)}_{base_rw:.1f}_{base_if_val:.2f}_{base_crr:.4f}_{base_wind}_v{wi_ver}"
 
         rw_span = round(min(10.0, max(5.0, min(base_rw - 35.0, 150.0 - base_rw))), 1)
         rw_min = round(max(35.0, base_rw - rw_span), 1)
         rw_max = round(min(150.0, base_rw + rw_span), 1)
         rw_step = 0.5 if abs(base_rw * 2 - round(base_rw * 2)) < 1e-6 else 0.1
-
-        if_span = round(min(0.12, max(0.05, min(base_if_val - 0.45, 1.12 - base_if_val))), 2)
-        if_min = round(max(0.45, base_if_val - if_span), 2)
-        if_max = round(min(1.12, base_if_val + if_span), 2)
 
         crr_span = round(min(0.0016, max(0.0006, min(base_crr - 0.0020, 0.0095 - base_crr))), 4)
         crr_min = round(max(0.0020, base_crr - crr_span), 4)
@@ -2543,11 +2546,28 @@ def render_race_strategy_page():
         else:
             wind_min, wind_max = 0, 30
 
+        # Sincronización bidireccional Potencia Objetivo NP (W) ↔ Intensidad (IF) sobre FTP real
+        wi_w_key = f"wi_w_{member_id}_{base_sig}"
+        wi_if_key = f"wi_if_{member_id}_{base_sig}"
+        if wi_w_key not in st.session_state:
+            st.session_state[wi_w_key] = int(base_np_target)
+        if wi_if_key not in st.session_state:
+            st.session_state[wi_if_key] = float(base_if_val)
+
+        def _sync_if_from_np(_wk=wi_w_key, _ik=wi_if_key, _ftp=ftp_ref, _imin=if_min, _imax=if_max):
+            new_np = float(st.session_state[_wk])
+            st.session_state[_ik] = round(max(_imin, min(_imax, new_np / _ftp)), 2)
+
+        def _sync_np_from_if(_wk=wi_w_key, _ik=wi_if_key, _ftp=ftp_ref, _nmin=np_min, _nmax=np_max):
+            new_if = float(st.session_state[_ik])
+            st.session_state[_wk] = int(round(max(_nmin, min(_nmax, new_if * _ftp))))
+
         # Panel de controles deslizantes dinámicos (6 palancas centradas en los valores objetivo)
         with st.container(border=True):
             c_wi_hdr1, c_wi_hdr2 = st.columns([3.2, 1])
             with c_wi_hdr1:
                 st.markdown("##### 🎛️ Ajusta los valores reales (el punto inicial es tu escenario base del simulador)")
+                st.caption(f"🔗 **Potencia Objetivo NP (W)** e **Intensidad (IF)** están enlazadas automáticamente según tu FTP (`{ftp_ref:.0f} W`): al mover una, la otra se ajusta al instante.")
             with c_wi_hdr2:
                 if st.button("🔄 Restablecer al Base", use_container_width=True, key=f"wi_reset_{member_id}_{wi_ver}"):
                     st.session_state[wi_ver_key] = wi_ver + 1
@@ -2580,21 +2600,21 @@ def render_race_strategy_page():
                     f"🔥 Potencia Objetivo NP (W) · Base: {base_np_target} W",
                     min_value=int(np_min),
                     max_value=int(np_max),
-                    value=int(base_np_target),
                     step=1,
                     format="%d W",
-                    help="Parte desde tu potencia objetivo actual del plan de carrera.",
-                    key=f"wi_w_{member_id}_{base_sig}",
+                    help=f"Enlazado con IF (FTP {ftp_ref:.0f} W): si subes o bajas vatios, el IF se actualiza automáticamente.",
+                    key=wi_w_key,
+                    on_change=_sync_if_from_np,
                 )
                 sel_if = st.slider(
                     f"🎯 Intensidad (IF) · Base: {base_if_val:.2f}",
-                    min_value=if_min,
-                    max_value=if_max,
-                    value=base_if_val,
+                    min_value=float(if_min),
+                    max_value=float(if_max),
                     step=0.01,
                     format="%.2f",
-                    help="Ajusta el Factor de Intensidad (IF) desde tu escenario actual.",
-                    key=f"wi_if_{member_id}_{base_sig}",
+                    help=f"Enlazado con Potencia NP (FTP {ftp_ref:.0f} W): si mueves el IF, la potencia objetivo se actualiza automáticamente.",
+                    key=wi_if_key,
+                    on_change=_sync_np_from_if,
                 )
             with w_c3:
                 sel_rw = st.slider(
@@ -2619,10 +2639,12 @@ def render_race_strategy_page():
                 )
 
         # Calcular deltas internos exactos respecto al escenario base
+        # Como Potencia NP e IF están enlazados (NP = FTP × IF), aplicamos el esfuerzo UNA sola vez vía IF exacto
         d_cda = round(sel_cda - base_cda, 4)
         d_np_w = int(sel_np_w - base_np_target)
-        # Equivalente en FTP para que el cambio de Potencia Objetivo NP actúe exactamente en vatios
-        d_watts = round(d_np_w / max(0.45, float(target_if)), 1)
+        eff_if_exact = round(float(sel_np_w) / ftp_ref, 4)
+        d_if_sim = round(eff_if_exact - float(target_if), 4) if d_np_w != 0 else 0.0
+        d_watts = 0.0
         d_weight = round(sel_rw - base_rw, 2)
         d_if = round(sel_if - base_if_val, 3)
         d_crr = round(sel_crr - base_crr, 5)
@@ -2669,12 +2691,11 @@ def render_race_strategy_page():
             abs(d_cda) > 1e-6,
             d_np_w != 0,
             abs(d_weight) > 1e-6,
-            abs(d_if) > 1e-6,
             abs(d_crr) > 1e-6,
             d_wind != 0,
         ])
 
-        wi_sim = _run_whatif(d_cda, d_watts, d_weight, d_if, d_crr, d_wind) if any_changed else sim
+        wi_sim = _run_whatif(d_cda, 0.0, d_weight, d_if_sim, d_crr, d_wind) if any_changed else sim
         ws_sum = wi_sim["summary"]
         delta_total_s = ws_sum["total_time_s"] - base_t
         delta_spd = ws_sum["avg_speed_kmh"] - s["avg_speed_kmh"]
@@ -2710,9 +2731,9 @@ def render_race_strategy_page():
                     <div style="color:{delta_color}; font-size:1.35rem; font-weight:900; margin-top:4px;">{delta_badge}</div>
                     <div style="color:#94A3B8; font-size:0.7rem;">CdA {ws_sum['cda']:.3f} · Masa {ws_sum['total_mass_kg']:.1f} kg</div>
                 </div>
-                <div style="background:#111827; border:1px solid rgba(0,255,136,0.3); border-radius:12px; padding:12px 10px; text-align:center;">
+                <div style="background:#111827; border:1px solid rgba(255,215,0,0.4); border-radius:12px; padding:12px 10px; text-align:center;">
                     <div style="color:#94A3B8; font-size:0.68rem; font-weight:800; text-transform:uppercase;">Potencia NP</div>
-                    <div style="color:#00FF88; font-size:1.3rem; font-weight:900; margin-top:3px;">{ws_sum['norm_power_w']:.0f} W</div>
+                    <div style="color:#FFD700; font-size:1.3rem; font-weight:900; margin-top:3px;">{ws_sum['norm_power_w']:.0f} W</div>
                     <div style="color:#94A3B8; font-size:0.7rem;">{delta_np:+.0f} W · {ws_sum['w_per_kg_np']:.2f} W/kg</div>
                 </div>
                 <div style="background:#111827; border:1px solid rgba(192,132,252,0.35); border-radius:12px; padding:12px 10px; text-align:center;">
@@ -2731,14 +2752,11 @@ def render_race_strategy_page():
                 dt_c = _run_whatif(delta_cda=d_cda)["summary"]["total_time_s"] - base_t
                 contrib_items.append((f"🌬️ CdA → {sel_cda:.3f} m² ({d_cda:+.3f})", dt_c))
             if d_np_w != 0:
-                dt_w = _run_whatif(delta_w=d_watts)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🔥 Potencia → {sel_np_w} W ({d_np_w:+d} W)", dt_w))
+                dt_w = _run_whatif(delta_if=d_if_sim)["summary"]["total_time_s"] - base_t
+                contrib_items.append((f"🔥 Potencia / IF → {sel_np_w} W · IF {sel_if:.2f} ({d_np_w:+d} W)", dt_w))
             if abs(d_weight) > 1e-6:
                 dt_kg = _run_whatif(delta_kg=d_weight)["summary"]["total_time_s"] - base_t
                 contrib_items.append((f"⚖️ Peso → {sel_rw:.1f} kg ({d_weight:+.1f})", dt_kg))
-            if abs(d_if) > 1e-6:
-                dt_if = _run_whatif(delta_if=d_if)["summary"]["total_time_s"] - base_t
-                contrib_items.append((f"🎯 Intensidad → {sel_if:.2f} IF ({d_if:+.2f})", dt_if))
             if abs(d_crr) > 1e-6:
                 dt_cr = _run_whatif(delta_crr=d_crr)["summary"]["total_time_s"] - base_t
                 contrib_items.append((f"🛞 Crr → {sel_crr:.4f} ({d_crr:+.4f})", dt_cr))
@@ -2807,14 +2825,14 @@ def render_race_strategy_page():
                                     "wind_kmh": sel_wind,
                                     "wind_deg": wind_deg,
                                     "rider_weight_kg": sel_rw,
-                                    "ftp_w": round(float(ftp_w) + float(d_watts), 1),
-                                    "target_if": sel_if,
+                                    "ftp_w": round(ftp_ref, 1),
+                                    "target_if": round(eff_if_exact, 3),
                                     "strategy": strat_label,
                                     "work_kj": ws_sum["work_kj"],
                                     "w_per_kg_np": ws_sum["w_per_kg_np"],
                                     "vi": ws_sum["vi"],
-                                    "d_cda": d_cda, "d_watts": d_watts, "d_weight": d_weight,
-                                    "d_if": d_if, "d_crr": d_crr, "d_wind": d_wind,
+                                    "d_cda": d_cda, "d_np_w": d_np_w, "d_weight": d_weight,
+                                    "d_if": d_if_sim, "d_crr": d_crr, "d_wind": d_wind,
                                     "nutrition": wi_sim["nutrition"],
                                 }, ensure_ascii=False),
                                 splits_json=json.dumps(wi_sim["splits"], ensure_ascii=False),
@@ -2845,12 +2863,11 @@ def render_race_strategy_page():
 
             with c_sw2:
                 np_steps = [-25, -15, 0, 15, 25, 35]
-                if_div = max(0.45, float(target_if))
-                np_mins = [(_run_whatif(delta_w=x / if_div)["summary"]["total_time_s"] - base_t) / 60.0 for x in np_steps]
+                np_mins = [(_run_whatif(delta_if=x / ftp_ref)["summary"]["total_time_s"] - base_t) / 60.0 for x in np_steps]
                 fig_sw2 = go.Figure()
                 fig_sw2.add_trace(go.Scatter(x=[base_np_target + x for x in np_steps], y=np_mins, mode="lines+markers", line=dict(color="#FFD700", width=3), marker=dict(size=8, color="#FFD700"), name="Δ Tiempo"))
                 if d_np_w != 0:
-                    cur_y = (_run_whatif(delta_w=d_watts)["summary"]["total_time_s"] - base_t) / 60.0
+                    cur_y = (_run_whatif(delta_if=d_if_sim)["summary"]["total_time_s"] - base_t) / 60.0
                     fig_sw2.add_trace(go.Scatter(x=[sel_np_w], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFFFFF", symbol="star", line=dict(color="#FFD700", width=1.5)), name="Tu ajuste"))
                 fig_sw2.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw2.update_layout(title="🔥 Sensibilidad a Potencia Objetivo (W)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="Potencia Objetivo NP (W)", yaxis_title="Δ Minutos", showlegend=False)
