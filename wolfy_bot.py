@@ -820,6 +820,7 @@ def build_athlete_context(member_id: int) -> dict:
                     "pb_21k": getattr(member, "pb_21k", None),
                     "pb_42k": getattr(member, "pb_42k", None),
                     "run_cp_w": getattr(member, "run_cp_w", None),
+                    "run_re": getattr(member, "run_re", None),
                     "medical_notes": member.medical_notes,
                     "coach_notes": member.notes,
                     "start_month": member.start_month,
@@ -1028,7 +1029,8 @@ def build_athlete_context(member_id: int) -> dict:
         lines.append(f"- Marcas Personales (PB) en Running: {' · '.join(pb_parts)}")
     if prof.get("run_cp_w"):
         wkg_run = f" ({prof['run_cp_w'] / eff_weight:.2f} W/kg)" if eff_weight and eff_weight > 0 else ""
-        lines.append(f"- Potencia Crítica en Running (Stryd / Garmin CP): {prof['run_cp_w']:.0f} W{wkg_run}")
+        re_run = f" · RE Stryd: {prof['run_re']:.2f}" if prof.get("run_re") else ""
+        lines.append(f"- Potencia Crítica en Running (Stryd / Garmin CP): {prof['run_cp_w']:.0f} W{wkg_run}{re_run}")
     if prof.get("athlete_goal"):
         g_line = f"- Objetivo / competencia principal: {prof['athlete_goal']}"
         if prof.get("goal_race_date"):

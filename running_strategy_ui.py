@@ -27,6 +27,9 @@ from running_strategy_engine import (
     RUNNING_SHOES,
     RUNNING_STRATEGIES,
     RUNNING_SURFACES,
+    build_re_sensitivity_table,
+    calc_stryd_re_from_workout,
+    estimate_default_stryd_re,
     estimate_run_metrics_from_pb,
     format_pace,
     format_pace_delta,
@@ -68,6 +71,7 @@ def _load_running_athlete_defaults(member_id: int) -> dict:
         "pb_21k": "",
         "pb_42k": "",
         "run_cp_w": None,
+        "run_re": None,
         "lactate_run_lt2": None,
     }
     if not member_id:
@@ -91,6 +95,8 @@ def _load_running_athlete_defaults(member_id: int) -> dict:
             res["pb_42k"] = (getattr(m, "pb_42k", None) or "").strip()
             if getattr(m, "run_cp_w", None) and float(m.run_cp_w) >= 100:
                 res["run_cp_w"] = float(m.run_cp_w)
+            if getattr(m, "run_re", None) and 0.70 <= float(m.run_re) <= 1.20:
+                res["run_re"] = float(m.run_re)
 
         # Fallback de peso desde última prueba de lactato + búsqueda de prueba de lactato en Running
         lacs = (
@@ -130,13 +136,17 @@ def _cached_simulate_running(
     target_gap_sec_km: float,
     run_cp_w: float,
     target_pct_rcp: float,
+    target_re: float,
     shoe_name: str,
+    base_shoe_name: str,
     surface_name: str,
     temp_c: float,
     humidity_pct: float,
     wind_kmh: float,
     wind_deg: float,
     home_altitude_m: float,
+    trained_temp_c: float,
+    trained_humidity_pct: float,
     strategy: str,
     apply_env_derating: bool,
     post_bike_fatigue_pct: float,
@@ -152,13 +162,17 @@ def _cached_simulate_running(
         target_gap_sec_km=float(target_gap_sec_km),
         run_cp_w=float(run_cp_w),
         target_pct_rcp=float(target_pct_rcp),
+        target_re=float(target_re) if target_re and target_re > 0 else None,
         shoe_name=shoe_name,
+        base_shoe_name=base_shoe_name or None,
         surface_name=surface_name,
         temp_c=float(temp_c),
         humidity_pct=float(humidity_pct),
         wind_speed_kmh=float(wind_kmh),
         wind_from_deg=float(wind_deg),
         home_altitude_m=float(home_altitude_m),
+        trained_temp_c=float(trained_temp_c),
+        trained_humidity_pct=float(trained_humidity_pct),
         strategy=strategy,
         apply_env_derating=bool(apply_env_derating),
         post_bike_fatigue_pct=float(post_bike_fatigue_pct),
@@ -188,6 +202,10 @@ def _sim_run_fast(
     post_bike_fatigue_pct: float,
     split_interval_km: float,
     hourly_weather=None,
+    target_re: float = 0.0,
+    base_shoe_name: str = "",
+    trained_temp_c: float = 18.0,
+    trained_humidity_pct: float = 65.0,
 ) -> dict:
     return _cached_simulate_running(
         route_sig=route_sig,
@@ -198,13 +216,17 @@ def _sim_run_fast(
         target_gap_sec_km=round(float(target_gap_sec_km), 1),
         run_cp_w=round(float(run_cp_w), 1),
         target_pct_rcp=round(float(target_pct_rcp), 2),
+        target_re=round(float(target_re or 0.0), 3),
         shoe_name=str(shoe_name),
+        base_shoe_name=str(base_shoe_name or ""),
         surface_name=str(surface_name),
         temp_c=round(float(temp_c), 1),
         humidity_pct=round(float(humidity_pct), 0),
         wind_kmh=round(float(wind_kmh), 1),
         wind_deg=round(float(wind_deg), 0),
         home_altitude_m=round(float(home_altitude_m), 0),
+        trained_temp_c=round(float(trained_temp_c), 1),
+        trained_humidity_pct=round(float(trained_humidity_pct), 0),
         strategy=str(strategy),
         apply_env_derating=bool(apply_env_derating),
         post_bike_fatigue_pct=round(float(post_bike_fatigue_pct), 2),
@@ -524,6 +546,9 @@ def _build_run_ctx_from_saved(sc, ath_defaults: dict) -> tuple:
     wind_kmh = float(cfg.get("wind_kmh") if cfg.get("wind_kmh") is not None else 8.0)
     wind_deg = float(cfg.get("wind_deg") if cfg.get("wind_deg") is not None else 45.0)
     home_alt = float(cfg.get("home_altitude_m") if cfg.get("home_altitude_m") is not None else ath_defaults.get("altitude_m", 0))
+    trained_temp = float(cfg.get("trained_temp_c") if cfg.get("trained_temp_c") is not None else 19.0)
+    trained_hum = float(cfg.get("trained_humidity_pct") if cfg.get("trained_humidity_pct") is not None else 70.0)
+    target_re = float(cfg.get("target_re") or ath_defaults.get("run_re") or estimate_default_stryd_re(run_cp_w / max(38.0, weight_kg)))
     strategy_code = str(cfg.get("strategy_code") or "even_effort")
     apply_env = bool(cfg.get("apply_env_derating", True))
     fatigue_pct = float(cfg.get("post_bike_fatigue_pct") or 0.0)
@@ -549,6 +574,10 @@ def _build_run_ctx_from_saved(sc, ath_defaults: dict) -> tuple:
         apply_env_derating=apply_env,
         post_bike_fatigue_pct=fatigue_pct,
         split_interval_km=split_km,
+        target_re=target_re,
+        base_shoe_name=shoe_name,
+        trained_temp_c=trained_temp,
+        trained_humidity_pct=trained_hum,
     )
 
     ctx = {
@@ -561,6 +590,7 @@ def _build_run_ctx_from_saved(sc, ath_defaults: dict) -> tuple:
         "target_gap_sec_km": target_gap_sec,
         "run_cp_w": run_cp_w,
         "target_pct_rcp": target_pct_rcp,
+        "target_re": target_re,
         "shoe_name": shoe_name,
         "surface_name": surface_name,
         "temp_c": temp_c,
@@ -568,6 +598,8 @@ def _build_run_ctx_from_saved(sc, ath_defaults: dict) -> tuple:
         "wind_kmh": wind_kmh,
         "wind_deg": wind_deg,
         "home_altitude_m": home_alt,
+        "trained_temp_c": trained_temp,
+        "trained_humidity_pct": trained_hum,
         "strategy_code": strategy_code,
         "strat_label": cfg.get("strategy") or list(RUNNING_STRATEGIES.keys())[0],
         "apply_env_derating": apply_env,
@@ -609,6 +641,8 @@ def _save_running_scenario_to_db(
         "target_gap_sec_km": ctx["target_gap_sec_km"],
         "run_cp_w": ctx["run_cp_w"],
         "target_pct_rcp": ctx["target_pct_rcp"],
+        "target_re": ctx.get("target_re", s.get("target_re")),
+        "course_re": s.get("course_re"),
         "avg_pace_str": s["avg_pace_str"],
         "avg_gap_str": s["avg_gap_str"],
         "w_per_kg": s["w_per_kg"],
@@ -623,6 +657,8 @@ def _save_running_scenario_to_db(
         "wind_kmh": ctx["wind_kmh"],
         "wind_deg": ctx["wind_deg"],
         "home_altitude_m": ctx["home_altitude_m"],
+        "trained_temp_c": ctx.get("trained_temp_c", 19.0),
+        "trained_humidity_pct": ctx.get("trained_humidity_pct", 70.0),
         "apply_env_derating": ctx["apply_env_derating"],
         "post_bike_fatigue_pct": ctx["post_bike_fatigue_pct"],
         "split_interval_km": ctx["split_interval_km"],
@@ -689,11 +725,14 @@ def _render_running_what_if_fragment(
     base_pct = float(base_ctx["target_pct_rcp"])
     base_gap = float(base_ctx["target_gap_sec_km"])
     base_shoe = base_ctx["shoe_name"]
+    base_re = float(base_ctx.get("target_re") or base_s.get("target_re") or estimate_default_stryd_re(base_rcp / max(38.0, base_w)))
+    base_tr_temp = float(base_ctx.get("trained_temp_c", 19.0))
+    base_tr_hum = float(base_ctx.get("trained_humidity_pct", 70.0))
 
     st.markdown("### ⚔️ Comparador Interactivo Running 'Qué Pasa Si...'")
     st.caption(
         f"Base actual: **⏱️ {base_s['total_time_str']}** · Ritmo **{base_s['avg_pace_str']} /km** (GAP **{base_s['avg_gap_str']} /km**) · "
-        f"Stryd **{base_s['avg_power_w']:.0f} W** · **{base_w:.1f} kg** · **{base_temp:.0f}°C** · **{RUNNING_SHOES[base_shoe]['short']}**."
+        f"Stryd **{base_s['avg_power_w']:.0f} W** (Target RE **{base_re:.2f}**) · **{base_w:.1f} kg** · **{base_temp:.0f}°C** · **{RUNNING_SHOES[base_shoe]['short']}**."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -736,6 +775,14 @@ def _render_running_what_if_fragment(
                 key=wi_pct_key,
                 on_change=_sync_wi_from_pct,
             )
+            wi_re = st.slider(
+                "📏 Target RE Stryd (Running Effectiveness)",
+                min_value=round(max(0.80, base_re - 0.05), 2),
+                max_value=round(min(1.10, base_re + 0.05), 2),
+                value=round(base_re, 2),
+                step=0.01,
+                key=f"run_wi_re_{member_id}_{route_sig}",
+            )
             wi_gap = base_gap
         else:
             delta_pace = st.slider(
@@ -750,10 +797,11 @@ def _render_running_what_if_fragment(
             wi_gap = max(150.0, base_gap + float(delta_pace))
             st.caption(f"GAP objetivo ajustado: **`{format_pace(wi_gap)} /km`** ({format_pace_delta(delta_pace)})")
             wi_pct = base_pct
+            wi_re = base_re
 
     with c2:
         delta_kg = st.slider(
-            "⚖️ Cambio de Peso Corporal (kg)",
+            "⚖️ Cambio de Peso (kg)",
             min_value=-5.0,
             max_value=5.0,
             value=0.0,
@@ -808,6 +856,10 @@ def _render_running_what_if_fragment(
         post_bike_fatigue_pct=base_ctx["post_bike_fatigue_pct"],
         split_interval_km=base_ctx["split_interval_km"],
         hourly_weather=base_ctx.get("hourly_weather"),
+        target_re=wi_re,
+        base_shoe_name=base_shoe,
+        trained_temp_c=base_tr_temp,
+        trained_humidity_pct=base_tr_hum,
     )
     ws = wi_sim["summary"]
     dt_sec = ws["total_time_sec"] - base_s["total_time_sec"]
@@ -867,6 +919,7 @@ def _render_running_what_if_fragment(
                 "runner_weight_kg": wi_weight,
                 "target_gap_sec_km": wi_gap,
                 "target_pct_rcp": wi_pct,
+                "target_re": wi_re,
                 "shoe_name": wi_shoe,
                 "temp_c": wi_temp,
                 "wind_kmh": wi_wind,
@@ -899,11 +952,15 @@ def _render_running_what_if_fragment(
             post_bike_fatigue_pct=base_ctx["post_bike_fatigue_pct"],
             split_interval_km=base_ctx["split_interval_km"],
             hourly_weather=base_ctx.get("hourly_weather"),
+            target_re=wi_re,
+            base_shoe_name=base_shoe,
+            trained_temp_c=base_tr_temp,
+            trained_humidity_pct=base_tr_hum,
         )
         ss = sh_sim["summary"]
         shoe_rows.append({
             "Zapatilla": sh_meta["short"],
-            "Economía": f"{(1.0 - sh_meta['economy_factor']) * 100:+.1f}%",
+            "Δ RE": f"{sh_meta['delta_re']:+.3f}",
             "Tiempo": ss["total_time_str"],
             "Ritmo (/km)": ss["avg_pace_str"],
             "Potencia (W)": int(ss["avg_power_w"]),
@@ -940,6 +997,10 @@ def _render_running_what_if_fragment(
             post_bike_fatigue_pct=base_ctx["post_bike_fatigue_pct"],
             split_interval_km=base_ctx["split_interval_km"],
             hourly_weather=base_ctx.get("hourly_weather"),
+            target_re=wi_re,
+            base_shoe_name=base_shoe,
+            trained_temp_c=base_tr_temp,
+            trained_humidity_pct=base_tr_hum,
         )
         ss = st_sim["summary"]
         strat_rows.append({
@@ -1307,11 +1368,18 @@ def render_running_strategy_section(
         preset_meta = RUNNING_RACE_PRESETS[sel_preset_lbl]
         st.caption(f"💡 {preset_meta['desc']}")
 
+        wt_label = "⚖️ Peso configurado en Stryd (kg)" if plan_mode == "stryd" else "⚖️ Peso del Atleta (kg)"
+        wt_help = (
+            "MUY IMPORTANTE: Usa el peso exacto que tiene configurado el deportista en la app de Stryd para que W/kg y Target RE coincidan al 100% con su CP."
+            if plan_mode == "stryd"
+            else "Peso actual del atleta en kg."
+        )
         runner_weight = st.number_input(
-            "⚖️ Peso del Atleta (kg)",
+            wt_label,
             min_value=40.0, max_value=120.0,
             value=round(float(ath["weight_kg"]), 1),
             step=0.5,
+            help=wt_help,
             key=f"run_wt_{member_id}",
         )
         runner_height = st.number_input(
@@ -1322,11 +1390,11 @@ def render_running_strategy_section(
             key=f"run_ht_{member_id}",
         )
         home_alt = st.number_input(
-            "🏔️ Altitud donde vive/entrena (m)",
+            "🏔️ Altitud donde entrena ('Trained At', m)",
             min_value=0, max_value=4500,
             value=int(ath.get("altitude_m") or 0),
             step=50,
-            help="Si el circuito está más alto que tu residencia habitual (>1000 m), se aplica penalización fisiológica por altura.",
+            help="Altitud habitual de entrenamiento (igual que 'Trained At' en Stryd). Solo penaliza si el circuito está más alto.",
             key=f"run_home_alt_{member_id}",
         )
 
@@ -1427,7 +1495,7 @@ def render_running_strategy_section(
                 target_pct_rcp = float(preset_meta["default_pct_rcp"])
                 st.caption(f"⚡ Stryd rCP de referencia: **`{run_cp_w:.0f} W`** · GAP base: **`{format_pace(target_gap_sec_km)} /km`**")
         else:
-            st.markdown("##### ⚡ Potencia Running (Stryd / Garmin rCP)")
+            st.markdown("##### ⚡ Potencia Running (Stryd / Palladino RE)")
             # Estimar rCP inicial si no tiene uno guardado
             init_rcp = ath.get("run_cp_w")
             if not init_rcp:
@@ -1436,17 +1504,35 @@ def render_running_strategy_section(
                     if t_pb:
                         init_rcp = estimate_run_metrics_from_pb(d_k, t_pb, runner_weight, runner_height, dist_km)["est_rcp_w"]
                         break
-            init_rcp = float(init_rcp or round(runner_weight * 4.05))
+            init_rcp = float(init_rcp or round(runner_weight * 3.80))
 
             run_cp_w = st.number_input(
                 "⚡ Potencia Crítica Running rCP (W)",
                 min_value=100.0, max_value=600.0,
                 value=round(init_rcp, 0),
-                step=2.0,
-                help="Tu Critical Power (CP) en Stryd, Garmin Running Power o Coros.",
+                step=1.0,
+                help="Critical Power (CP) reportado por Stryd, Garmin Running Power o Coros.",
                 key=f"run_rcp_in_{member_id}",
             )
-            st.caption(f"Relación peso/potencia rCP: **`{run_cp_w / max(35.0, runner_weight):.2f} W/kg`**")
+            rcp_wkg = run_cp_w / max(38.0, runner_weight)
+
+            # Target RE (Running Effectiveness Stryd / Steve Palladino = velocidad / (W/kg))
+            re_key = f"run_re_in_{member_id}"
+            pend_re_key = f"run_re_pending_{member_id}"
+            if pend_re_key in st.session_state:
+                st.session_state[re_key] = float(st.session_state.pop(pend_re_key))
+
+            auto_re = ath.get("run_re") or estimate_default_stryd_re(rcp_wkg)
+            target_re = st.number_input(
+                "🎯 Running Effectiveness — Target RE (Stryd / Palladino)",
+                min_value=0.75, max_value=1.15,
+                value=round(float(auto_re), 2),
+                step=0.01,
+                format="%.2f",
+                help="RE = Velocidad (m/s) ÷ (W/kg). Igual que 'Target RE' en SuperPower Calculator de Steve Palladino (típico: 0.92–0.98 en asfalto).",
+                key=re_key,
+            )
+            st.caption(f"rCP: **`{rcp_wkg:.2f} W/kg`** · RE sugerido por W/kg: **`{estimate_default_stryd_re(rcp_wkg):.2f}`**")
 
             # Sliders bidireccionalmente vinculados: Potencia Objetivo (W) <-> % rCP
             def_pct = float(preset_meta["default_pct_rcp"])
@@ -1468,34 +1554,52 @@ def render_running_strategy_section(
                 pv = float(st.session_state[pct_s_key])
                 st.session_state[p_s_key] = int(round(max(w_min, min(w_max, run_cp_w * (pv / 100.0)))))
 
-            # Mantener dentro de rango si cambió rCP
             st.session_state[p_s_key] = int(max(w_min, min(w_max, int(st.session_state[p_s_key]))))
 
             st.slider(
                 "⚡ Potencia Objetivo en Carrera (W)",
                 min_value=w_min, max_value=w_max,
-                step=2,
+                step=1,
                 key=p_s_key,
                 on_change=_sync_run_from_w,
             )
             target_pct_rcp = st.slider(
                 "🎯 Intensidad Objetivo (% rCP)",
                 min_value=60.0, max_value=115.0,
-                step=0.5,
+                step=0.2,
                 key=pct_s_key,
                 on_change=_sync_run_from_pct,
             )
-            target_gap_sec_km = 270.0  # no usado en modo stryd
+            target_gap_sec_km = 270.0
 
-            if ath.get("run_cp_w") is None or abs(float(ath["run_cp_w"]) - run_cp_w) >= 1.0:
-                if st.button(f"💾 Guardar rCP ({run_cp_w:.0f} W) en ficha de {ath['name']}", key=f"run_save_rcp_{member_id}"):
+            need_save_stryd = (
+                ath.get("run_cp_w") is None
+                or abs(float(ath["run_cp_w"]) - run_cp_w) >= 1.0
+                or ath.get("run_re") is None
+                or abs(float(ath["run_re"]) - target_re) >= 0.005
+            )
+            if need_save_stryd:
+                if st.button(f"💾 Guardar rCP ({run_cp_w:.0f} W) y RE ({target_re:.2f}) en ficha", key=f"run_save_rcp_{member_id}"):
                     with SessionLocal() as _s_cp:
                         m_obj = _s_cp.query(Member).filter(Member.id == member_id).first()
                         if m_obj:
                             m_obj.run_cp_w = float(run_cp_w)
+                            m_obj.run_re = float(target_re)
                             _s_cp.commit()
                     _load_running_athlete_defaults.clear()
-                    st.toast("Stryd rCP guardado en el perfil del atleta!", icon="✅")
+                    st.toast("Stryd rCP y Target RE guardados en el perfil del atleta!", icon="✅")
+
+            with st.expander("🔧 Calcular RE real desde un entreno o carrera Stryd", expanded=False):
+                st.caption("Ingresa la potencia media y el ritmo medio de un bloque/carrera en llano con Stryd:")
+                cal_w = st.number_input("Potencia media del bloque (W):", min_value=80.0, max_value=600.0, value=round(run_cp_w * 0.93, 0), step=1.0, key=f"run_cal_w_{member_id}")
+                cal_p_str = st.text_input("Ritmo medio en llano (MM:SS /km):", value="5:24", key=f"run_cal_p_{member_id}")
+                cal_p_sec = parse_time_str_to_sec(cal_p_str)
+                if cal_p_sec and 150 <= cal_p_sec <= 900:
+                    re_calc = calc_stryd_re_from_workout(cal_w, cal_p_sec, runner_weight)
+                    st.markdown(f"✅ **RE calculado:** **`{re_calc:.3f}`** *(usando {runner_weight:.1f} kg, {cal_w:.0f} W y {format_pace(cal_p_sec)}/km)*")
+                    if st.button(f"Aplicar RE = {re_calc:.2f} al Simulador", key=f"run_apply_re_{member_id}"):
+                        st.session_state[pend_re_key] = round(re_calc, 2)
+                        st.rerun()
 
     with col_cfg3:
         st.markdown("##### 👟 Calzado, Terreno y Estrategia")
@@ -1600,6 +1704,30 @@ def render_running_strategy_section(
                 key=f"run_wdeg_sl_{route_sig}",
             )
 
+        wc4_out = st.columns(2)
+        with wc4_out[0]:
+            trained_temp_c = st.slider(
+                "🏠 Temp. habitual de entrenamiento ('Trained At', °C)",
+                5.0, 35.0,
+                value=19.0,
+                step=1.0,
+                help="Temperatura donde el atleta entrena habitualmente (estilo Stryd). Solo penaliza si la carrera es más calurosa que su clima de entreno.",
+                key=f"run_tr_temp_{member_id}",
+            )
+        with wc4_out[1]:
+            trained_humidity_pct = st.slider(
+                "🏠 Humedad habitual de entrenamiento ('Trained At', %)",
+                20, 100,
+                value=75,
+                step=5,
+                help="Humedad habitual de entrenamiento (estilo Stryd).",
+                key=f"run_tr_hum_{member_id}",
+            )
+
+    # Resolver target_re si estamos en modo Pace
+    if plan_mode == "pace":
+        target_re = float(ath.get("run_re") or estimate_default_stryd_re(run_cp_w / max(38.0, runner_weight)))
+
     # ── EJECUTAR SIMULACIÓN DE RUNNING ──────────────────────────────
     hourly_w = w_saved.get("hourly") if isinstance(w_saved, dict) else None
     sim = _sim_run_fast(
@@ -1623,6 +1751,10 @@ def render_running_strategy_section(
         post_bike_fatigue_pct=float(preset_meta["post_bike_fatigue"]) * 100.0,
         split_interval_km=float(split_interval_km),
         hourly_weather=hourly_w,
+        target_re=target_re,
+        base_shoe_name=shoe_name,
+        trained_temp_c=trained_temp_c,
+        trained_humidity_pct=trained_humidity_pct,
     )
     s = sim["summary"]
     nut = sim["nutrition"]
@@ -1639,6 +1771,7 @@ def render_running_strategy_section(
         "target_gap_sec_km": target_gap_sec_km,
         "run_cp_w": run_cp_w,
         "target_pct_rcp": target_pct_rcp,
+        "target_re": target_re,
         "shoe_name": shoe_name,
         "surface_name": surface_name,
         "temp_c": temp_c,
@@ -1646,6 +1779,8 @@ def render_running_strategy_section(
         "wind_kmh": wind_kmh,
         "wind_deg": wind_deg,
         "home_altitude_m": home_alt,
+        "trained_temp_c": trained_temp_c,
+        "trained_humidity_pct": trained_humidity_pct,
         "strategy_code": strategy_code,
         "strat_label": strat_label,
         "apply_env_derating": apply_env_derating,
@@ -1697,7 +1832,7 @@ def render_running_strategy_section(
             <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.55); border-radius:12px; padding:12px 10px; text-align:center;">
                 <div style="color:#8E9BAE; font-size:0.66rem; font-weight:800; text-transform:uppercase;">⚡ Potencia Stryd</div>
                 <div style="color:#FFD700; font-size:1.55rem; font-weight:900; margin-top:2px;">{s['avg_power_w']:.0f} <span style="font-size:0.75rem;">W</span></div>
-                <div style="color:#94A3B8; font-size:0.68rem;">{s['w_per_kg']:.2f} W/kg · {s['pct_rcp']:.0f}% rCP · rTSS {s['rtss']:.0f}</div>
+                <div style="color:#94A3B8; font-size:0.68rem;">{s['w_per_kg']:.2f} W/kg · {s['pct_rcp']:.0f}% rCP · RE {s['course_re']:.2f}</div>
             </div>
             <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,170,0,0.5); border-radius:12px; padding:12px 10px; text-align:center;">
                 <div style="color:#8E9BAE; font-size:0.66rem; font-weight:800; text-transform:uppercase;">🥤 Nutrición & Geles</div>
@@ -1707,6 +1842,32 @@ def render_running_strategy_section(
         </div>
         """
     )
+
+    # ── TABLA DE SENSIBILIDAD POR RE (ESTILO STEVE PALLADINO / STRYD) ─
+    if plan_mode == "stryd":
+        with st.expander(f"📊 Tabla de Sensibilidad por Target RE (estilo Steve Palladino SuperPower Calculator · Base RE {target_re:.2f})", expanded=True):
+            re_sens_rows = build_re_sensitivity_table(
+                route_data=route_data,
+                runner_weight_kg=runner_weight,
+                runner_height_cm=runner_height,
+                run_cp_w=run_cp_w,
+                target_pct_rcp=target_pct_rcp,
+                base_target_re=target_re,
+                shoe_name=shoe_name,
+                surface_name=surface_name,
+                temp_c=temp_c,
+                humidity_pct=humidity_pct,
+                wind_speed_kmh=wind_kmh,
+                wind_from_deg=wind_deg,
+                home_altitude_m=home_alt,
+                trained_temp_c=trained_temp_c,
+                trained_humidity_pct=trained_humidity_pct,
+                strategy=strategy_code,
+                apply_env_derating=apply_env_derating,
+                post_bike_fatigue_pct=float(preset_meta["post_bike_fatigue"]) * 100.0,
+            )
+            st.dataframe(pd.DataFrame(re_sens_rows), use_container_width=True, hide_index=True)
+            st.caption("💡 **Tiempo en Llano (Palladino)** = `v = RE × (W/kg)` sin desnivel ni clima. **Tiempo en ESTE Circuito** incluye las subidas/bajadas reales del GPX/FIT, el viento y la altitud respecto a donde entrena.")
 
     # ── GRÁFICA PRINCIPAL DE PACING + MAPA GPS ──────────────────────
     st.plotly_chart(_build_running_pacing_chart(sim), use_container_width=True)

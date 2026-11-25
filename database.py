@@ -94,6 +94,7 @@ class Member(Base):
     pb_21k = Column(String, nullable=True)            # Mejor marca 21.1K Media Maratón (ej. "1:28:40")
     pb_42k = Column(String, nullable=True)            # Mejor marca 42.2K Maratón (ej. "3:08:00")
     run_cp_w = Column(Float, nullable=True)           # Potencia Crítica en Running (Stryd / Garmin, W)
+    run_re = Column(Float, nullable=True)             # Running Effectiveness Stryd (RE = v / (W/kg), ej. 0.94)
     birthday_email_last_year = Column(Integer, nullable=True)  # Último año en que se envió correo de cumpleaños
 
     transactions = relationship("Transaction", back_populates="member")
@@ -345,6 +346,7 @@ def init_db():
                 ("pb_21k", "VARCHAR"),
                 ("pb_42k", "VARCHAR"),
                 ("run_cp_w", "FLOAT"),
+                ("run_re", "FLOAT"),
                 ("birthday_email_last_year", "INTEGER"),
             ]
             for col_name, col_type in member_cols_to_add:

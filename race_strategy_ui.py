@@ -2070,7 +2070,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.19</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.20</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
