@@ -14,7 +14,7 @@ if st.query_params.get("app") == "atletas":
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.12)
+# Configuración de página principal del CRM Administrador (Build v2.13)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -2747,15 +2747,18 @@ elif page == "Analíticas AlphaX":
                 session.close()
 
 elif page == "🏁 Estrategias de Carrera":
-    import importlib
-    import race_strategy_engine
-    import weather_service
-    import cda_estimator
     import race_strategy_ui
-    importlib.reload(race_strategy_engine)
-    importlib.reload(weather_service)
-    importlib.reload(cda_estimator)
-    importlib.reload(race_strategy_ui)
+    _RS_BUILD_TAG = "2.13"
+    if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
+        import importlib
+        import race_strategy_engine
+        import weather_service
+        import cda_estimator
+        importlib.reload(race_strategy_engine)
+        importlib.reload(weather_service)
+        importlib.reload(cda_estimator)
+        importlib.reload(race_strategy_ui)
+        st.session_state["_rs_loaded_build"] = _RS_BUILD_TAG
     race_strategy_ui.render_race_strategy_page()
 
 elif page == "Wolfy AI Coach":

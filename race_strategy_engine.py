@@ -553,14 +553,14 @@ def solve_segment_speed(
         f_aero = 0.5 * rho * cda_eff * v_air * abs(v_air)
         return (f_aero + f_roll + f_grav) * v
 
-    # Bisección robusta en [0.5 m/s, max_speed_ms] (converge siempre en 28 pasos a < 0.0001 m/s)
+    # Bisección robusta en [0.5 m/s, max_speed_ms] (16 pasos → precisión < 0.0004 m/s = 0.001 km/h, 2x más rápido)
     lo, hi = 0.5, max_speed_ms
     if _power_required(lo) > p_wheel:
         v_sol = lo
     elif _power_required(hi) <= p_wheel:
         v_sol = hi
     else:
-        for _ in range(28):
+        for _ in range(16):
             mid = 0.5 * (lo + hi)
             if _power_required(mid) < p_wheel:
                 lo = mid
@@ -828,20 +828,27 @@ def simulate_race_strategy(
         np_w = _compute_normalized_power(seg_powers, seg_times)
         return seg_results, seg_times, seg_powers, np_w, cum_t, total_work_j, e_aero, e_roll, e_grav_pos
 
-    # Calibración iterativa (bisección de 10 pasos) para ajustar base_power hasta que NP == target_np
+    # Calibración rápida (secante proporcional inicial + bisección acotada: converge en 1–3 pasadas a < 0.8 W)
     p_lo, p_hi = max(50.0, target_np * 0.65), min(ftp_w * 1.25, target_np * 1.25)
     best_pack = None
-    for _ in range(10):
-        p_mid = 0.5 * (p_lo + p_hi)
+    p_mid = max(p_lo, min(p_hi, target_np))
+    for it_idx in range(6):
         pack = _run_pass(p_mid)
         np_got = pack[3]
         best_pack = pack
-        if abs(np_got - target_np) <= 0.6:
+        if abs(np_got - target_np) <= 0.8:
             break
         if np_got < target_np:
-            p_lo = p_mid
+            p_lo = max(p_lo, p_mid)
         else:
-            p_hi = p_mid
+            p_hi = min(p_hi, p_mid)
+        if it_idx == 0 and np_got > 10.0:
+            # Paso proporcional directo (NP escala casi linealmente con base_power)
+            p_prop = p_mid * (target_np / np_got)
+            if p_lo < p_prop < p_hi:
+                p_mid = p_prop
+                continue
+        p_mid = 0.5 * (p_lo + p_hi)
 
     seg_results, seg_times, seg_powers, np_w, total_time_s, total_work_j, e_aero, e_roll, e_grav_pos = best_pack
 
