@@ -1844,7 +1844,7 @@ def render_race_strategy_page():
                     margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.16</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.17</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Sube el circuito GPX/FIT, calibra el CdA real, simula escenarios "Qué Pasa Si..." y gestiona planes de carrera estilo Best Bike Split.
@@ -2063,13 +2063,10 @@ def render_race_strategy_page():
                             persisted_map[member_id] = (route_file_bytes, route_file_label, True)
                         elif persisted and persisted[2]:
                             route_file_bytes, route_file_label, uploaded_custom_file = persisted
-                            c_pr1, c_pr2 = st.columns([3, 1])
-                            with c_pr1:
-                                st.caption(f"📎 Circuito activo en memoria: **`{route_file_label}`**")
-                            with c_pr2:
-                                if st.button("✕ Quitar", key=f"rs_clear_persisted_{member_id}", use_container_width=True):
-                                    persisted_map.pop(member_id, None)
-                                    st.rerun()
+                            st.caption(f"📎 Circuito activo en memoria: **`{route_file_label}`**")
+                            if st.button("✕ Quitar archivo en memoria", key=f"rs_clear_persisted_{member_id}"):
+                                persisted_map.pop(member_id, None)
+                                st.rerun()
                     elif "Cartagena" in route_source:
                         route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
                         route_file_label = "demo_cartagena.gpx"
