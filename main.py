@@ -8,14 +8,13 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
-    if "wolfy_bot" in sys.modules:
-        del sys.modules["wolfy_bot"]
-    if "app_atletas" in sys.modules:
-        del sys.modules["app_atletas"]
+    for _m in ("wolfy_bot", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
+        if _m in sys.modules:
+            del sys.modules[_m]
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.6)
+# Configuración de página principal del CRM Administrador (Build v2.7)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -37,10 +36,9 @@ try:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = athlete_cookie
         import sys
-        if "wolfy_bot" in sys.modules:
-            del sys.modules["wolfy_bot"]
-        if "app_atletas" in sys.modules:
-            del sys.modules["app_atletas"]
+        for _m in ("wolfy_bot", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
+            if _m in sys.modules:
+                del sys.modules[_m]
         import app_atletas
         st.stop()
 except Exception:

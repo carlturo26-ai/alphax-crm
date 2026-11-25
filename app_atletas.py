@@ -926,8 +926,9 @@ else:
         st.markdown(hud_html, unsafe_allow_html=True)
 
     # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA ──────────────────────
-    tab_wolfy, tab_bw, tab_lac, tab_sleep = st.tabs([
+    tab_wolfy, tab_race, tab_bw, tab_lac, tab_sleep = st.tabs([
         "🐺 Wolfy AI Coach",
+        "🏁 Planes de Carrera",
         "🩸 Hemogramas",
         "🧪 Pruebas de Lactato",
         "💤 Sueño (ASSQ)"
@@ -945,6 +946,18 @@ else:
         else:
             import wolfy_bot
         wolfy_bot.render_wolfy_tab(member_id, is_admin=False)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  PESTAÑA 2: PLANES DE CARRERA (SOLO LECTURA — PACING + NUTRICIÓN)
+    # ══════════════════════════════════════════════════════════════════
+    with tab_race:
+        import sys
+        import importlib
+        for _rs_mod in ("race_strategy_engine", "race_strategy_ui"):
+            if _rs_mod in sys.modules:
+                importlib.reload(sys.modules[_rs_mod])
+        import race_strategy_ui
+        race_strategy_ui.render_athlete_race_plans_tab(member_id, atleta)
 
     # ══════════════════════════════════════════════════════════════════
     #  PESTAÑA 2: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)

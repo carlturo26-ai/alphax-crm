@@ -3,6 +3,7 @@ race_strategy_ui.py — Interfaz interactiva de Estrategias de Carrera en Ciclis
 (AlphaX Race Split — estilo Best Bike Split) para el CRM de Entrenadores.
 """
 
+import html
 import json
 import math
 from datetime import date, datetime, timedelta
@@ -343,6 +344,621 @@ def _build_resistance_donut(resistance: dict) -> go.Figure:
     return fig
 
 
+def _safe_parse_json(raw_str, default):
+    if not raw_str:
+        return default
+    try:
+        val = json.loads(raw_str)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
+def _estimate_fallback_nutrition(total_time_s: float, temp_c: float = 24.0, humidity_pct: float = 65.0) -> dict:
+    """Calcula un plan nutricional e hidratación fisiológico si un escenario antiguo no lo guardó."""
+    duration_h = max(0.25, float(total_time_s or 0.0) / 3600.0)
+    if duration_h < 1.1:
+        cho_g_h = 45
+    elif duration_h < 2.5:
+        cho_g_h = 70
+    elif duration_h < 4.5:
+        cho_g_h = 85
+    else:
+        cho_g_h = 90
+    t_val = float(temp_c if temp_c is not None else 24.0)
+    h_val = float(humidity_pct if humidity_pct is not None else 65.0)
+    heat_bonus = max(0.0, (t_val - 18.0) * 28.0) + max(0.0, (h_val - 60.0) * 3.0)
+    fluid_ml_h = int(round(min(1200.0, max(500.0, 550.0 + heat_bonus)) / 50.0) * 50)
+    sodium_mg_h = int(round(min(1100.0, max(450.0, 500.0 + (t_val - 18.0) * 25.0)) / 50.0) * 50)
+    return {
+        "cho_g_per_h": cho_g_h,
+        "cho_total_g": int(round(cho_g_h * duration_h)),
+        "fluid_ml_per_h": fluid_ml_h,
+        "fluid_total_l": round((fluid_ml_h * duration_h) / 1000.0, 1),
+        "sodium_mg_per_h": sodium_mg_h,
+        "sodium_total_mg": int(round(sodium_mg_h * duration_h)),
+    }
+
+
+def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "") -> go.Figure:
+    """Gráfica dual de Potencia Objetivo (W) por tramo y Velocidad Estimada (km/h) desde splits guardados."""
+    tramos = [str(sp.get("Tramo", f"T{i+1}")) for i, sp in enumerate(splits_list)]
+    watts = [float(sp.get("Potencia Obj. (W)", 0) or 0) for sp in splits_list]
+    speeds = [float(sp.get("Vel. Est. (km/h)", 0) or 0) for sp in splits_list]
+    grades = [float(sp.get("Pend. %", 0) or 0) for sp in splits_list]
+    terrains = [str(sp.get("Terreno", "")) for sp in splits_list]
+
+    bar_colors = []
+    for t_txt, g_val in zip(terrains, grades):
+        if "Subida" in t_txt or g_val >= 2.5:
+            bar_colors.append("#FF6B6B")
+        elif "Bajada" in t_txt or g_val <= -2.5:
+            bar_colors.append("#00FF88")
+        else:
+            bar_colors.append("#00EEFF")
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Bar(
+            x=tramos,
+            y=watts,
+            name="Potencia Obj. (W)",
+            marker_color=bar_colors,
+            opacity=0.88,
+            text=[f"{int(round(w))}W" for w in watts] if len(tramos) <= 18 else None,
+            textposition="outside",
+            textfont=dict(color="#E2E8F0", size=10),
+            hovertemplate="<b>%{x}</b><br>Potencia: <b>%{y:.0f} W</b><extra></extra>",
+        ),
+        secondary_y=False,
+    )
+    if any(v > 0 for v in speeds):
+        fig.add_trace(
+            go.Scatter(
+                x=tramos,
+                y=speeds,
+                name="Velocidad Est. (km/h)",
+                mode="lines+markers",
+                line=dict(color="#FFD700", width=2.5),
+                marker=dict(size=6, color="#FFD700"),
+                hovertemplate="<b>%{x}</b><br>Velocidad: <b>%{y:.1f} km/h</b><extra></extra>",
+            ),
+            secondary_y=True,
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="⚡ Plan de Pacing Tramo a Tramo (Potencia W y Velocidad km/h)",
+            font=dict(size=13.5, color="#FFFFFF"),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0", size=11),
+        height=310,
+        margin=dict(l=10, r=10, t=44, b=18),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+        xaxis=dict(tickangle=-30 if len(tramos) > 8 else 0, gridcolor="rgba(255,255,255,0.05)"),
+    )
+    fig.update_yaxes(title_text="Potencia (W)", gridcolor="rgba(255,255,255,0.06)", secondary_y=False)
+    fig.update_yaxes(title_text="Velocidad (km/h)", showgrid=False, secondary_y=True)
+    return fig
+
+
+def _build_race_plan_text_card(sc, cfg: dict, nut: dict, splits_list: list, athlete_name: str) -> str:
+    """Genera una ficha imprimible / de manillar en texto plano con Pacing + Nutrición."""
+    est_time_s = float(sc.estimated_time_sec or 0.0)
+    work_kj = cfg.get("work_kj") or round((float(sc.avg_power_w or 0.0) * est_time_s) / 1000.0)
+    bottles_750 = max(1, int(math.ceil((float(nut.get("fluid_total_l", 0.0)) * 1000.0) / 750.0)))
+    cho_per_20m = int(round(float(nut.get("cho_g_per_h", 75)) / 3.0))
+
+    lines = [
+        "==============================================================",
+        "  ALPHAX ENDURANCE COACHING — PLAN OFICIAL DE CARRERA",
+        "==============================================================",
+        f"Deportista : {athlete_name}",
+        f"Plan       : {sc.scenario_name}",
+        f"Circuito   : {sc.route_name}",
+    ]
+    if cfg.get("race_date"):
+        lines.append(f"Fecha/Hora : {cfg.get('race_date')} {cfg.get('race_start_time', '')}".strip())
+    lines.extend([
+        f"Distancia  : {float(sc.distance_km or 0):.1f} km   |   Desnivel: +{float(sc.elevation_gain_m or 0):.0f} m",
+        f"Tiempo Obj.: {format_hms(est_time_s)}   |   Vel. Media: {float(sc.avg_speed_kmh or 0):.1f} km/h",
+        f"Potencia   : NP {float(sc.norm_power_w or 0):.0f} W  /  AP {float(sc.avg_power_w or 0):.0f} W   |   IF {float(sc.intensity_factor or 0):.2f}   |   TSS {float(sc.tss or 0):.0f}",
+        f"CdA / Masa : {float(sc.cda or 0):.3f} m²   |   Masa Total: {float(sc.total_mass_kg or 0):.1f} kg   |   Gasto: ~{int(work_kj)} kJ",
+        "",
+        "--------------------------------------------------------------",
+        "  ESTRATEGIA NUTRICIONAL E HIDRATACIÓN",
+        "--------------------------------------------------------------",
+        f"• Carbohidratos : {nut.get('cho_g_per_h', 0)} g/h  (Total: {nut.get('cho_total_g', 0)} g  |  ~{cho_per_20m} g cada 20 min)",
+        f"• Líquidos      : {nut.get('fluid_ml_per_h', 0)} mL/h  (Total: {nut.get('fluid_total_l', 0)} L  |  ~{bottles_750} bidones de 750 mL)",
+        f"• Sodio         : {nut.get('sodium_mg_per_h', 0)} mg/h  (Total: {nut.get('sodium_total_mg', 0)} mg)",
+    ])
+    if cfg.get("temp_c") is not None:
+        lines.append(
+            f"• Clima ref.    : {cfg.get('temp_c')}°C · {cfg.get('humidity_pct', 65)}% HR · Viento {cfg.get('wind_kmh', 0)} km/h"
+        )
+    if cfg.get("bike_type") or cfg.get("strategy"):
+        lines.append("")
+        lines.append("--------------------------------------------------------------")
+        lines.append("  CONFIGURACIÓN Y ESTRATEGIA")
+        lines.append("--------------------------------------------------------------")
+        if cfg.get("strategy"):
+            lines.append(f"• Estrategia : {cfg.get('strategy')}")
+        if cfg.get("bike_type"):
+            lines.append(f"• Bicicleta  : {cfg.get('bike_type')}")
+        if cfg.get("wheels"):
+            lines.append(f"• Ruedas     : {cfg.get('wheels')}")
+        if cfg.get("helmet"):
+            lines.append(f"• Casco      : {cfg.get('helmet')}")
+        if cfg.get("tires"):
+            lines.append(f"• Llantas    : {cfg.get('tires')}")
+
+    if splits_list:
+        lines.extend([
+            "",
+            "--------------------------------------------------------------",
+            "  PLAN DE PACING TRAMO A TRAMO",
+            "--------------------------------------------------------------",
+            f"{'Tramo':<15} {'Pend':>6} {'Pot(W)':>7} {'%FTP':>6} {'Vel':>6} {'Parcial':>8} {'Acum':>9}  Viento",
+        ])
+        for sp in splits_list:
+            tramo = str(sp.get("Tramo", ""))[:14]
+            pend = f"{sp.get('Pend. %', 0)}%"
+            pot = f"{sp.get('Potencia Obj. (W)', 0)}W"
+            pftp = str(sp.get("% FTP", ""))
+            vel = f"{sp.get('Vel. Est. (km/h)', 0)}"
+            parc = str(sp.get("Tiempo Tramo", ""))
+            acum = str(sp.get("Tiempo Acum.", ""))
+            viento = str(sp.get("Viento", ""))
+            lines.append(f"{tramo:<15} {pend:>6} {pot:>7} {pftp:>6} {vel:>6} {parc:>8} {acum:>9}  {viento}")
+
+    lines.append("==============================================================")
+    return "\n".join(lines)
+
+
+def render_saved_scenarios_library(
+    member_id: int,
+    athlete_name: str,
+    allow_delete: bool = False,
+    is_athlete_portal: bool = False,
+    key_prefix: str = "lib",
+):
+    """
+    Biblioteca completa de Planes de Carrera Guardados (reutilizable en Admin y Portal del Atleta).
+    Muestra resumen comparativo de todos los escenarios, plan de pacing tramo a tramo con gráfica,
+    estrategia nutricional completa y ficha técnica descargable.
+    """
+    init_db()
+    if not member_id:
+        st.info("No se encontró un perfil de deportista vinculado para consultar planes de carrera.")
+        return
+
+    with SessionLocal() as s_db:
+        saved_recs = (
+            s_db.query(RaceStrategyScenario)
+            .filter(RaceStrategyScenario.member_id == member_id)
+            .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
+            .all()
+        )
+
+    if not saved_recs:
+        if is_athlete_portal:
+            _render_html(
+                f"""
+                <div style="background:rgba(15,20,32,0.88); border:1.5px dashed rgba(0,238,255,0.35);
+                            border-radius:16px; padding:24px 18px; text-align:center; margin:12px 0;">
+                    <div style="font-size:2rem; margin-bottom:6px;">🏁</div>
+                    <div style="color:#FFFFFF; font-size:1.05rem; font-weight:800;">
+                        Aún no tienes planes de carrera publicados
+                    </div>
+                    <div style="color:#94A3B8; font-size:0.86rem; margin-top:6px; line-height:1.5;">
+                        Cuando tu entrenador AlphaX diseñe y guarde tus escenarios de carrera (plan de pacing, vatios por tramo y estrategia nutricional), aparecerán aquí automáticamente para ti.
+                    </div>
+                </div>
+                """
+            )
+        else:
+            st.info(
+                f"📂 **{athlete_name}** aún no tiene planes de carrera guardados. "
+                "Sube un archivo `.fit`, `.gpx` o `.tcx` arriba (o elige una ruta demo) y pulsa **💾 Guardar Escenario** para que aparezca aquí y en la App del Atleta."
+            )
+        return
+
+    # Pre-parsear configuraciones y nutrición de todos los escenarios
+    parsed_items = []
+    for r in saved_recs:
+        cfg = _safe_parse_json(r.config_json, {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+        splits = _safe_parse_json(r.splits_json, [])
+        if not isinstance(splits, list):
+            splits = []
+        nut = cfg.get("nutrition")
+        if not isinstance(nut, dict) or not nut.get("cho_g_per_h"):
+            nut = _estimate_fallback_nutrition(
+                r.estimated_time_sec or 0.0,
+                temp_c=cfg.get("temp_c", 24.0),
+                humidity_pct=cfg.get("humidity_pct", 65.0),
+            )
+        parsed_items.append({"rec": r, "cfg": cfg, "splits": splits, "nut": nut})
+
+    # ── 1. RESUMEN EN TARJETAS DE LOS ESCENARIOS GUARDADOS ──────────
+    n_plans = len(parsed_items)
+    section_title = (
+        f"🏁 Tus {n_plans} Planes de Carrera Diseñados por tu Coach"
+        if is_athlete_portal
+        else f"📚 Planes de Carrera Guardados — {athlete_name} ({n_plans})"
+    )
+    st.markdown(f"### {section_title}")
+    if is_athlete_portal:
+        st.caption(
+            "Compara tus escenarios de carrera y selecciona cualquiera abajo para ver el plan completo de pacing tramo a tramo y tu estrategia nutricional."
+        )
+    else:
+        st.caption(
+            "Estos son los escenarios guardados en la base de datos (visibles automáticamente en modo solo lectura desde la App del Atleta)."
+        )
+
+    # Identificar el más rápido solo si hay >= 2 escenarios
+    min_time_all = min((float(it["rec"].estimated_time_sec or 0.0) for it in parsed_items), default=0.0)
+    same_route_set = {str(it["rec"].route_name or "").strip().lower() for it in parsed_items}
+    compare_deltas_valid = n_plans >= 2 and len(same_route_set) == 1
+
+    cards_html_parts = []
+    for idx, item in enumerate(parsed_items[:6]):
+        r = item["rec"]
+        cfg = item["cfg"]
+        nut = item["nut"]
+        t_sec = float(r.estimated_time_sec or 0.0)
+        is_fastest = n_plans >= 2 and abs(t_sec - min_time_all) < 0.5 and compare_deltas_valid
+        border_col = "#00FF88" if is_fastest else ("rgba(0,238,255,0.45)" if idx == 0 else "rgba(255,255,255,0.14)")
+        badge = ""
+        if is_fastest:
+            badge = '<span style="background:rgba(0,255,136,0.18); color:#00FF88; font-size:0.65rem; font-weight:800; padding:2px 7px; border-radius:6px;">🥇 MÁS RÁPIDO</span>'
+        elif compare_deltas_valid and t_sec > min_time_all + 0.5:
+            badge = f'<span style="background:rgba(255,215,0,0.14); color:#FFD700; font-size:0.65rem; font-weight:800; padding:2px 7px; border-radius:6px;">{format_time_delta(t_sec - min_time_all)}</span>'
+        else:
+            dt_lbl = r.created_at.strftime("%d/%m/%Y") if r.created_at else ""
+            badge = f'<span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.65rem; font-weight:800; padding:2px 7px; border-radius:6px;">Plan #{idx+1} · {dt_lbl}</span>'
+
+        race_dt_chip = f" · 📅 {html.escape(str(cfg.get('race_date')))}" if cfg.get("race_date") else ""
+        sc_title = html.escape(str(r.scenario_name or f"Plan #{idx+1}"))
+        rt_title = html.escape(str(r.route_name or "Circuito"))
+
+        cards_html_parts.append(
+            f"""
+            <div style="background:linear-gradient(145deg, rgba(16,22,36,0.95), rgba(9,13,22,0.98));
+                        border:1.5px solid {border_col}; border-radius:14px; padding:13px 14px;
+                        box-shadow:0 6px 18px rgba(0,0,0,0.4); display:flex; flex-direction:column; justify-content:space-between;">
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;">
+                        <span style="color:#94A3B8; font-size:0.68rem; font-weight:800; text-transform:uppercase;">Escenario {idx+1}</span>
+                        {badge}
+                    </div>
+                    <div style="color:#FFFFFF; font-size:0.95rem; font-weight:800; line-height:1.25; margin-bottom:4px;">{sc_title}</div>
+                    <div style="color:#8E9BAE; font-size:0.74rem; margin-bottom:8px;">🗺️ {rt_title}{race_dt_chip}</div>
+                </div>
+                <div>
+                    <div style="display:flex; align-items:baseline; justify-content:space-between; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px; margin-bottom:6px;">
+                        <span style="color:#00EEFF; font-size:1.35rem; font-weight:900;">⏱️ {format_hms(t_sec)}</span>
+                        <span style="color:#FFD700; font-size:0.86rem; font-weight:800;">{float(r.avg_speed_kmh or 0):.1f} km/h</span>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; font-size:0.72rem; color:#CBD5E1;">
+                        <span style="background:rgba(0,255,136,0.12); color:#00FF88; padding:2px 6px; border-radius:6px; font-weight:700;">⚡ NP {float(r.norm_power_w or 0):.0f} W</span>
+                        <span style="background:rgba(192,132,252,0.14); color:#C084FC; padding:2px 6px; border-radius:6px; font-weight:700;">IF {float(r.intensity_factor or 0):.2f} · TSS {float(r.tss or 0):.0f}</span>
+                        <span style="background:rgba(56,189,248,0.12); color:#38BDF8; padding:2px 6px; border-radius:6px; font-weight:700;">CdA {float(r.cda or 0):.3f}</span>
+                        <span style="background:rgba(255,170,0,0.12); color:#FFAA00; padding:2px 6px; border-radius:6px; font-weight:700;">🍌 {nut.get('cho_g_per_h', 0)} g/h</span>
+                    </div>
+                </div>
+            </div>
+            """
+        )
+
+    _render_html(
+        f"""
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin:8px 0 14px 0;">
+            {''.join(cards_html_parts)}
+        </div>
+        """
+    )
+
+    # Tabla resumen comparativa cuando hay 2+ escenarios
+    if n_plans >= 2:
+        with st.expander(f"📊 Ver Tabla Comparativa de los {n_plans} Escenarios", expanded=(n_plans <= 4)):
+            summary_rows = []
+            for item in parsed_items:
+                r = item["rec"]
+                nut = item["nut"]
+                t_sec = float(r.estimated_time_sec or 0.0)
+                delta_txt = (
+                    "🥇 Más rápido"
+                    if (compare_deltas_valid and abs(t_sec - min_time_all) < 0.5)
+                    else (format_time_delta(t_sec - min_time_all) if compare_deltas_valid else "—")
+                )
+                row_d = {
+                    "Escenario": r.scenario_name,
+                    "Ruta": r.route_name,
+                    "Dist. (km)": round(float(r.distance_km or 0), 1),
+                    "Tiempo": format_hms(t_sec),
+                }
+                if compare_deltas_valid:
+                    row_d["Delta"] = delta_txt
+                row_d.update({
+                    "Vel. (km/h)": round(float(r.avg_speed_kmh or 0), 1),
+                    "NP (W)": int(round(float(r.norm_power_w or 0))),
+                    "IF": round(float(r.intensity_factor or 0), 2),
+                    "TSS": int(round(float(r.tss or 0))),
+                    "CdA": round(float(r.cda or 0), 3),
+                    "Carbos": f"{nut.get('cho_g_per_h', 0)} g/h",
+                    "Líquido": f"{nut.get('fluid_total_l', 0)} L",
+                })
+                summary_rows.append(row_d)
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+            # Mini gráfica comparativa de tiempo total
+            fig_cmp = go.Figure(
+                data=[
+                    go.Bar(
+                        x=[float(it["rec"].estimated_time_sec or 0) / 60.0 for it in parsed_items[:6]],
+                        y=[str(it["rec"].scenario_name or "")[:36] for it in parsed_items[:6]],
+                        orientation="h",
+                        marker_color=[
+                            "#00FF88" if (compare_deltas_valid and abs(float(it["rec"].estimated_time_sec or 0) - min_time_all) < 0.5) else "#00EEFF"
+                            for it in parsed_items[:6]
+                        ],
+                        text=[format_hms(float(it["rec"].estimated_time_sec or 0)) for it in parsed_items[:6]],
+                        textposition="auto",
+                    )
+                ]
+            )
+            fig_cmp.update_layout(
+                title="⏱️ Comparación de Tiempo Estimado (minutos)",
+                paper_bgcolor="#0E121C",
+                plot_bgcolor="#0E121C",
+                font=dict(color="#E2E8F0", size=11),
+                height=max(190, 44 * min(6, n_plans) + 65),
+                margin=dict(l=10, r=15, t=38, b=12),
+                xaxis_title="Minutos",
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_cmp, use_container_width=True)
+
+    # ── 2. DETALLE COMPLETO DEL PLAN SELECCIONADO (PACING + NUTRICIÓN) ──
+    st.markdown("---")
+    pick_options = {}
+    for idx, item in enumerate(parsed_items):
+        r = item["rec"]
+        dt_s = r.created_at.strftime("%d/%m/%Y") if r.created_at else ""
+        lbl = f"🏁 Plan #{idx+1}: {r.scenario_name} — ⏱️ {format_hms(r.estimated_time_sec or 0)} (NP {float(r.norm_power_w or 0):.0f} W · IF {float(r.intensity_factor or 0):.2f} · {dt_s})"
+        pick_options[lbl] = item
+
+    sel_lbl = st.selectbox(
+        "🔍 Selecciona el Plan de Carrera para ver el Pacing completo y la Estrategia Nutricional:",
+        list(pick_options.keys()),
+        key=f"rs_lib_pick_{key_prefix}_{member_id}",
+    )
+    sel_item = pick_options[sel_lbl]
+    sel_sc = sel_item["rec"]
+    sel_cfg = sel_item["cfg"]
+    sel_splits = sel_item["splits"]
+    sel_nut = sel_item["nut"]
+
+    t_sec = float(sel_sc.estimated_time_sec or 0.0)
+    work_kj = sel_cfg.get("work_kj") or round((float(sel_sc.avg_power_w or 0.0) * t_sec) / 1000.0)
+    w_kg_txt = f" · {sel_cfg['w_per_kg_np']:.2f} W/kg" if sel_cfg.get("w_per_kg_np") else ""
+    vi_txt = f" · VI {sel_cfg['vi']:.2f}" if sel_cfg.get("vi") else ""
+
+    # KPIs Hero del Plan Seleccionado (responsive para móvil y desktop)
+    _render_html(
+        f"""
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap:8px; margin:8px 0 14px 0;">
+            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid #00EEFF; border-radius:12px; padding:11px 9px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⏱️ Tiempo Objetivo</div>
+                <div style="color:#00EEFF; font-size:1.35rem; font-weight:900; margin-top:3px;">{format_hms(t_sec)}</div>
+                <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m</div>
+            </div>
+            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🚀 Velocidad Media</div>
+                <div style="color:#FFD700; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.avg_speed_kmh or 0):.1f} <span style="font-size:0.75rem;">km/h</span></div>
+                <div style="color:#94A3B8; font-size:0.68rem;">{html.escape(str(sel_sc.route_name or '')[:24])}</div>
+            </div>
+            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(0,255,136,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⚡ Potencia NP / AP</div>
+                <div style="color:#00FF88; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.norm_power_w or 0):.0f} <span style="font-size:0.75rem;">W</span></div>
+                <div style="color:#94A3B8; font-size:0.68rem;">AP: {float(sel_sc.avg_power_w or 0):.0f} W{w_kg_txt}</div>
+            </div>
+            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(192,132,252,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🎯 Intensidad & TSS</div>
+                <div style="color:#C084FC; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.intensity_factor or 0):.2f} <span style="font-size:0.75rem;">IF</span></div>
+                <div style="color:#94A3B8; font-size:0.68rem;">TSS: {float(sel_sc.tss or 0):.0f}{vi_txt}</div>
+            </div>
+            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(56,189,248,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🌬️ CdA & Gasto</div>
+                <div style="color:#38BDF8; font-size:1.3rem; font-weight:900; margin-top:3px;">{float(sel_sc.cda or 0):.3f} <span style="font-size:0.72rem;">m²</span></div>
+                <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.total_mass_kg or 0):.1f} kg · ~{int(work_kj)} kJ</div>
+            </div>
+        </div>
+        """
+    )
+
+    # ── ESTRATEGIA NUTRICIONAL E HIDRATACIÓN COMPLETA ────────────────
+    bottles_750 = max(1, int(math.ceil((float(sel_nut.get("fluid_total_l", 0.0)) * 1000.0) / 750.0)))
+    cho_per_20m = int(round(float(sel_nut.get("cho_g_per_h", 75)) / 3.0))
+    gels_est = max(1, int(round(float(sel_nut.get("cho_total_g", 0)) / 30.0)))
+    climate_tag = ""
+    if sel_cfg.get("temp_c") is not None:
+        climate_tag = f" ({sel_cfg.get('temp_c')}°C · {sel_cfg.get('humidity_pct', 65)}% HR · Viento {sel_cfg.get('wind_kmh', 0)} km/h)"
+
+    _render_html(
+        f"""
+        <div style="background:linear-gradient(145deg, rgba(12,24,26,0.94), rgba(10,15,24,0.96));
+                    border:1.5px solid rgba(0,255,136,0.42); border-radius:14px; padding:14px 16px; margin-bottom:14px;">
+            <div style="color:#00FF88; font-weight:900; font-size:0.95rem; margin-bottom:10px;">
+                🥤 Estrategia Nutricional e Hidratación en Carrera{html.escape(climate_tag)}
+            </div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap:9px; margin-bottom:10px;">
+                <div style="background:rgba(255,170,0,0.09); border:1px solid rgba(255,170,0,0.35); border-radius:10px; padding:10px 12px;">
+                    <div style="color:#FFAA00; font-size:0.7rem; font-weight:800; text-transform:uppercase;">🍌 Carbohidratos (CHO)</div>
+                    <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('cho_g_per_h', 0)} g/hora</div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('cho_total_g', 0)} g</b> (~{gels_est} porciones de 30 g)</div>
+                </div>
+                <div style="background:rgba(0,238,255,0.09); border:1px solid rgba(0,238,255,0.35); border-radius:10px; padding:10px 12px;">
+                    <div style="color:#00EEFF; font-size:0.7rem; font-weight:800; text-transform:uppercase;">💧 Hidratación</div>
+                    <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('fluid_ml_per_h', 0)} mL/hora</div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('fluid_total_l', 0)} L</b> (~{bottles_750} bidones de 750 mL)</div>
+                </div>
+                <div style="background:rgba(192,132,252,0.10); border:1px solid rgba(192,132,252,0.35); border-radius:10px; padding:10px 12px;">
+                    <div style="color:#C084FC; font-size:0.7rem; font-weight:800; text-transform:uppercase;">🧂 Sodio / Electrolitos</div>
+                    <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('sodium_mg_per_h', 0)} mg/hora</div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('sodium_total_mg', 0)} mg</b></div>
+                </div>
+            </div>
+            <div style="color:#CBD5E1; font-size:0.8rem; line-height:1.5; background:rgba(255,255,255,0.03); border-radius:8px; padding:8px 11px;">
+                💡 <b>Guía práctica de ejecución:</b> Toma <b>~{cho_per_20m} g de CHO cada 20 minutos</b> desde el minuto 15 (gel, goma o mezcla en bidón), bebe <b>2–3 sorbos cada 10–15 min</b> y repón electrolitos de forma continua. Gasto energético estimado del segmento: <b>~{int(work_kj)} kcal</b>.
+            </div>
+        </div>
+        """
+    )
+
+    # ── PLAN DE PACING TRAMO A TRAMO (GRÁFICA + TABLA + TÁCTICA) ─────
+    if sel_splits:
+        st.markdown("#### 📋 Plan de Pacing Completo (Hoja de Ruta de Potencia)")
+
+        # Resumen táctico automático según los splits guardados
+        climb_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Subida" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) >= 2.5]
+        flat_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Llano" in str(sp.get("Terreno", ""))]
+        desc_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Bajada" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) <= -2.5]
+        hw_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Contra" in str(sp.get("Viento", ""))]
+
+        tac_pills = []
+        if flat_w:
+            tac_pills.append(f"➡️ <b>Llano:</b> {sum(flat_w)/len(flat_w):.0f} W prom.")
+        if climb_w:
+            tac_pills.append(f"⛰️ <b>Subidas:</b> {sum(climb_w)/len(climb_w):.0f} W prom.")
+        if desc_w:
+            tac_pills.append(f"⬇️ <b>Bajadas:</b> {sum(desc_w)/len(desc_w):.0f} W prom.")
+        if hw_w:
+            tac_pills.append(f"🔴 <b>Viento en contra ({len(hw_w)} tramos):</b> {sum(hw_w)/len(hw_w):.0f} W prom.")
+
+        if tac_pills:
+            _render_html(
+                f"""
+                <div style="background:rgba(15,20,32,0.86); border:1px solid rgba(0,238,255,0.22); border-radius:10px;
+                            padding:9px 13px; margin-bottom:10px; color:#E2E8F0; font-size:0.82rem; display:flex; flex-wrap:wrap; gap:14px;">
+                    {' '.join(f'<span>{p}</span>' for p in tac_pills)}
+                </div>
+                """
+            )
+
+        st.plotly_chart(_build_saved_splits_pacing_chart(sel_splits, sel_sc.scenario_name), use_container_width=True)
+        df_sp = pd.DataFrame(sel_splits)
+        st.dataframe(df_sp, use_container_width=True, hide_index=True)
+    else:
+        st.info("Este escenario no tiene tabla de splits guardada.")
+
+    # ── FICHA TÉCNICA DE CONFIGURACIÓN (EQUIPO, CLIMA, ESTRATEGIA) ───
+    tech_lines = []
+    if sel_cfg.get("race_date"):
+        tech_lines.append(f"📅 <b>Fecha / Hora:</b> {html.escape(str(sel_cfg.get('race_date')))} {html.escape(str(sel_cfg.get('race_start_time', '')))}")
+    if sel_cfg.get("strategy"):
+        tech_lines.append(f"🧠 <b>Estrategia:</b> {html.escape(str(sel_cfg.get('strategy')))}")
+    if sel_cfg.get("bike_type"):
+        tech_lines.append(f"🚲 <b>Bicicleta:</b> {html.escape(str(sel_cfg.get('bike_type')))}")
+    if sel_cfg.get("wheels"):
+        tech_lines.append(f"⭕ <b>Ruedas:</b> {html.escape(str(sel_cfg.get('wheels')))}")
+    if sel_cfg.get("helmet"):
+        tech_lines.append(f"⛑️ <b>Casco:</b> {html.escape(str(sel_cfg.get('helmet')))}")
+    if sel_cfg.get("tires"):
+        tech_lines.append(f"🛞 <b>Llantas:</b> {html.escape(str(sel_cfg.get('tires')))}")
+    if sel_cfg.get("weather_source"):
+        tech_lines.append(f"🌦️ <b>Fuente clima:</b> {html.escape(str(sel_cfg.get('weather_source')))}")
+    if sel_cfg.get("source") == "what_if_interactive":
+        tech_lines.append("🎚️ <b>Origen:</b> Escenario ajustado desde Comparador 'Qué Pasa Si...'")
+
+    if tech_lines:
+        with st.expander("⚙️ Ficha Técnica del Escenario (Equipo, Clima y Estrategia)", expanded=False):
+            _render_html(
+                "<div style='color:#CBD5E1; font-size:0.83rem; line-height:1.7;'>"
+                + "<br>".join(tech_lines)
+                + "</div>"
+            )
+
+    # ── ACCIONES: DESCARGAS (+ ELIMINAR SOLO EN ADMIN) ───────────────
+    txt_card = _build_race_plan_text_card(sel_sc, sel_cfg, sel_nut, sel_splits, athlete_name)
+    safe_slug = "".join(c if c.isalnum() else "_" for c in str(sel_sc.scenario_name or f"plan_{sel_sc.id}"))[:35]
+
+    if allow_delete:
+        c_act1, c_act2, c_act3 = st.columns([1.2, 1.2, 0.9])
+    else:
+        c_act1, c_act2 = st.columns(2)
+        c_act3 = None
+
+    with c_act1:
+        if sel_splits:
+            st.download_button(
+                "⬇️ Descargar Pacing (CSV)",
+                data=pd.DataFrame(sel_splits).to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"pacing_{safe_slug}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key=f"rs_dl_csv_{key_prefix}_{sel_sc.id}",
+            )
+    with c_act2:
+        st.download_button(
+            "🏷️ Descargar Ficha Manillar + Nutrición (TXT)",
+            data=txt_card.encode("utf-8"),
+            file_name=f"plan_carrera_{safe_slug}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key=f"rs_dl_txt_{key_prefix}_{sel_sc.id}",
+        )
+    if allow_delete and c_act3 is not None:
+        with c_act3:
+            if st.button(
+                "🗑️ Eliminar Plan",
+                type="secondary",
+                use_container_width=True,
+                key=f"rs_del_sc_{key_prefix}_{sel_sc.id}",
+            ):
+                try:
+                    with SessionLocal() as s_del:
+                        obj = s_del.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == sel_sc.id).first()
+                        if obj:
+                            s_del.delete(obj)
+                            s_del.commit()
+                    st.toast("Escenario eliminado", icon="🗑️")
+                    st.rerun()
+                except Exception as err_d:
+                    st.error(f"Error al eliminar: {err_d}")
+
+
+def render_athlete_race_plans_tab(member_id: int, athlete_name: str):
+    """Vista exclusiva de solo lectura para la App del Atleta: Planes de Pacing y Nutrición creados por el Coach."""
+    _render_html(
+        """
+        <div style="background: linear-gradient(135deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98));
+                    border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 15px; padding: 14px 16px;
+                    margin-bottom: 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.45);">
+            <div style="color:#00EEFF; font-size:1.12rem; font-weight:900; letter-spacing:0.3px;">
+                🏁 ESTRATEGIAS Y PLANES DE CARRERA
+            </div>
+            <div style="color:#94A3B8; font-size:0.82rem; margin-top:4px; line-height:1.45;">
+                Consulta los escenarios de carrera, tu <b>plan de pacing tramo a tramo</b> y tu <b>estrategia nutricional</b> diseñados por tu entrenador AlphaX.
+            </div>
+        </div>
+        """
+    )
+    render_saved_scenarios_library(
+        member_id=member_id,
+        athlete_name=athlete_name,
+        allow_delete=False,
+        is_athlete_portal=True,
+        key_prefix="ath_portal",
+    )
+
+
 def render_race_strategy_page():
     """Renderiza el módulo completo de Estrategias de Carrera (AlphaX Race Split) en el CRM Admin."""
     init_db()
@@ -354,7 +970,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.6</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.7</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -434,7 +1050,17 @@ def render_race_strategy_page():
             )
 
     if not route_file_bytes:
-        st.info("📂 Sube un archivo `.fit`, `.gpx`, `.tcx` o `.zip` arriba, o selecciona una de las rutas de demostración para empezar.")
+        st.info(
+            "📂 Para **crear una nueva simulación o calibrar CdA**, sube un archivo `.fit`, `.gpx`, `.tcx` o `.zip` arriba (o elige una ruta demo). "
+            f"Mientras tanto, aquí tienes de inmediato los planes ya guardados de **{ath_defaults['name']}**:"
+        )
+        render_saved_scenarios_library(
+            member_id=member_id,
+            athlete_name=ath_defaults["name"],
+            allow_delete=True,
+            is_athlete_portal=False,
+            key_prefix="admin_home",
+        )
         return
 
     try:
@@ -901,6 +1527,9 @@ def render_race_strategy_page():
                         "ftp_w": ftp_w,
                         "target_if": target_if,
                         "strategy": strat_label,
+                        "work_kj": s["work_kj"],
+                        "w_per_kg_np": s["w_per_kg_np"],
+                        "vi": s["vi"],
                         "resistance": sim["resistance"],
                         "nutrition": nut,
                     }
@@ -1675,6 +2304,24 @@ def render_race_strategy_page():
                                 total_mass_kg=ws_sum["total_mass_kg"],
                                 config_json=json.dumps({
                                     "source": "what_if_interactive",
+                                    "race_date": race_date.strftime("%Y-%m-%d"),
+                                    "race_start_time": race_time_str,
+                                    "weather_source": weather_data["source_label"] if weather_matches_route else "Manual",
+                                    "bike_type": bike_type,
+                                    "wheels": wheels,
+                                    "helmet": helmet,
+                                    "tires": tires,
+                                    "temp_c": temp_c,
+                                    "humidity_pct": humidity_pct,
+                                    "wind_kmh": sel_wind,
+                                    "wind_deg": wind_deg,
+                                    "rider_weight_kg": sel_rw,
+                                    "ftp_w": round(float(ftp_w) + float(d_watts), 1),
+                                    "target_if": sel_if,
+                                    "strategy": strat_label,
+                                    "work_kj": ws_sum["work_kj"],
+                                    "w_per_kg_np": ws_sum["w_per_kg_np"],
+                                    "vi": ws_sum["vi"],
                                     "d_cda": d_cda, "d_watts": d_watts, "d_weight": d_weight,
                                     "d_if": d_if, "d_crr": d_crr, "d_wind": d_wind,
                                     "nutrition": wi_sim["nutrition"],
@@ -1891,68 +2538,13 @@ def render_race_strategy_page():
             st.info("Guarda al menos 2 escenarios desde la pestaña **⚙️ Simulador y Plan de Carrera** para compararlos aquí lado a lado.")
 
     # ═════════════════════════════════════════════════════════════════
-    #  TAB 3: HISTORIAL Y GESTIÓN DE ESCENARIOS GUARDADOS
+    #  TAB 4: HISTORIAL Y GESTIÓN DE ESCENARIOS GUARDADOS
     # ═════════════════════════════════════════════════════════════════
     with tab_saved:
-        st.subheader(f"🗂️ Escenarios Guardados — {ath_defaults['name']}")
-        with SessionLocal() as s_db:
-            saved_recs = (
-                s_db.query(RaceStrategyScenario)
-                .filter(RaceStrategyScenario.member_id == member_id)
-                .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
-                .all()
-            )
-        if not saved_recs:
-            st.info(f"{ath_defaults['name']} aún no tiene escenarios de carrera guardados.")
-        else:
-            summary_rows = []
-            for r in saved_recs:
-                summary_rows.append({
-                    "ID": r.id,
-                    "Fecha": r.created_at.strftime("%d/%m/%Y") if r.created_at else "—",
-                    "Escenario": r.scenario_name,
-                    "Ruta": r.route_name,
-                    "Dist. (km)": r.distance_km,
-                    "Desnivel (m)": r.elevation_gain_m,
-                    "Tiempo": format_hms(r.estimated_time_sec),
-                    "Vel. (km/h)": r.avg_speed_kmh,
-                    "NP (W)": r.norm_power_w,
-                    "IF": r.intensity_factor,
-                    "TSS": r.tss,
-                    "CdA": r.cda,
-                })
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-
-            sc_pick_map = {f"{r.scenario_name} ({format_hms(r.estimated_time_sec)} · ID:{r.id})": r for r in saved_recs}
-            sel_sc_lbl = st.selectbox("Inspeccionar o eliminar un escenario:", list(sc_pick_map.keys()), key=f"rs_saved_pick_{member_id}")
-            sel_sc = sc_pick_map[sel_sc_lbl]
-
-            c_det1, c_det2 = st.columns([3, 1])
-            with c_det1:
-                try:
-                    splits_saved = json.loads(sel_sc.splits_json or "[]")
-                    if splits_saved:
-                        with st.expander("📋 Ver Plan de Splits guardado", expanded=False):
-                            df_sp = pd.DataFrame(splits_saved)
-                            st.dataframe(df_sp, use_container_width=True, hide_index=True)
-                            st.download_button(
-                                "⬇️ Descargar Splits CSV",
-                                data=df_sp.to_csv(index=False).encode("utf-8-sig"),
-                                file_name=f"escenario_{sel_sc.id}.csv",
-                                mime="text/csv",
-                                key=f"rs_dl_saved_{sel_sc.id}",
-                            )
-                except Exception:
-                    pass
-            with c_det2:
-                if st.button("🗑️ Eliminar Escenario", type="secondary", use_container_width=True, key=f"rs_del_sc_{sel_sc.id}"):
-                    try:
-                        with SessionLocal() as s_del:
-                            obj = s_del.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == sel_sc.id).first()
-                            if obj:
-                                s_del.delete(obj)
-                                s_del.commit()
-                        st.toast("Escenario eliminado", icon="🗑️")
-                        st.rerun()
-                    except Exception as err_d:
-                        st.error(f"Error al eliminar: {err_d}")
+        render_saved_scenarios_library(
+            member_id=member_id,
+            athlete_name=ath_defaults["name"],
+            allow_delete=True,
+            is_athlete_portal=False,
+            key_prefix="admin_tab",
+        )
