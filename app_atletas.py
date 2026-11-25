@@ -925,10 +925,66 @@ else:
     else:
         st.markdown(hud_html, unsafe_allow_html=True)
 
+    # ── VERIFICACIÓN DE CUMPLEAÑOS AUTOMÁTICO Y COMPLETITUD DE FICHA ──
+    import wolfy_bot
+    try:
+        import birthday_service
+        birthday_service.process_todays_birthdays_auto()
+    except Exception:
+        pass
+
+    prof_status = wolfy_bot.get_athlete_profile_status(member_id) if member_id else {"is_complete": True, "is_birthday_today": False, "pct": 100, "missing_core": []}
+
+    if prof_status.get("is_birthday_today"):
+        age_txt = f" por tus {prof_status['age_turning']} años" if prof_status.get("age_turning") else ""
+        bday_banner = f"""
+        <div style="background:linear-gradient(135deg, rgba(0,238,255,0.22), rgba(0,255,136,0.16));
+                    border:2px solid #00EEFF; border-radius:15px; padding:14px 16px; margin:6px 0 12px 0;
+                    text-align:center; box-shadow:0 0 22px rgba(0,238,255,0.3);">
+            <div style="font-size:1.35rem; font-weight:900; color:#FFFFFF;">🎂 ¡FELIZ CUMPLEAÑOS, {atleta.split()[0].title()}! 🎉🐺</div>
+            <div style="color:#E2E8F0; font-size:0.86rem; margin-top:4px; line-height:1.45;">
+                Todo el equipo de <b>AlphaX Endurance Coaching</b> te felicita{age_txt}. ¡Que venga un año lleno de salud, récords y grandes metas!
+            </div>
+        </div>
+        """
+        if hasattr(st, "html"):
+            st.html(bday_banner)
+        else:
+            st.markdown(bday_banner, unsafe_allow_html=True)
+
+    if member_id and not prof_status.get("is_complete"):
+        miss_txt = ", ".join(prof_status.get("missing_core", []))
+        pct_val = prof_status.get("pct", 0)
+        incomp_html = f"""
+        <div style="background:linear-gradient(135deg, rgba(255,215,0,0.12), rgba(16,22,36,0.95));
+                    border:1.5px solid rgba(255,215,0,0.6); border-radius:14px; padding:12px 14px; margin:4px 0 10px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <span style="color:#FFD700; font-weight:900; font-size:0.88rem;">📋 Completa tu Ficha AlphaX ({pct_val}%)</span>
+                <span style="background:rgba(255,215,0,0.18); color:#FFD700; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:8px;">Para Wolfy y Club</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.1); border-radius:6px; height:6px; margin:7px 0; overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#FFD700,#00EEFF); width:{max(6, pct_val)}%; height:100%;"></div>
+            </div>
+            <div style="color:#E2E8F0; font-size:0.78rem; line-height:1.4;">
+                Te falta completar: <b>{miss_txt}</b>. Llenar tu ficha ayuda a que <b>Wolfy AI Coach</b> te dé respuestas exactas según tu edad, altitud y disciplinas, y permite felicitarte en tu cumpleaños 🎂.
+            </div>
+        </div>
+        """
+        if hasattr(st, "html"):
+            st.html(incomp_html)
+        else:
+            st.markdown(incomp_html, unsafe_allow_html=True)
+        with st.expander("✍️ Completar mi Ficha ahora (toma 1 minuto)", expanded=False):
+            wolfy_bot.render_athlete_biometric_profile_editor(
+                member_id, key_prefix="ath_quick_prof", expanded=True, is_admin=False, use_expander=False
+            )
+
     # ── PESTAÑAS PRINCIPALES DEL PORTAL DE ATLETA ──────────────────────
-    tab_wolfy, tab_race, tab_bw, tab_lac, tab_sleep = st.tabs([
+    prof_tab_lbl = "👤 Mi Perfil ⚠️" if (member_id and not prof_status.get("is_complete")) else "👤 Mi Perfil"
+    tab_wolfy, tab_race, tab_prof, tab_bw, tab_lac, tab_sleep = st.tabs([
         "🐺 Wolfy AI Coach",
         "🏁 Planes de Carrera",
+        prof_tab_lbl,
         "🩸 Hemogramas",
         "🧪 Pruebas de Lactato",
         "💤 Sueño (ASSQ)"
@@ -938,26 +994,26 @@ else:
     #  PESTAÑA 1: WOLFY AI COACH (MENTOR DEPORTIVO Y ASISTENTE ALPHAX)
     # ══════════════════════════════════════════════════════════════════
     with tab_wolfy:
-        import sys
-        import importlib
-        if "wolfy_bot" in sys.modules:
-            import wolfy_bot
-            importlib.reload(wolfy_bot)
-        else:
-            import wolfy_bot
         wolfy_bot.render_wolfy_tab(member_id, is_admin=False)
 
     # ══════════════════════════════════════════════════════════════════
     #  PESTAÑA 2: PLANES DE CARRERA (SOLO LECTURA — PACING + NUTRICIÓN)
     # ══════════════════════════════════════════════════════════════════
     with tab_race:
-        import sys
-        import importlib
-        for _rs_mod in ("race_strategy_engine", "race_strategy_ui"):
-            if _rs_mod in sys.modules:
-                importlib.reload(sys.modules[_rs_mod])
         import race_strategy_ui
         race_strategy_ui.render_athlete_race_plans_tab(member_id, atleta)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  PESTAÑA 3: MI PERFIL COMPLETO (DATOS PARA WOLFY Y CLUB ALPHAX)
+    # ══════════════════════════════════════════════════════════════════
+    with tab_prof:
+        st.markdown("<h3 style='text-align: center; color: #00EEFF; font-weight: 900;'>👤 MI FICHA COMPLETA DE DEPORTISTA ALPHAX</h3>", unsafe_allow_html=True)
+        st.caption(
+            "Mantén actualizados tus datos personales, estatura, peso, altitud, ciudad, correo electrónico y todas tus disciplinas deportivas de interés para que Wolfy AI Coach y tu entrenador personalicen al máximo tu preparación."
+        )
+        wolfy_bot.render_athlete_biometric_profile_editor(
+            member_id, key_prefix="ath_tab_prof", expanded=True, is_admin=False, use_expander=False
+        )
 
     # ══════════════════════════════════════════════════════════════════
     #  PESTAÑA 2: SUEÑO Y RECUPERACIÓN (VISUALIZACIÓN + REGISTRO + GUÍA)

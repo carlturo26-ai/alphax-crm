@@ -8,13 +8,13 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
-    for _m in ("wolfy_bot", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
+    for _m in ("wolfy_bot", "birthday_service", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
         if _m in sys.modules:
             del sys.modules[_m]
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.14)
+# Configuración de página principal del CRM Administrador (Build v2.15)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -36,7 +36,7 @@ try:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = athlete_cookie
         import sys
-        for _m in ("wolfy_bot", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
+        for _m in ("wolfy_bot", "birthday_service", "race_strategy_engine", "race_strategy_ui", "app_atletas"):
             if _m in sys.modules:
                 del sys.modules[_m]
         import app_atletas
@@ -458,6 +458,51 @@ if page == "Dashboard":
     col2.metric("Gastos", f"${total_expenses:,.0f}", delta=-total_expenses, delta_color="inverse")
     col3.metric("Resultado Neto", f"${net_profit:,.0f}")
     col4.metric("Socios", member_count)
+
+    # --- CUMPLEAÑOS DEL CLUB (ENVÍO AUTOMÁTICO + RECORDATORIO PRÓXIMOS 15 DÍAS) ---
+    try:
+        import birthday_service
+        auto_sent_bdays = birthday_service.process_todays_birthdays_auto()
+        if auto_sent_bdays:
+            st.toast(f"🎂 Felicitación enviada por correo a: {', '.join(auto_sent_bdays)}", icon="✉️")
+        upcoming_bdays = birthday_service.get_upcoming_birthdays(days_ahead=15)
+        if upcoming_bdays:
+            st.markdown("---")
+            st.markdown("### 🎂 Cumpleaños del Club (Hoy y Próximos 15 Días)")
+            smtp_cfg_dash = birthday_service.get_smtp_config()
+            if not smtp_cfg_dash["is_configured"]:
+                st.caption("💡 Activa el envío automático de felicitaciones por correo en **⚙️ Configuración → Felicitaciones de Cumpleaños (SMTP)**.")
+            for b_item in upcoming_bdays[:8]:
+                bc1, bc2, bc3 = st.columns([2.4, 1.3, 1.1])
+                with bc1:
+                    if b_item["is_today"]:
+                        st.markdown(f"🎉 **HOY: {b_item['name']}** ({b_item['group']}) — cumple **{b_item['age_turning']} años** 🎂")
+                    else:
+                        st.markdown(f"🗓️ En **{b_item['days_until']} días** ({b_item['birth_date'].strftime('%d/%m')}): **{b_item['name']}** ({b_item['group']}) — cumplirá {b_item['age_turning']} años")
+                with bc2:
+                    if b_item["sent_this_year"]:
+                        st.caption(f"✅ Correo {datetime.now().year} enviado")
+                    elif b_item["email"]:
+                        st.caption(f"📧 {b_item['email']}")
+                    else:
+                        st.caption("⚠️ Sin correo en ficha")
+                with bc3:
+                    if b_item["email"] and smtp_cfg_dash["is_configured"] and not b_item["sent_this_year"]:
+                        if st.button("✉️ Felicitar", key=f"dash_bday_send_{b_item['member_id']}", use_container_width=True):
+                            ok_b, msg_b = birthday_service.send_birthday_email_to_member(b_item["member_id"], force=False)
+                            if ok_b:
+                                st.toast(f"🎂 Correo enviado a {b_item['name']}", icon="✉️")
+                                st.rerun()
+                            else:
+                                st.error(msg_b)
+                    elif b_item["phone"]:
+                        import urllib.parse as _up_bd
+                        wa_b_msg = f"🎉 ¡Feliz Cumpleaños {b_item['name'].split()[0].title()}! Un abrazo enorme de parte de todo el equipo de AlphaX Endurance Coaching 🐺⚡🎂"
+                        wa_b_phone = "".join(c for c in str(b_item["phone"]) if c.isdigit())
+                        wa_b_url = f"https://wa.me/{wa_b_phone}?text={_up_bd.quote(wa_b_msg)}"
+                        st.link_button("📲 WhatsApp", wa_b_url, use_container_width=True)
+    except Exception:
+        pass
     
     # --- RECORDATORIO: ÚLTIMOS 10 HEMOGRAMAS SUBIDOS POR DEPORTISTAS ---
     st.markdown("---")
@@ -1237,7 +1282,97 @@ elif page == "Gastos":
 # --- PAGE: CONFIG ---
 elif page == "Configuración":
     st.header("⚙️ Configuración")
-    st.write("Versión 1.2 - AlphaX CRM (Con Soporte WhatsApp)")
+    st.write("Versión 2.15 - AlphaX CRM (Con Estrategias de Carrera, Wolfy AI y Cumpleaños Automáticos)")
+
+    # ── PANEL DE CORREOS AUTOMÁTICOS DE CUMPLEAÑOS (SMTP) ─────────────
+    st.markdown("---")
+    st.subheader("🎂 Felicitaciones Automáticas de Cumpleaños (Correo Electrónico)")
+    try:
+        import birthday_service
+        smtp_cfg = birthday_service.get_smtp_config()
+        status_pill = "🟢 **SMTP Activo y Listo**" if smtp_cfg["is_configured"] else "🟡 **Pendiente de configurar correo remitente**"
+        st.caption(
+            f"Estado actual: {status_pill}. Cuando un deportista tenga su fecha de nacimiento y correo en su ficha, "
+            "AlphaX le enviará automáticamente una tarjeta HTML de felicitación el día de su cumpleaños."
+        )
+        with st.form("alphax_smtp_birthday_form"):
+            sc1, sc2, sc3 = st.columns([1.4, 0.7, 1.4])
+            with sc1:
+                in_smtp_host = st.text_input("Servidor SMTP:", value=smtp_cfg["host"], placeholder="smtp.gmail.com")
+            with sc2:
+                in_smtp_port = st.number_input("Puerto:", min_value=25, max_value=2525, value=int(smtp_cfg["port"]), step=1)
+            with sc3:
+                in_smtp_name = st.text_input("Nombre remitente:", value=smtp_cfg["from_name"], placeholder="AlphaX Endurance Coaching")
+
+            sc4, sc5 = st.columns(2)
+            with sc4:
+                in_smtp_user = st.text_input("Correo remitente del club:", value=smtp_cfg["user"], placeholder="clubalphax@gmail.com")
+            with sc5:
+                in_smtp_pass = st.text_input(
+                    "Contraseña de Aplicación (App Password):",
+                    value="",
+                    type="password",
+                    placeholder="Dejar vacío para conservar la guardada" if smtp_cfg["password"] else "xxxx xxxx xxxx xxxx",
+                    help="En Gmail: Cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones.",
+                )
+
+            in_bday_msg = st.text_area(
+                "Mensaje personalizado de cumpleaños del Club AlphaX:",
+                value=smtp_cfg["custom_msg"],
+                height=80,
+            )
+            in_bday_auto = st.checkbox(
+                "✅ Enviar automáticamente el correo el día del cumpleaños de cada atleta activo",
+                value=bool(smtp_cfg["auto_enabled"]),
+            )
+            if st.form_submit_button("💾 Guardar Configuración de Cumpleaños y Correo", type="primary", use_container_width=True):
+                if birthday_service.save_smtp_config(
+                    in_smtp_host, int(in_smtp_port), in_smtp_user, in_smtp_pass, in_smtp_name, in_bday_auto, in_bday_msg
+                ):
+                    st.success("✅ Configuración de correo guardada en la base de datos central del club.")
+                    st.rerun()
+                else:
+                    st.error("No se pudo guardar la configuración SMTP.")
+
+        # Correo de prueba y lista de próximos cumpleaños (30 días)
+        ct1, ct2 = st.columns([2, 1])
+        with ct1:
+            test_to = st.text_input("Correo de prueba para verificar el envío:", value=smtp_cfg["user"], key="cfg_smtp_test_to")
+        with ct2:
+            st.markdown("<div style='height:27px;'></div>", unsafe_allow_html=True)
+            if st.button("✉️ Enviar Correo de Prueba", use_container_width=True, key="cfg_smtp_test_btn"):
+                ok_t, msg_t = birthday_service.send_test_email(test_to)
+                if ok_t:
+                    st.success(f"✅ {msg_t} Revisa tu bandeja de entrada ({test_to}).")
+                else:
+                    st.error(msg_t)
+
+        up_30 = birthday_service.get_upcoming_birthdays(days_ahead=30)
+        with st.expander(f"📅 Próximos Cumpleaños en los siguientes 30 días ({len(up_30)})", expanded=bool(up_30)):
+            if not up_30:
+                st.info("No hay cumpleaños registrados en los próximos 30 días (los deportistas pueden completar su fecha de nacimiento y correo en la App de Atletas → 👤 Mi Perfil).")
+            else:
+                for b_it in up_30:
+                    r1, r2, r3 = st.columns([2.2, 1.5, 1.1])
+                    with r1:
+                        tag_d = "🎉 HOY" if b_it["is_today"] else f"En {b_it['days_until']} días ({b_it['birth_date'].strftime('%d/%m')})"
+                        st.markdown(f"**{tag_d}** · {b_it['name']} ({b_it['group']}) — {b_it['age_turning']} años")
+                    with r2:
+                        st.caption(f"📧 {b_it['email'] or 'Sin correo'} · {'✅ Enviado' if b_it['sent_this_year'] else 'Pendiente'}")
+                    with r3:
+                        if b_it["email"] and smtp_cfg["is_configured"]:
+                            btn_l = "🔁 Reenviar" if b_it["sent_this_year"] else "✉️ Enviar ahora"
+                            if st.button(btn_l, key=f"cfg_bday_send_{b_it['member_id']}", use_container_width=True):
+                                ok_s, msg_s = birthday_service.send_birthday_email_to_member(b_it["member_id"], force=True)
+                                if ok_s:
+                                    st.success(f"✅ Felicitación enviada a {b_it['name']}.")
+                                    st.rerun()
+                                else:
+                                    st.error(msg_s)
+    except Exception as bday_cfg_err:
+        st.warning(f"No se pudo cargar el módulo de cumpleaños: {bday_cfg_err}")
+
+    st.markdown("---")
     
     if st.button("⚠️ BORRAR BASE DE DATOS (RESETEO TOTAL)"):
         session = SessionLocal()
@@ -2748,7 +2883,7 @@ elif page == "Analíticas AlphaX":
 
 elif page == "🏁 Estrategias de Carrera":
     import race_strategy_ui
-    _RS_BUILD_TAG = "2.14"
+    _RS_BUILD_TAG = "2.15"
     if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
         import importlib
         import race_strategy_engine

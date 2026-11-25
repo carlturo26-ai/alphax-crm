@@ -68,19 +68,28 @@ class Member(Base):
     notes = Column(String, nullable=True)
 
     # Perfil biométrico y deportivo (usado por Wolfy AI Coach y Analíticas)
+    email = Column(String, nullable=True)             # Correo electrónico (felicitaciones de cumpleaños y comunicados)
+    city = Column(String, nullable=True)              # Ciudad y país donde vive (ej. Rionegro, Colombia)
     height_cm = Column(Float, nullable=True)          # Estatura en cm (ej. 176)
     weight_kg = Column(Float, nullable=True)          # Peso actual en kg (ej. 68.5)
-    birth_date = Column(Date, nullable=True)          # Fecha de nacimiento (edad exacta)
-    primary_sport = Column(String, nullable=True)     # Ciclismo, Triatlón, Running, Natación, Trail...
+    birth_date = Column(Date, nullable=True)          # Fecha de nacimiento (edad exacta y cumpleaños)
+    primary_sport = Column(String, nullable=True)     # Deporte principal (compatibilidad)
+    sport_interests = Column(Text, nullable=True)     # JSON con múltiples disciplinas de interés (Triatlón, Running, Trail, MTB, Gravel, Natación...)
+    experience_level = Column(String, nullable=True)  # Principiante / Intermedio / Avanzado / Competitivo
     weekly_hours = Column(Float, nullable=True)       # Horas de entrenamiento promedio por semana
     resting_hr = Column(Integer, nullable=True)       # Frecuencia cardíaca en reposo (lpm)
     max_hr = Column(Integer, nullable=True)           # Frecuencia cardíaca máxima (lpm)
-    altitude_m = Column(Integer, nullable=True)       # Altitud habitual de entrenamiento (msnm)
+    altitude_m = Column(Integer, nullable=True)       # Altitud habitual donde vive/entrena (msnm)
     athlete_goal = Column(String, nullable=True)      # Objetivo / competencia principal
+    goal_race_date = Column(Date, nullable=True)      # Fecha de la competencia objetivo principal
+    shirt_size = Column(String, nullable=True)        # Talla de uniforme / camiseta (XS, S, M, L, XL, XXL)
+    blood_type = Column(String, nullable=True)        # Grupo sanguíneo / RH (O+, O-, A+, etc.)
+    emergency_contact = Column(String, nullable=True) # Contacto de emergencia (nombre y teléfono)
     medical_notes = Column(String, nullable=True)     # Alergias, dieta, lesiones o antecedentes
     calibrated_cda = Column(Float, nullable=True)     # CdA real calibrado desde carrera (m²)
     calibrated_cda_bike = Column(String, nullable=True)  # Bici usada en la calibración de CdA
     calibrated_cda_date = Column(Date, nullable=True)    # Fecha de la carrera usada para calibrar CdA
+    birthday_email_last_year = Column(Integer, nullable=True)  # Último año en que se envió correo de cumpleaños
 
     transactions = relationship("Transaction", back_populates="member")
 
@@ -305,19 +314,28 @@ def init_db():
             # Migración de perfil biométrico y género en tabla members
             member_cols_to_add = [
                 ("gender", "VARCHAR DEFAULT 'Hombre'"),
+                ("email", "VARCHAR"),
+                ("city", "VARCHAR"),
                 ("height_cm", "FLOAT"),
                 ("weight_kg", "FLOAT"),
                 ("birth_date", "DATE"),
                 ("primary_sport", "VARCHAR"),
+                ("sport_interests", "TEXT"),
+                ("experience_level", "VARCHAR"),
                 ("weekly_hours", "FLOAT"),
                 ("resting_hr", "INTEGER"),
                 ("max_hr", "INTEGER"),
                 ("altitude_m", "INTEGER"),
                 ("athlete_goal", "VARCHAR"),
+                ("goal_race_date", "DATE"),
+                ("shirt_size", "VARCHAR"),
+                ("blood_type", "VARCHAR"),
+                ("emergency_contact", "VARCHAR"),
                 ("medical_notes", "VARCHAR"),
                 ("calibrated_cda", "FLOAT"),
                 ("calibrated_cda_bike", "VARCHAR"),
                 ("calibrated_cda_date", "DATE"),
+                ("birthday_email_last_year", "INTEGER"),
             ]
             for col_name, col_type in member_cols_to_add:
                 try:

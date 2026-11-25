@@ -21,13 +21,14 @@ import base64
 import json
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import requests
 import streamlit as st
 
 from bloodwork_constants import ALL_MARKER_KEYS, classify_bloodwork_value, get_bloodwork_ranges, get_clinical_alerts
 from database import (
+    AthleteUser,
     BloodworkRecord,
     LactateTest,
     LactateTestStep,
@@ -198,17 +199,132 @@ def clear_chat_history(member_id: int):
 #  EDITOR REUTILIZABLE DE PERFIL BIOMÉTRICO (PORTAL ATLETAS + CRM)
 # ═════════════════════════════════════════════════════════════════════
 
-SPORT_OPTIONS = [
-    "",
-    "Ciclismo de Ruta",
-    "Triatlón",
-    "Running / Maratón",
+SPORT_DISCIPLINE_OPTIONS = [
+    "Triatlón (Sprint / Olímpico)",
+    "Triatlón 70.3 (Media Distancia)",
+    "Ironman Full (140.6)",
+    "Running (Asfalto / Maratón)",
     "Trail Running",
-    "MTB / Gravel",
+    "Ciclismo de Ruta",
+    "MTB (Ciclomontañismo)",
+    "Gravel",
     "Natación / Aguas Abiertas",
     "Duatlón",
-    "Fitness / Resistencia General",
+    "Fuerza / Acondicionamiento",
 ]
+
+# Alias de compatibilidad hacia atrás
+SPORT_OPTIONS = [""] + SPORT_DISCIPLINE_OPTIONS
+
+EXPERIENCE_LEVELS = ["", "Principiante", "Intermedio", "Avanzado", "Competitivo / Élite"]
+SHIRT_SIZES = ["", "XS", "S", "M", "L", "XL", "XXL"]
+BLOOD_TYPES = ["", "O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"]
+
+
+def parse_sport_interests(raw_val, primary_sport: str = "") -> list:
+    """Convierte sport_interests (JSON o CSV) a lista limpia de disciplinas válidas."""
+    items = []
+    if raw_val:
+        if isinstance(raw_val, list):
+            items = [str(x).strip() for x in raw_val if str(x).strip()]
+        else:
+            s = str(raw_val).strip()
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    items = [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                items = [x.strip() for x in s.split(",") if x.strip()]
+
+    if not items and primary_sport:
+        ps = str(primary_sport).strip()
+        legacy_map = {
+            "Triatlón": "Triatlón 70.3 (Media Distancia)",
+            "Running / Maratón": "Running (Asfalto / Maratón)",
+            "MTB / Gravel": "MTB (Ciclomontañismo)",
+            "Fitness / Resistencia General": "Fuerza / Acondicionamiento",
+        }
+        mapped = legacy_map.get(ps, ps)
+        if mapped in SPORT_DISCIPLINE_OPTIONS:
+            items = [mapped]
+        elif ps:
+            items = [ps]
+
+    seen = set()
+    clean = []
+    for it in items:
+        if it not in seen:
+            seen.add(it)
+            clean.append(it)
+    return clean
+
+
+def get_athlete_profile_status(member_id: int) -> dict:
+    """Calcula el % de completitud de la ficha del deportista y si hoy es su cumpleaños."""
+    default_out = {
+        "pct": 0,
+        "missing_core": ["correo electrónico", "estatura", "peso", "fecha de nacimiento", "ciudad", "altitud", "disciplinas de interés"],
+        "is_complete": False,
+        "is_birthday_today": False,
+        "age_turning": None,
+        "has_email": False,
+        "name": "Atleta",
+    }
+    if not member_id:
+        return default_out
+    try:
+        init_db()
+        with SessionLocal() as session:
+            m = session.query(Member).filter(Member.id == member_id).first()
+            if not m:
+                return default_out
+
+            email_val = (getattr(m, "email", None) or "").strip()
+            if not email_val:
+                u = session.query(AthleteUser).filter(AthleteUser.athlete_name == m.name).first()
+                if u and u.email:
+                    email_val = u.email.strip()
+
+            sports_list = parse_sport_interests(getattr(m, "sport_interests", None), m.primary_sport or "")
+
+            core_checks = [
+                ("correo electrónico", bool(email_val and "@" in email_val)),
+                ("estatura", bool(m.height_cm)),
+                ("peso", bool(m.weight_kg)),
+                ("fecha de nacimiento", bool(m.birth_date)),
+                ("ciudad", bool((getattr(m, "city", None) or "").strip())),
+                ("altitud", m.altitude_m is not None),
+                ("disciplinas de interés", bool(sports_list)),
+            ]
+            extra_checks = [
+                bool(m.weekly_hours is not None),
+                bool((m.athlete_goal or "").strip()),
+                bool((getattr(m, "experience_level", None) or "").strip()),
+                bool((m.phone or "").strip()),
+            ]
+
+            missing_core = [lbl for lbl, ok in core_checks if not ok]
+            filled_total = sum(1 for _, ok in core_checks if ok) + sum(1 for ok in extra_checks if ok)
+            pct = int(round(100.0 * filled_total / float(len(core_checks) + len(extra_checks))))
+
+            today = date.today()
+            is_bday = False
+            age_turning = None
+            if m.birth_date and m.birth_date.month == today.month and m.birth_date.day == today.day:
+                is_bday = True
+                age_turning = today.year - m.birth_date.year
+
+            return {
+                "pct": pct,
+                "missing_core": missing_core,
+                "is_complete": len(missing_core) == 0,
+                "is_birthday_today": is_bday,
+                "age_turning": age_turning,
+                "has_email": bool(email_val and "@" in email_val),
+                "name": m.name,
+            }
+    except Exception:
+        return default_out
 
 
 def _calc_age_years(bdate) -> int:
@@ -226,11 +342,14 @@ def render_athlete_biometric_profile_editor(
     key_prefix: str = "wolfy_prof",
     expanded: bool = False,
     is_admin: bool = False,
+    use_expander: bool = True,
 ):
     """
-    Renderiza el formulario compacto para ver y actualizar la ficha física del atleta:
-    estatura, peso, fecha de nacimiento, deporte principal, volumen semanal, FC reposo/máx,
-    altitud habitual de entrenamiento, objetivo principal y notas médicas/nutricionales.
+    Renderiza la Ficha Completa del Deportista (reutilizable en App Atletas y CRM Admin):
+    correo electrónico (cumpleaños/club), teléfono, fecha de nacimiento, género, ciudad y altitud,
+    múltiples disciplinas deportivas de interés (Triatlón, Running, Trail, MTB, Gravel, Natación...),
+    estatura, peso, FC reposo/máx, volumen semanal, nivel, carrera objetivo y fecha, talla,
+    grupo sanguíneo, contacto de emergencia y notas médicas/nutricionales.
     """
     if not member_id:
         return
@@ -240,7 +359,6 @@ def render_athlete_biometric_profile_editor(
         member = session.query(Member).filter(Member.id == member_id).first()
         if not member:
             return
-        # Fallback de peso desde última prueba de lactato si aún no está guardado en Member
         fallback_weight = None
         if not member.weight_kg:
             last_lac = (
@@ -252,19 +370,35 @@ def render_athlete_biometric_profile_editor(
             if last_lac and last_lac.weight:
                 fallback_weight = float(last_lac.weight)
 
+        fallback_email = (getattr(member, "email", None) or "").strip()
+        if not fallback_email:
+            u_acc = session.query(AthleteUser).filter(AthleteUser.athlete_name == member.name).first()
+            if u_acc and u_acc.email:
+                fallback_email = u_acc.email.strip()
+
+        sports_list = parse_sport_interests(getattr(member, "sport_interests", None), member.primary_sport or "")
         m_data = {
             "name": member.name,
+            "email": fallback_email,
+            "phone": (member.phone or "").strip(),
             "gender": member.gender or "Hombre",
+            "city": (getattr(member, "city", None) or "").strip(),
             "height_cm": member.height_cm,
             "weight_kg": member.weight_kg or fallback_weight,
             "birth_date": member.birth_date,
+            "sport_interests": sports_list,
             "primary_sport": member.primary_sport or "",
+            "experience_level": (getattr(member, "experience_level", None) or "").strip(),
             "weekly_hours": member.weekly_hours,
             "resting_hr": member.resting_hr,
             "max_hr": member.max_hr,
             "altitude_m": member.altitude_m,
-            "athlete_goal": member.athlete_goal or "",
-            "medical_notes": member.medical_notes or "",
+            "athlete_goal": (member.athlete_goal or "").strip(),
+            "goal_race_date": getattr(member, "goal_race_date", None),
+            "shirt_size": (getattr(member, "shirt_size", None) or "").strip(),
+            "blood_type": (getattr(member, "blood_type", None) or "").strip(),
+            "emergency_contact": (getattr(member, "emergency_contact", None) or "").strip(),
+            "medical_notes": (member.medical_notes or "").strip(),
         }
 
     age = _calc_age_years(m_data["birth_date"])
@@ -282,32 +416,44 @@ def render_athlete_biometric_profile_editor(
         summary_bits.append(f"IMC {bmi}")
     if age:
         summary_bits.append(f"🎂 {age} años")
-    if m_data["primary_sport"]:
-        summary_bits.append(f"🏅 {m_data['primary_sport']}")
+    if m_data["city"]:
+        summary_bits.append(f"📍 {m_data['city']}")
     if m_data["altitude_m"] is not None:
         summary_bits.append(f"🏔️ {m_data['altitude_m']} m")
+    if m_data["sport_interests"]:
+        sp_short = ", ".join(m_data["sport_interests"][:2]) + (f" +{len(m_data['sport_interests'])-2}" if len(m_data["sport_interests"]) > 2 else "")
+        summary_bits.append(f"🏅 {sp_short}")
 
     missing_core = []
+    if not m_data["email"] or "@" not in m_data["email"]:
+        missing_core.append("correo")
     if not m_data["height_cm"]:
         missing_core.append("estatura")
     if not m_data["weight_kg"]:
         missing_core.append("peso")
     if not m_data["birth_date"]:
-        missing_core.append("edad")
+        missing_core.append("fecha de nacimiento")
+    if not m_data["city"]:
+        missing_core.append("ciudad")
+    if m_data["altitude_m"] is None:
+        missing_core.append("altitud")
+    if not m_data["sport_interests"]:
+        missing_core.append("disciplinas")
 
     if summary_bits:
-        exp_title = f"👤 Perfil Físico: {' · '.join(summary_bits)}"
+        exp_title = f"👤 Ficha del Atleta: {' · '.join(summary_bits)}"
         if missing_core:
-            exp_title += f" (falta: {', '.join(missing_core)})"
+            exp_title += f" (falta: {', '.join(missing_core[:3])}{'...' if len(missing_core) > 3 else ''})"
     else:
-        exp_title = "👤 Completa tu Perfil Físico (Estatura, Peso, Edad, Objetivo) para que Wolfy sea 100% preciso"
+        exp_title = "👤 Completa tu Ficha Completa (Correo, Estatura, Peso, Edad, Ciudad, Altitud y Disciplinas)"
 
-    with st.expander(exp_title, expanded=expanded):
+    container_ctx = st.expander(exp_title, expanded=expanded) if use_expander else st.container()
+    with container_ctx:
         if missing_core:
             who_txt = "de este atleta" if is_admin else "tuyos"
             st.info(
-                f"💡 Agrega {', '.join(missing_core)} {who_txt} para que Wolfy calcule con precisión "
-                "IMC, relación vatios/kilo (W/kg), gramos exactos de carbohidratos/proteína, zonas de pulso y ajustes por altitud."
+                f"💡 Completa **{', '.join(missing_core)}** {who_txt} para que **Wolfy AI Coach** personalice "
+                "al 100% tus recomendaciones (W/kg, nutrición, zonas de pulso y ajustes por altitud) y para que el **Club AlphaX** te felicite en tu cumpleaños 🎂."
             )
 
         def _safe_num(val, lo, hi, as_int=False):
@@ -322,10 +468,80 @@ def render_athlete_biometric_profile_editor(
                 return None
 
         with st.form(f"{key_prefix}_biometric_form_{member_id}"):
+            st.markdown("##### 📇 Datos Personales, Contacto y Ubicación")
+            c_id1, c_id2, c_id3 = st.columns(3)
+            with c_id1:
+                in_email = st.text_input(
+                    "📧 Correo electrónico *",
+                    value=m_data["email"],
+                    placeholder="tu@correo.com",
+                    help="Usado para felicitaciones de cumpleaños y comunicados oficiales de AlphaX.",
+                    key=f"{key_prefix}_em_{member_id}",
+                )
+            with c_id2:
+                in_phone = st.text_input(
+                    "📱 Teléfono / WhatsApp",
+                    value=m_data["phone"],
+                    placeholder="Ej. +57 300 123 4567",
+                    key=f"{key_prefix}_ph_{member_id}",
+                )
+            with c_id3:
+                in_bdate = st.date_input(
+                    "🎂 Fecha de nacimiento *",
+                    value=m_data["birth_date"],
+                    min_value=date(1940, 1, 1),
+                    max_value=date.today(),
+                    help="Permite calcular tu edad exacta, zonas de FC y felicitarte en tu cumpleaños.",
+                    key=f"{key_prefix}_bd_{member_id}",
+                )
+
+            c_loc1, c_loc2, c_loc3 = st.columns(3)
+            with c_loc1:
+                g_opts = ["Hombre", "Mujer"]
+                g_idx = g_opts.index(m_data["gender"]) if m_data["gender"] in g_opts else 0
+                in_gender = st.selectbox(
+                    "⚧ Género (rangos clínicos)",
+                    options=g_opts,
+                    index=g_idx,
+                    key=f"{key_prefix}_gn_{member_id}",
+                )
+            with c_loc2:
+                in_city = st.text_input(
+                    "📍 Ciudad / País donde vives *",
+                    value=m_data["city"],
+                    placeholder="Ej. Rionegro, Colombia / Medellín / Bogotá",
+                    key=f"{key_prefix}_ct_{member_id}",
+                )
+            with c_loc3:
+                in_alt = st.number_input(
+                    "🏔️ Altitud donde vives (msnm) *",
+                    min_value=0,
+                    max_value=4500,
+                    value=_safe_num(m_data["altitude_m"], 0, 4500, as_int=True),
+                    step=50,
+                    placeholder="Ej. 2130 (Rionegro) / 1495 (Medellín)",
+                    help="Cartagena ~2m · Cali ~1000m · Medellín ~1495m · Rionegro ~2130m · Bogotá ~2640m.",
+                    key=f"{key_prefix}_alt_{member_id}",
+                )
+
+            st.markdown("##### 🏅 Disciplinas Deportivas de Interés (puedes elegir varias)")
+            all_sport_opts = list(SPORT_DISCIPLINE_OPTIONS)
+            for existing_sp in m_data["sport_interests"]:
+                if existing_sp not in all_sport_opts:
+                    all_sport_opts.append(existing_sp)
+            in_sports = st.multiselect(
+                "Selecciona todas las disciplinas que practicas o te interesan:",
+                options=all_sport_opts,
+                default=m_data["sport_interests"],
+                placeholder="Ej. Triatlón 70.3, Running, Natación, Trail Running, MTB, Gravel...",
+                key=f"{key_prefix}_sp_multi_{member_id}",
+            )
+
+            st.markdown("##### 📊 Biometría, Fisiología y Volumen")
             c1, c2, c3 = st.columns(3)
             with c1:
                 in_height = st.number_input(
-                    "📏 Estatura (cm)",
+                    "📏 Estatura (cm) *",
                     min_value=100.0,
                     max_value=230.0,
                     value=_safe_num(m_data["height_cm"], 100.0, 230.0),
@@ -335,7 +551,7 @@ def render_athlete_biometric_profile_editor(
                 )
             with c2:
                 in_weight = st.number_input(
-                    "⚖️ Peso actual (kg)",
+                    "⚖️ Peso actual (kg) *",
                     min_value=30.0,
                     max_value=180.0,
                     value=_safe_num(m_data["weight_kg"], 30.0, 180.0),
@@ -344,25 +560,6 @@ def render_athlete_biometric_profile_editor(
                     key=f"{key_prefix}_w_{member_id}",
                 )
             with c3:
-                in_bdate = st.date_input(
-                    "🎂 Fecha de nacimiento",
-                    value=m_data["birth_date"],
-                    min_value=date(1940, 1, 1),
-                    max_value=date.today(),
-                    key=f"{key_prefix}_bd_{member_id}",
-                )
-
-            c4, c5, c6 = st.columns(3)
-            with c4:
-                sport_idx = SPORT_OPTIONS.index(m_data["primary_sport"]) if m_data["primary_sport"] in SPORT_OPTIONS else 0
-                in_sport = st.selectbox(
-                    "🏅 Deporte principal",
-                    options=SPORT_OPTIONS,
-                    index=sport_idx,
-                    format_func=lambda x: x if x else "Seleccionar...",
-                    key=f"{key_prefix}_sp_{member_id}",
-                )
-            with c5:
                 in_hours = st.number_input(
                     "⏱️ Horas entreno / semana",
                     min_value=0.0,
@@ -372,19 +569,18 @@ def render_athlete_biometric_profile_editor(
                     placeholder="Ej. 10",
                     key=f"{key_prefix}_hrs_{member_id}",
                 )
-            with c6:
-                in_alt = st.number_input(
-                    "🏔️ Altitud habitual (msnm)",
-                    min_value=0,
-                    max_value=4500,
-                    value=_safe_num(m_data["altitude_m"], 0, 4500, as_int=True),
-                    step=100,
-                    placeholder="Ej. 1500 (Medellín) / 2600 (Bogotá)",
-                    key=f"{key_prefix}_alt_{member_id}",
-                )
 
-            c7, c8 = st.columns(2)
+            c7, c8, c9 = st.columns(3)
             with c7:
+                lvl_idx = EXPERIENCE_LEVELS.index(m_data["experience_level"]) if m_data["experience_level"] in EXPERIENCE_LEVELS else 0
+                in_level = st.selectbox(
+                    "📈 Nivel deportivo",
+                    options=EXPERIENCE_LEVELS,
+                    index=lvl_idx,
+                    format_func=lambda x: x if x else "Seleccionar...",
+                    key=f"{key_prefix}_lvl_{member_id}",
+                )
+            with c8:
                 in_rhr = st.number_input(
                     "❤️ FC en Reposo (lpm)",
                     min_value=30,
@@ -394,7 +590,7 @@ def render_athlete_biometric_profile_editor(
                     placeholder="Ej. 48",
                     key=f"{key_prefix}_rhr_{member_id}",
                 )
-            with c8:
+            with c9:
                 in_mhr = st.number_input(
                     "🔥 FC Máxima conocida (lpm)",
                     min_value=110,
@@ -405,12 +601,51 @@ def render_athlete_biometric_profile_editor(
                     key=f"{key_prefix}_mhr_{member_id}",
                 )
 
-            in_goal = st.text_input(
-                "🎯 Objetivo o competencia principal",
-                value=m_data["athlete_goal"],
-                placeholder="Ej. Ironman 70.3 Cartagena, bajar de 3h15 en maratón, subir FTP...",
-                key=f"{key_prefix}_goal_{member_id}",
-            )
+            st.markdown("##### 🎯 Metas, Logística del Club y Salud")
+            cg1, cg2 = st.columns([2, 1])
+            with cg1:
+                in_goal = st.text_input(
+                    "🎯 Objetivo o competencia principal",
+                    value=m_data["athlete_goal"],
+                    placeholder="Ej. Ironman 70.3 Cartagena, bajar de 3h15 en maratón, terminar primer Trail 42K...",
+                    key=f"{key_prefix}_goal_{member_id}",
+                )
+            with cg2:
+                in_goal_date = st.date_input(
+                    "📅 Fecha de tu carrera objetivo",
+                    value=m_data["goal_race_date"],
+                    min_value=date.today() - timedelta(days=30),
+                    max_value=date.today() + timedelta(days=1100),
+                    key=f"{key_prefix}_gdt_{member_id}",
+                )
+
+            cs1, cs2, cs3 = st.columns([0.8, 0.8, 1.8])
+            with cs1:
+                sh_idx = SHIRT_SIZES.index(m_data["shirt_size"]) if m_data["shirt_size"] in SHIRT_SIZES else 0
+                in_shirt = st.selectbox(
+                    "👕 Talla uniforme",
+                    options=SHIRT_SIZES,
+                    index=sh_idx,
+                    format_func=lambda x: x if x else "—",
+                    key=f"{key_prefix}_sh_{member_id}",
+                )
+            with cs2:
+                bt_idx = BLOOD_TYPES.index(m_data["blood_type"]) if m_data["blood_type"] in BLOOD_TYPES else 0
+                in_blood = st.selectbox(
+                    "🩸 Tipo de sangre",
+                    options=BLOOD_TYPES,
+                    index=bt_idx,
+                    format_func=lambda x: x if x else "—",
+                    key=f"{key_prefix}_bt_{member_id}",
+                )
+            with cs3:
+                in_emerg = st.text_input(
+                    "🚨 Contacto de emergencia (Nombre y teléfono)",
+                    value=m_data["emergency_contact"],
+                    placeholder="Ej. María Pérez · +57 300 000 0000",
+                    key=f"{key_prefix}_emg_{member_id}",
+                )
+
             in_med = st.text_area(
                 "🩺 Alergias, tipo de dieta, suplementación o lesiones actuales (opcional)",
                 value=m_data["medical_notes"],
@@ -419,26 +654,49 @@ def render_athlete_biometric_profile_editor(
                 key=f"{key_prefix}_med_{member_id}",
             )
 
-            if st.form_submit_button("💾 Guardar Perfil Físico", type="primary", use_container_width=True):
+            if st.form_submit_button("💾 Guardar Ficha Completa AlphaX", type="primary", use_container_width=True):
                 try:
-                    with SessionLocal() as s_save:
-                        m_db = s_save.query(Member).filter(Member.id == member_id).first()
-                        if m_db:
-                            m_db.height_cm = float(in_height) if in_height else None
-                            m_db.weight_kg = float(in_weight) if in_weight else None
-                            m_db.birth_date = in_bdate if in_bdate else None
-                            m_db.primary_sport = in_sport if in_sport else None
-                            m_db.weekly_hours = float(in_hours) if in_hours is not None else None
-                            m_db.altitude_m = int(in_alt) if in_alt is not None else None
-                            m_db.resting_hr = int(in_rhr) if in_rhr else None
-                            m_db.max_hr = int(in_mhr) if in_mhr else None
-                            m_db.athlete_goal = in_goal.strip() if in_goal and in_goal.strip() else None
-                            m_db.medical_notes = in_med.strip() if in_med and in_med.strip() else None
-                            s_save.commit()
-                    st.toast("Perfil físico actualizado para Wolfy", icon="✅")
-                    st.rerun()
+                    clean_email = in_email.strip().lower() if in_email and in_email.strip() else None
+                    if clean_email and "@" not in clean_email:
+                        st.error("Por favor ingresa un correo electrónico válido (ej. nombre@correo.com).")
+                    else:
+                        with SessionLocal() as s_save:
+                            m_db = s_save.query(Member).filter(Member.id == member_id).first()
+                            if m_db:
+                                m_db.email = clean_email
+                                if in_phone and in_phone.strip():
+                                    m_db.phone = in_phone.strip()
+                                m_db.gender = in_gender
+                                m_db.city = in_city.strip() if in_city and in_city.strip() else None
+                                m_db.height_cm = float(in_height) if in_height else None
+                                m_db.weight_kg = float(in_weight) if in_weight else None
+                                m_db.birth_date = in_bdate if in_bdate else None
+                                m_db.sport_interests = json.dumps(in_sports, ensure_ascii=False) if in_sports else None
+                                m_db.primary_sport = in_sports[0] if in_sports else None
+                                m_db.experience_level = in_level if in_level else None
+                                m_db.weekly_hours = float(in_hours) if in_hours is not None else None
+                                m_db.altitude_m = int(in_alt) if in_alt is not None else None
+                                m_db.resting_hr = int(in_rhr) if in_rhr is not None else None
+                                m_db.max_hr = int(in_mhr) if in_mhr is not None else None
+                                m_db.athlete_goal = in_goal.strip() if in_goal and in_goal.strip() else None
+                                m_db.goal_race_date = in_goal_date if in_goal_date else None
+                                m_db.shirt_size = in_shirt if in_shirt else None
+                                m_db.blood_type = in_blood if in_blood else None
+                                m_db.emergency_contact = in_emerg.strip() if in_emerg and in_emerg.strip() else None
+                                m_db.medical_notes = in_med.strip() if in_med and in_med.strip() else None
+                                s_save.commit()
+                        try:
+                            import sys as _sys
+                            if "race_strategy_ui" in _sys.modules:
+                                _rsu = _sys.modules["race_strategy_ui"]
+                                if hasattr(_rsu, "_load_athlete_defaults"):
+                                    _rsu._load_athlete_defaults.clear()
+                        except Exception:
+                            pass
+                        st.toast("¡Ficha completa actualizada para Wolfy y AlphaX!", icon="✅")
+                        st.rerun()
                 except Exception as err:
-                    st.error(f"Error guardando perfil físico: {err}")
+                    st.error(f"Error guardando ficha: {err}")
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -481,16 +739,25 @@ def build_athlete_context(member_id: int) -> dict:
                 ctx["gender"] = member.gender or "Hombre"
                 ctx["group"] = member.group or "AlphaX"
                 ctx["profile"] = {
+                    "email": getattr(member, "email", None),
+                    "city": getattr(member, "city", None),
                     "height_cm": member.height_cm,
                     "weight_kg": member.weight_kg,
                     "birth_date": member.birth_date.strftime("%Y-%m-%d") if member.birth_date else None,
                     "age_years": _calc_age_years(member.birth_date),
                     "primary_sport": member.primary_sport,
+                    "sport_interests": parse_sport_interests(getattr(member, "sport_interests", None), member.primary_sport or ""),
+                    "experience_level": getattr(member, "experience_level", None),
                     "weekly_hours": member.weekly_hours,
                     "resting_hr": member.resting_hr,
                     "max_hr": member.max_hr,
                     "altitude_m": member.altitude_m,
                     "athlete_goal": member.athlete_goal,
+                    "goal_race_date": member.goal_race_date.strftime("%Y-%m-%d") if getattr(member, "goal_race_date", None) else None,
+                    "goal_race_days_left": (member.goal_race_date - date.today()).days if getattr(member, "goal_race_date", None) else None,
+                    "blood_type": getattr(member, "blood_type", None),
+                    "calibrated_cda": getattr(member, "calibrated_cda", None),
+                    "calibrated_cda_bike": getattr(member, "calibrated_cda_bike", None),
                     "medical_notes": member.medical_notes,
                     "coach_notes": member.notes,
                     "start_month": member.start_month,
@@ -665,18 +932,38 @@ def build_athlete_context(member_id: int) -> dict:
         lines.append("- Peso actual: No registrado aún")
     if derived.get("bmi"):
         lines.append(f"- IMC calculado: {derived['bmi']} kg/m²")
-    if prof.get("primary_sport"):
+    if prof.get("sport_interests"):
+        lines.append(f"- Disciplinas deportivas de interés: {', '.join(prof['sport_interests'])}")
+    elif prof.get("primary_sport"):
         lines.append(f"- Deporte principal: {prof['primary_sport']}")
+    if prof.get("experience_level"):
+        lines.append(f"- Nivel deportivo: {prof['experience_level']}")
     if prof.get("weekly_hours") is not None:
         lines.append(f"- Volumen habitual: {prof['weekly_hours']} horas/semana")
+    if prof.get("city"):
+        lines.append(f"- Ciudad / país de residencia: {prof['city']}")
     if prof.get("altitude_m") is not None:
-        lines.append(f"- Altitud habitual de entrenamiento: {prof['altitude_m']} msnm")
+        alt_v = prof["altitude_m"]
+        alt_note = " (altura moderada/alta — considerar adaptación de Hb/Hto y aclimatación)" if alt_v >= 1400 else " (baja altitud / nivel del mar)"
+        lines.append(f"- Altitud habitual donde vive/entrena: {alt_v} msnm{alt_note}")
     if prof.get("resting_hr"):
         lines.append(f"- FC en reposo: {prof['resting_hr']} lpm")
     if derived.get("max_hr_source"):
         lines.append(f"- FC máxima: {derived['max_hr_source']}")
+    if prof.get("calibrated_cda"):
+        bk_note = f" ({prof['calibrated_cda_bike']})" if prof.get("calibrated_cda_bike") else ""
+        lines.append(f"- CdA aerodinámico real calibrado en ciclismo: {prof['calibrated_cda']:.3f} m²{bk_note}")
     if prof.get("athlete_goal"):
-        lines.append(f"- Objetivo / competencia principal: {prof['athlete_goal']}")
+        g_line = f"- Objetivo / competencia principal: {prof['athlete_goal']}"
+        if prof.get("goal_race_date"):
+            d_left = prof.get("goal_race_days_left")
+            if d_left is not None and d_left >= 0:
+                g_line += f" (Fecha: {prof['goal_race_date']} — faltan {d_left} días / ~{d_left // 7} semanas)"
+            else:
+                g_line += f" (Fecha: {prof['goal_race_date']})"
+        lines.append(g_line)
+    if prof.get("blood_type"):
+        lines.append(f"- Grupo sanguíneo: {prof['blood_type']}")
     if prof.get("medical_notes"):
         lines.append(f"- Dieta, alergias, suplementación o lesiones reportadas: {prof['medical_notes']}")
     if prof.get("coach_notes"):
