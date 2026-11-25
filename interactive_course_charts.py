@@ -39,6 +39,34 @@ def _grade_heat_color(grade_pct: float) -> str:
     return "#FF2E43"       # Subida fuerte
 
 
+def _grade_heat_rgba(grade_pct: float) -> str:
+    if grade_pct <= -3.5:
+        return "rgba(0, 176, 255, 0.46)"
+    if grade_pct <= -1.0:
+        return "rgba(0, 230, 118, 0.42)"
+    if grade_pct < 1.2:
+        return "rgba(100, 116, 139, 0.34)"
+    if grade_pct < 2.8:
+        return "rgba(255, 214, 0, 0.46)"
+    if grade_pct < 5.0:
+        return "rgba(255, 138, 0, 0.54)"
+    return "rgba(255, 46, 67, 0.60)"
+
+
+def _grade_heat_label(grade_pct: float) -> str:
+    if grade_pct <= -3.5:
+        return "🔵 Descenso Veloz"
+    if grade_pct <= -1.0:
+        return "🟢 Bajada Rápida"
+    if grade_pct < 1.2:
+        return "⚪ Llano"
+    if grade_pct < 2.8:
+        return "🟡 Repecho"
+    if grade_pct < 5.0:
+        return "🟠 Subida Moderada"
+    return "🔴 Subida Fuerte"
+
+
 def _downsample_route_for_synced_widget(route_data: dict, max_pts: int = 340) -> dict:
     """Reduce segmentos manteniendo sumas EXACTAS de distancia, +D y -D por punto."""
     segs = route_data.get("segments") or []
@@ -56,6 +84,8 @@ def _downsample_route_for_synced_widget(route_data: dict, max_pts: int = 340) ->
     lat = []
     lon = []
     colors = []
+    rgbas = []
+    labels = []
 
     for i in range(0, n, step):
         chunk = segs[i : i + step]
@@ -82,6 +112,8 @@ def _downsample_route_for_synced_widget(route_data: dict, max_pts: int = 340) ->
         lat.append(round(float(mid.get("lat", 0.0)), 6))
         lon.append(round(float(mid.get("lon", 0.0)), 6))
         colors.append(_grade_heat_color(g_pct))
+        rgbas.append(_grade_heat_rgba(g_pct))
+        labels.append(_grade_heat_label(g_pct))
 
     return {
         "route_name": str(route_data.get("route_name", "Circuito")),
@@ -97,6 +129,8 @@ def _downsample_route_for_synced_widget(route_data: dict, max_pts: int = 340) ->
         "lat": lat,
         "lon": lon,
         "colors": colors,
+        "rgbas": rgbas,
+        "labels": labels,
     }
 
 
@@ -241,56 +275,81 @@ def render_synced_elevation_planimetry_widget(route_data: dict, height: int = 47
   const badgeEl = document.getElementById("badge_{uid}");
 
   const hoverTexts = D.dist_km.map((km, i) =>
-    `<b>Km ${{km.toFixed(2)}}</b><br>Altitud: <b>${{D.ele_m[i].toFixed(0)}} m</b><br>Pendiente: <b>${{D.grade_pct[i] >= 0 ? '+' : ''}}${{D.grade_pct[i].toFixed(1)}}%</b>`
+    `<b>Km ${{km.toFixed(2)}}</b><br>Altitud: <b>${{D.ele_m[i].toFixed(0)}} m</b><br>Pendiente: <b>${{D.grade_pct[i] >= 0 ? '+' : ''}}${{D.grade_pct[i].toFixed(1)}}%</b><br>${{D.labels[i]}}`
   );
 
-  // ── 1. PERFIL ALTIMÉTRICO (IZQUIERDA) ──
+  // ── 1. PERFIL ALTIMÉTRICO CON MAPA DE CALOR RELLENO + PUNTOS (IZQUIERDA) ──
   const elevMin = Math.min(...D.ele_m);
   const elevMax = Math.max(...D.ele_m);
-  const elevPad = Math.max(15, (elevMax - elevMin) * 0.12);
+  const elevSpan = Math.max(25, elevMax - elevMin);
+  const elevPad = elevSpan * 0.12;
+  const yFloor = Math.max(0, elevMin - elevPad);
 
-  const elevTraces = [
-    {{
-      x: D.dist_km,
-      y: D.ele_m,
-      type: "scatter",
-      mode: "lines",
-      fill: "tozeroy",
-      fillcolor: "rgba(100, 116, 139, 0.22)",
-      line: {{ color: "rgba(148,163,184,0.55)", width: 1.5 }},
-      hoverinfo: "skip",
-      showlegend: false
-    }},
-    {{
-      x: D.dist_km,
-      y: D.ele_m,
-      type: "scatter",
-      mode: "markers",
-      marker: {{ size: 6, color: D.colors, line: {{ width: 0 }} }},
-      text: hoverTexts,
-      hovertemplate: "%{{text}}<extra></extra>",
-      showlegend: false
-    }},
-    // Trace 2: Live synchronized cursor dot on elevation
-    {{
-      x: [null],
-      y: [null],
-      type: "scatter",
-      mode: "markers",
-      marker: {{ size: 13, color: "#00EEFF", line: {{ color: "#FFFFFF", width: 2.5 }} }},
-      hoverinfo: "skip",
-      showlegend: false
+  // Construir polígonos rellenos continuos del color de cada pendiente dentro de la gráfica
+  const elevTraces = [];
+  let rStart = 0;
+  for (let i = 1; i <= N; i++) {{
+    if (i === N || D.colors[i] !== D.colors[rStart]) {{
+      const endIdx = Math.min(N - 1, i); // solapa 1 punto para unir bordes sin huecos
+      const xs = [];
+      const ys = [];
+      for (let k = rStart; k <= endIdx; k++) {{
+        xs.push(D.dist_km[k]);
+        ys.push(D.ele_m[k]);
+      }}
+      if (xs.length >= 2) {{
+        const polyX = xs.concat([xs[xs.length - 1], xs[0], xs[0]]);
+        const polyY = ys.concat([yFloor, yFloor, ys[0]]);
+        elevTraces.push({{
+          x: polyX,
+          y: polyY,
+          type: "scatter",
+          mode: "lines",
+          fill: "toself",
+          fillcolor: D.rgbas[rStart],
+          line: {{ color: D.colors[rStart], width: 0.6 }},
+          hoverinfo: "skip",
+          showlegend: false
+        }});
+      }}
+      rStart = i;
     }}
-  ];
+  }}
+
+  // Línea superior blanca + puntos de colores (mantiene los puntos y activa hover exacto)
+  const elevMainTraceIdx = elevTraces.length;
+  elevTraces.push({{
+    x: D.dist_km,
+    y: D.ele_m,
+    type: "scatter",
+    mode: "lines+markers",
+    line: {{ color: "rgba(255,255,255,0.72)", width: 1.5 }},
+    marker: {{ size: 5.2, color: D.colors, line: {{ width: 0 }} }},
+    text: hoverTexts,
+    hovertemplate: "%{{text}}<extra></extra>",
+    showlegend: false
+  }});
+
+  // Cursor sincronizado en vivo sobre la altimetría
+  const elevCursorIdx = elevTraces.length;
+  elevTraces.push({{
+    x: [null],
+    y: [null],
+    type: "scatter",
+    mode: "markers",
+    marker: {{ size: 13, color: "#00EEFF", line: {{ color: "#FFFFFF", width: 2.5 }} }},
+    hoverinfo: "skip",
+    showlegend: false
+  }});
 
   const elevLayout = {{
-    title: {{ text: "⛰️ Altimetría — Arrastra para hacer Zoom (+D / −D)", font: {{ color: "#FFFFFF", size: 12.5 }}, x: 0.02 }},
+    title: {{ text: "⛰️ Altimetría — Mapa de Calor de Desniveles (Arrastra para Zoom)", font: {{ color: "#FFFFFF", size: 12.5 }}, x: 0.02 }},
     paper_bgcolor: "#0E121C",
     plot_bgcolor: "#0E121C",
     font: {{ color: "#CBD5E1", size: 10.5 }},
     margin: {{ l: 48, r: 14, t: 36, b: 38 }},
     xaxis: {{ title: "Distancia (km)", gridcolor: "rgba(255,255,255,0.06)", zeroline: false }},
-    yaxis: {{ title: "Altitud (m)", range: [Math.max(0, elevMin - elevPad), elevMax + elevPad], gridcolor: "rgba(255,255,255,0.06)", zeroline: false }},
+    yaxis: {{ title: "Altitud (m)", range: [yFloor, elevMax + elevPad], gridcolor: "rgba(255,255,255,0.06)", zeroline: false }},
     dragmode: "zoom",
     hovermode: "closest"
   }};
@@ -422,16 +481,16 @@ def render_synced_elevation_planimetry_widget(route_data: dict, height: int = 47
     // Hover en Altimetría -> mover marcador en Mapa GPS
     elevDiv.on("plotly_hover", function(ev) {{
       if (!ev || !ev.points || !ev.points.length) return;
-      const pt = ev.points[0];
+      const pt = ev.points.find(p => p.curveNumber === elevMainTraceIdx) || ev.points[0];
       const idx = pt.pointIndex;
       if (idx === undefined || idx < 0 || idx >= N) return;
       const tag = `Km ${{D.dist_km[idx].toFixed(1)}} · ${{Math.round(D.ele_m[idx])}}m`;
       Plotly.restyle(mapDiv, {{ x: [[D.lon[idx]]], y: [[D.lat[idx]]], text: [[tag]] }}, [3]);
-      Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [2]);
+      Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [elevCursorIdx]);
     }});
     elevDiv.on("plotly_unhover", function() {{
       Plotly.restyle(mapDiv, {{ x: [[null]], y: [[null]], text: [[""]] }}, [3]);
-      Plotly.restyle(elevDiv, {{ x: [[null]], y: [[null]] }}, [2]);
+      Plotly.restyle(elevDiv, {{ x: [[null]], y: [[null]] }}, [elevCursorIdx]);
     }});
 
     // Hover en Mapa GPS -> mover marcador en Altimetría
@@ -442,11 +501,11 @@ def render_synced_elevation_planimetry_widget(route_data: dict, height: int = 47
       const idx = pt.pointIndex;
       if (idx === undefined || idx < 0 || idx >= N) return;
       const tag = `Km ${{D.dist_km[idx].toFixed(1)}} · ${{Math.round(D.ele_m[idx])}}m`;
-      Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [2]);
+      Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [elevCursorIdx]);
       Plotly.restyle(mapDiv, {{ x: [[D.lon[idx]]], y: [[D.lat[idx]]], text: [[tag]] }}, [3]);
     }});
     mapDiv.on("plotly_unhover", function() {{
-      Plotly.restyle(elevDiv, {{ x: [[null]], y: [[null]] }}, [2]);
+      Plotly.restyle(elevDiv, {{ x: [[null]], y: [[null]] }}, [elevCursorIdx]);
       Plotly.restyle(mapDiv, {{ x: [[null]], y: [[null]], text: [[""]] }}, [3]);
     }});
 
@@ -498,7 +557,7 @@ def render_synced_elevation_planimetry_widget(route_data: dict, height: int = 47
     }});
 
     document.getElementById("reset_{uid}").addEventListener("click", function() {{
-      Plotly.relayout(elevDiv, {{ "xaxis.autorange": true, "yaxis.range": [Math.max(0, elevMin - elevPad), elevMax + elevPad] }});
+      Plotly.relayout(elevDiv, {{ "xaxis.autorange": true, "yaxis.range": [yFloor, elevMax + elevPad] }});
       Plotly.relayout(mapDiv, {{ "xaxis.autorange": true, "yaxis.autorange": true }});
       updateSummary(0, D.total_dist_km + 1, false);
     }});
@@ -530,6 +589,8 @@ def _downsample_sim_for_pacing_widget(sim: dict, sport: str, ftp_or_rcp: float, 
     speed_kmh = []
     pace_min = []
     gap_min = []
+    colors = []
+    rgbas = []
 
     for i in range(0, n, step):
         chunk = segs[i : i + step]
@@ -569,6 +630,8 @@ def _downsample_sim_for_pacing_widget(sim: dict, sport: str, ftp_or_rcp: float, 
         grade_pct.append(round(c_g, 2))
         power_w.append(round(c_p, 1))
         speed_kmh.append(round(c_v_kmh, 2))
+        colors.append(_grade_heat_color(c_g))
+        rgbas.append(_grade_heat_rgba(c_g))
 
         if sport == "running":
             p_sec = (c_dt / max(0.001, c_len_km))
@@ -604,6 +667,8 @@ def _downsample_sim_for_pacing_widget(sim: dict, sport: str, ftp_or_rcp: float, 
         "speed_kmh": speed_kmh,
         "pace_min": pace_min,
         "gap_min": gap_min,
+        "colors": colors,
+        "rgbas": rgbas,
         "gels": gels,
     }
 
@@ -765,6 +830,44 @@ def render_interactive_pacing_zoom_widget(
   const traces = [];
   let layout = {{}};
 
+  // Función auxiliar: polígonos rellenos de Mapa de Calor de Desniveles para la altimetría inferior (y3)
+  const eMinP = Math.min(...D.ele_m);
+  const eMaxP = Math.max(...D.ele_m);
+  const ePadP = Math.max(20, (eMaxP - eMinP) * 0.14);
+  const eFloorP = Math.max(0, eMinP - ePadP);
+
+  function addColoredElevationSubTraces() {{
+    let rs = 0;
+    for (let i = 1; i <= N; i++) {{
+      if (i === N || D.colors[i] !== D.colors[rs]) {{
+        const endI = Math.min(N - 1, i);
+        const xs = [], ys = [];
+        for (let k = rs; k <= endI; k++) {{
+          xs.push(D.dist_km[k]);
+          ys.push(D.ele_m[k]);
+        }}
+        if (xs.length >= 2) {{
+          traces.push({{
+            x: xs.concat([xs[xs.length - 1], xs[0], xs[0]]),
+            y: ys.concat([eFloorP, eFloorP, ys[0]]),
+            type: "scatter", mode: "lines", fill: "toself",
+            fillcolor: D.rgbas[rs], line: {{ color: D.colors[rs], width: 0.5 }},
+            hoverinfo: "skip", showlegend: false, xaxis: "x", yaxis: "y3"
+          }});
+        }}
+        rs = i;
+      }}
+    }}
+    traces.push({{
+      x: D.dist_km, y: D.ele_m, name: "⛰️ Altimetría (m)",
+      type: "scatter", mode: "lines+markers",
+      line: {{ color: "rgba(255,255,255,0.7)", width: 1.4 }},
+      marker: {{ size: 3.5, color: D.colors }},
+      hovertemplate: "Altitud: <b>%{{y:.0f}} m</b><extra></extra>",
+      xaxis: "x", yaxis: "y3"
+    }});
+  }}
+
   if (isRun) {{
     const pTexts = D.dist_km.map((km, i) =>
       `<b>Km ${{km.toFixed(2)}}</b><br>Ritmo Real: <b>${{fmtPace(D.pace_min[i]*60)}} /km</b> (${{D.speed_kmh[i].toFixed(1)}} km/h)<br>GAP: <b>${{fmtPace(D.gap_min[i]*60)}} /km</b><br>Potencia Stryd: <b>${{D.power_w[i].toFixed(0)}} W</b> (${{Math.round(D.power_w[i]/D.ftp_or_rcp*100)}}% rCP)<br>Altitud: ${{Math.round(D.ele_m[i])}} m · Pend: ${{D.grade_pct[i] >= 0 ? '+' : ''}}${{D.grade_pct[i].toFixed(1)}}%`
@@ -786,13 +889,7 @@ def render_interactive_pacing_zoom_widget(
       hovertemplate: "⚡ Stryd: <b>%{{y:.0f}} W</b><extra></extra>",
       xaxis: "x", yaxis: "y2"
     }});
-    traces.push({{
-      x: D.dist_km, y: D.ele_m, name: "⛰️ Altimetría (m)",
-      type: "scatter", mode: "lines", fill: "tozeroy",
-      fillcolor: "rgba(100,116,139,0.28)", line: {{ color: "#94A3B8", width: 1.6 }},
-      hovertemplate: "Altitud: <b>%{{y:.0f}} m</b><extra></extra>",
-      xaxis: "x", yaxis: "y3"
-    }});
+    addColoredElevationSubTraces();
     if (D.gels && D.gels.length) {{
       traces.push({{
         x: D.gels.map(g => g.km), y: D.gels.map(g => g.ele),
@@ -825,10 +922,10 @@ def render_interactive_pacing_zoom_widget(
       xaxis: {{ title: "Distancia (km)", domain: [0, 1], gridcolor: "rgba(255,255,255,0.06)", anchor: "y3" }},
       yaxis: {{ title: "Ritmo (min/km)", domain: [0.34, 1.0], range: [pMax, pMin], tickvals: tVals, ticktext: tTxt, gridcolor: "rgba(255,255,255,0.06)", color: "#00FF88" }},
       yaxis2: {{ title: "Stryd (W)", overlaying: "y", side: "right", showgrid: false, color: "#FFD700" }},
-      yaxis3: {{ title: "Altitud (m)", domain: [0.0, 0.28], gridcolor: "rgba(255,255,255,0.05)", color: "#94A3B8" }}
+      yaxis3: {{ title: "Altitud (m)", domain: [0.0, 0.28], range: [eFloorP, eMaxP + ePadP], gridcolor: "rgba(255,255,255,0.05)", color: "#94A3B8" }}
     }};
   }} else {{
-    // CICLISMO: Potencia (Amarillo #FFD700) + Velocidad (Verde #00FF88) + Altimetría debajo
+    // CICLISMO: Potencia (Amarillo #FFD700) + Velocidad (Verde #00FF88) + Altimetría coloreada debajo
     const cTexts = D.dist_km.map((km, i) =>
       `<b>Km ${{km.toFixed(2)}}</b><br>Potencia: <b>${{D.power_w[i].toFixed(0)}} W</b> (${{Math.round(D.power_w[i]/D.ftp_or_rcp*100)}}% FTP)<br>Velocidad: <b>${{D.speed_kmh[i].toFixed(1)}} km/h</b><br>Altitud: ${{Math.round(D.ele_m[i])}} m · Pend: ${{D.grade_pct[i] >= 0 ? '+' : ''}}${{D.grade_pct[i].toFixed(1)}}%`
     );
@@ -850,13 +947,7 @@ def render_interactive_pacing_zoom_widget(
       hovertemplate: "🚀 Velocidad: <b>%{{y:.1f}} km/h</b><extra></extra>",
       xaxis: "x", yaxis: "y2"
     }});
-    traces.push({{
-      x: D.dist_km, y: D.ele_m, name: "⛰️ Altimetría (m)",
-      type: "scatter", mode: "lines", fill: "tozeroy",
-      fillcolor: "rgba(100,116,139,0.28)", line: {{ color: "#94A3B8", width: 1.6 }},
-      hovertemplate: "Altitud: <b>%{{y:.0f}} m</b><extra></extra>",
-      xaxis: "x", yaxis: "y3"
-    }});
+    addColoredElevationSubTraces();
 
     layout = {{
       title: {{ text: "{chart_title}", font: {{ color: "#FFFFFF", size: 12.5 }}, x: 0.01 }},
@@ -869,7 +960,7 @@ def render_interactive_pacing_zoom_widget(
       xaxis: {{ title: "Distancia (km)", domain: [0, 1], gridcolor: "rgba(255,255,255,0.06)", anchor: "y3" }},
       yaxis: {{ title: "Potencia (W)", domain: [0.34, 1.0], gridcolor: "rgba(255,255,255,0.06)", color: "#FFD700" }},
       yaxis2: {{ title: "Velocidad (km/h)", overlaying: "y", side: "right", showgrid: false, color: "#00FF88" }},
-      yaxis3: {{ title: "Altitud (m)", domain: [0.0, 0.28], gridcolor: "rgba(255,255,255,0.05)", color: "#94A3B8" }}
+      yaxis3: {{ title: "Altitud (m)", domain: [0.0, 0.28], range: [eFloorP, eMaxP + ePadP], gridcolor: "rgba(255,255,255,0.05)", color: "#94A3B8" }}
     }};
   }}
 
