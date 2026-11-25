@@ -3,10 +3,13 @@ race_strategy_ui.py — Interfaz interactiva de Estrategias de Carrera en Ciclis
 (AlphaX Race Split — estilo Best Bike Split) para el CRM de Entrenadores.
 """
 
+import base64
+import gzip
 import hashlib
 import html
 import json
 import math
+import re
 import urllib.parse
 from datetime import date, datetime, timedelta
 
@@ -50,6 +53,283 @@ def _render_html(html_str: str):
         st.html(html_str)
     else:
         st.markdown(html_str, unsafe_allow_html=True)
+
+
+def _compress_route_data(route_data: dict) -> str:
+    """Comprime route_data (máx. ~240 segmentos) a gzip+base64 (~4 KB) para guardarlo en config_json."""
+    if not route_data or not route_data.get("segments"):
+        return ""
+    segs = route_data["segments"]
+    step = max(1, int(math.ceil(len(segs) / 240.0)))
+    compact_segs = []
+    for i in range(0, len(segs), step):
+        chunk = segs[i : i + step]
+        d0 = float(chunk[0]["dist_start_m"])
+        d1 = float(chunk[-1]["dist_end_m"])
+        l_m = max(5.0, d1 - d0)
+        e0 = float(chunk[0]["ele_start"])
+        e1 = float(chunk[-1]["ele_end"])
+        grade = max(-0.22, min(0.25, (e1 - e0) / l_m))
+        mid = chunk[len(chunk) // 2]
+        compact_segs.append({
+            "lat": round(float(mid["lat"]), 5),
+            "lon": round(float(mid["lon"]), 5),
+            "ele_m": round(0.5 * (e0 + e1), 1),
+            "ele_start": round(e0, 1),
+            "ele_end": round(e1, 1),
+            "length_m": round(l_m, 1),
+            "dist_start_m": round(d0, 1),
+            "dist_end_m": round(d1, 1),
+            "dist_mid_km": round((d0 + 0.5 * l_m) / 1000.0, 3),
+            "grade": round(grade, 5),
+            "bearing_deg": round(float(mid.get("bearing_deg", 0.0)), 1),
+            "turn_deg": round(max(float(c.get("turn_deg", 0.0)) for c in chunk), 1),
+            "lap": int(mid.get("lap", 1)),
+        })
+    payload = {
+        "route_name": route_data.get("route_name", "Circuito"),
+        "laps": int(route_data.get("laps", 1)),
+        "total_distance_km": route_data.get("total_distance_km", 0.0),
+        "elevation_gain_m": route_data.get("elevation_gain_m", 0.0),
+        "elevation_loss_m": route_data.get("elevation_loss_m", 0.0),
+        "min_ele_m": route_data.get("min_ele_m", 0.0),
+        "max_ele_m": route_data.get("max_ele_m", 0.0),
+        "avg_ele_m": route_data.get("avg_ele_m", 0.0),
+        "max_grade_pct": route_data.get("max_grade_pct", 0.0),
+        "min_grade_pct": route_data.get("min_grade_pct", 0.0),
+        "segments": compact_segs,
+    }
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(gzip.compress(raw, compresslevel=6)).decode("ascii")
+
+
+def _decompress_route_data(b64_str: str) -> dict:
+    """Descomprime route_data guardado en config_json['route_data_gz']."""
+    if not b64_str:
+        return None
+    try:
+        raw = gzip.decompress(base64.b64decode(b64_str.encode("ascii")))
+        data = json.loads(raw.decode("utf-8"))
+        if isinstance(data, dict) and data.get("segments"):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _reconstruct_route_from_saved_scenario(sc, cfg: dict, splits: list) -> dict:
+    """
+    Recupera route_data desde config_json['route_data_gz'] o, para escenarios antiguos ya guardados,
+    reconstruye un perfil altimétrico/físico fiel directamente desde splits_json para correr 'Qué Pasa Si...'
+    sin tener que volver a subir el archivo GPX/FIT.
+    """
+    if isinstance(cfg, dict) and cfg.get("route_data_gz"):
+        rd = _decompress_route_data(cfg["route_data_gz"])
+        if rd:
+            return rd
+
+    total_dist_km = max(1.0, float(sc.distance_km or 40.0))
+    total_gain_m = max(0.0, float(sc.elevation_gain_m or 0.0))
+    wind_deg_ref = float(cfg.get("wind_deg", 45.0)) if isinstance(cfg, dict) else 45.0
+
+    # Parsear splits guardados (Tramo, Pend. %, Viento)
+    parsed_bins = []
+    if splits and isinstance(splits, list):
+        prev_km = 0.0
+        for sp in splits:
+            tramo = str(sp.get("Tramo", ""))
+            nums = re.findall(r"\d+(?:\.\d+)?", tramo)
+            if len(nums) >= 2:
+                k0, k1 = float(nums[0]), float(nums[1])
+            else:
+                k0 = prev_km
+                k1 = prev_km + (total_dist_km / max(1, len(splits)))
+            if k1 <= k0 + 0.05:
+                k1 = k0 + max(0.5, total_dist_km / max(1, len(splits)))
+            prev_km = k1
+            g_pct = float(sp.get("Pend. %", 0.0) or 0.0)
+            v_str = str(sp.get("Viento", ""))
+            if "Contra" in v_str:
+                bearing = wind_deg_ref % 360.0
+            elif "Favor" in v_str:
+                bearing = (wind_deg_ref + 180.0) % 360.0
+            else:
+                bearing = (wind_deg_ref + 90.0) % 360.0
+            parsed_bins.append((k0, k1, max(-0.18, min(0.20, g_pct / 100.0)), bearing))
+
+    if not parsed_bins:
+        # Fallback mínimo por distancia y desnivel total
+        avg_g = (total_gain_m / max(1000.0, total_dist_km * 1000.0))
+        n_b = 20
+        step_k = total_dist_km / n_b
+        for i in range(n_b):
+            g_i = avg_g * 2.0 if i < n_b // 2 else -avg_g * 2.0
+            parsed_bins.append((i * step_k, (i + 1) * step_k, g_i, 0.0 if i < n_b // 2 else 180.0))
+
+    # Subdividir en segmentos de ~500 m con trazado sintético limpio
+    segments = []
+    cum_m = 0.0
+    cur_ele = 500.0
+    lat0, lon0 = 6.15, -75.37
+    elev_gain = 0.0
+    elev_loss = 0.0
+    for k0, k1, grade, bearing in parsed_bins:
+        bin_len_m = max(100.0, (k1 - k0) * 1000.0)
+        n_sub = max(1, min(12, int(round(bin_len_m / 500.0))))
+        sub_l = bin_len_m / n_sub
+        b_rad = math.radians(bearing)
+        for _ in range(n_sub):
+            e0 = cur_ele
+            de = grade * sub_l
+            e1 = max(0.0, e0 + de)
+            cur_ele = e1
+            if de > 0:
+                elev_gain += de
+            else:
+                elev_loss += abs(de)
+            d_start = cum_m
+            cum_m += sub_l
+            lat0 += (sub_l * math.cos(b_rad)) / 111320.0
+            lon0 += (sub_l * math.sin(b_rad)) / (111320.0 * max(0.2, math.cos(math.radians(lat0))))
+            segments.append({
+                "lat": round(lat0, 5),
+                "lon": round(lon0, 5),
+                "ele_m": round(0.5 * (e0 + e1), 1),
+                "ele_start": round(e0, 1),
+                "ele_end": round(e1, 1),
+                "length_m": round(sub_l, 1),
+                "dist_start_m": round(d_start, 1),
+                "dist_end_m": round(cum_m, 1),
+                "dist_mid_km": round((d_start + 0.5 * sub_l) / 1000.0, 3),
+                "grade": round(grade, 5),
+                "bearing_deg": round(bearing, 1),
+                "turn_deg": 0.0,
+                "lap": 1,
+            })
+
+    eles = [sg["ele_m"] for sg in segments]
+    grades_pct = [sg["grade"] * 100.0 for sg in segments]
+    return {
+        "route_name": sc.route_name or sc.scenario_name or "Plan Guardado",
+        "laps": 1,
+        "total_distance_km": round(cum_m / 1000.0, 2),
+        "elevation_gain_m": round(total_gain_m if total_gain_m > 0 else elev_gain, 0),
+        "elevation_loss_m": round(elev_loss, 0),
+        "min_ele_m": round(min(eles), 0),
+        "max_ele_m": round(max(eles), 0),
+        "avg_ele_m": round(sum(eles) / len(eles), 0),
+        "max_grade_pct": round(max(grades_pct), 1),
+        "min_grade_pct": round(min(grades_pct), 1),
+        "segments": segments,
+        "reconstructed_from_splits": True,
+    }
+
+
+def _build_ctx_from_saved_scenario(sc, ath_defaults: dict) -> tuple:
+    """Construye (route_sig, route_data, ctx) completos a partir de un RaceStrategyScenario guardado en DB."""
+    cfg = _safe_parse_json(sc.config_json, {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    splits = _safe_parse_json(sc.splits_json, [])
+    if not isinstance(splits, list):
+        splits = []
+
+    route_data = _reconstruct_route_from_saved_scenario(sc, cfg, splits)
+    route_sig = f"saved_sc_{sc.id}_{round(float(sc.distance_km or 0), 1)}_{len(route_data['segments'])}"
+
+    bike_type = cfg.get("bike_type") if cfg.get("bike_type") in BIKE_TYPES else list(BIKE_TYPES.keys())[0]
+    wheels = cfg.get("wheels") if cfg.get("wheels") in WHEEL_SETS else list(WHEEL_SETS.keys())[1]
+    helmet = cfg.get("helmet") if cfg.get("helmet") in HELMETS else list(HELMETS.keys())[0]
+    tires = cfg.get("tires") if cfg.get("tires") in TIRES_CRR else list(TIRES_CRR.keys())[1]
+    drivetrain = cfg.get("drivetrain") if cfg.get("drivetrain") in DRIVETRAINS else list(DRIVETRAINS.keys())[1]
+    apparel = cfg.get("apparel") if cfg.get("apparel") in APPAREL_OPTIONS else list(APPAREL_OPTIONS.keys())[0]
+    hydration = cfg.get("hydration") if cfg.get("hydration") in HYDRATION_SETUP else list(HYDRATION_SETUP.keys())[0]
+    surface = cfg.get("surface") if cfg.get("surface") in ROAD_SURFACES else list(ROAD_SURFACES.keys())[1]
+
+    rider_weight = float(cfg.get("rider_weight_kg") or ath_defaults["weight_kg"])
+    rider_height = float(cfg.get("rider_height_cm") or ath_defaults["height_cm"])
+    saved_if = float(cfg.get("target_if") or sc.intensity_factor or 0.80)
+    saved_if = max(0.45, min(1.12, saved_if))
+    if cfg.get("ftp_w"):
+        ftp_w = float(cfg["ftp_w"])
+    elif sc.norm_power_w and saved_if > 0.4:
+        ftp_w = round(float(sc.norm_power_w) / saved_if, 1)
+    else:
+        ftp_w = float(ath_defaults["ftp_w"])
+
+    saved_cda = float(sc.cda) if (sc.cda and 0.14 <= float(sc.cda) <= 0.55) else None
+    saved_bike_kg = None
+    if sc.total_mass_kg and float(sc.total_mass_kg) - rider_weight >= 5.0:
+        saved_bike_kg = round(float(sc.total_mass_kg) - rider_weight, 2)
+
+    equipment = estimate_equipment_specs(
+        bike_type=bike_type, wheels=wheels, helmet=helmet, tires=tires,
+        drivetrain=drivetrain, apparel=apparel, hydration=hydration,
+        surface=surface, rider_height_cm=rider_height,
+        manual_cda=saved_cda, manual_bike_weight_kg=saved_bike_kg,
+    )
+
+    temp_c = float(cfg.get("temp_c") if cfg.get("temp_c") is not None else 24.0)
+    humidity_pct = float(cfg.get("humidity_pct") if cfg.get("humidity_pct") is not None else 65.0)
+    wind_kmh = float(cfg.get("wind_kmh") if cfg.get("wind_kmh") is not None else 8.0)
+    wind_deg = float(cfg.get("wind_deg") if cfg.get("wind_deg") is not None else 45.0)
+
+    strat_label = str(cfg.get("strategy") or "⚡ Óptimo AlphaX (Variable por Pendiente y Viento)")
+    if "Constante" in strat_label:
+        strategy_code = "constant"
+    elif "Negative" in strat_label:
+        strategy_code = "negative_split"
+    else:
+        strategy_code = "optimal"
+
+    try:
+        race_date = datetime.strptime(cfg["race_date"], "%Y-%m-%d").date() if cfg.get("race_date") else (date.today() + timedelta(days=3))
+    except Exception:
+        race_date = date.today() + timedelta(days=3)
+    race_time_str = str(cfg.get("race_start_time") or "07:00")
+
+    sim = _sim_fast(
+        route_sig=route_sig, route_data=route_data, rider_weight_kg=rider_weight,
+        ftp_w=ftp_w, target_if=saved_if, equipment=equipment,
+        temp_c=temp_c, humidity_pct=humidity_pct, wind_kmh=wind_kmh, wind_deg=wind_deg,
+        strategy=strategy_code, max_climb_pct=1.05, max_desc_kmh=68.0,
+        split_step_km=5.0, hourly_weather=None,
+    )
+    ctx = {
+        "sim": sim,
+        "s": sim["summary"],
+        "nut": sim["nutrition"],
+        "equipment": equipment,
+        "rider_weight": rider_weight,
+        "rider_height": rider_height,
+        "ftp_w": ftp_w,
+        "target_if": saved_if,
+        "temp_c": temp_c,
+        "humidity_pct": humidity_pct,
+        "wind_kmh": wind_kmh,
+        "wind_deg": wind_deg,
+        "strategy_code": strategy_code,
+        "strat_label": strat_label,
+        "max_climb_pct": 1.05,
+        "max_desc_kmh": 68.0,
+        "split_step_km": 5.0,
+        "active_hourly_weather": None,
+        "bike_type": bike_type,
+        "wheels": wheels,
+        "helmet": helmet,
+        "tires": tires,
+        "drivetrain": drivetrain,
+        "apparel": apparel,
+        "hydration": hydration,
+        "surface": surface,
+        "race_date": race_date,
+        "race_time_str": race_time_str,
+        "weather_data": {"source_label": cfg.get("weather_source", "Manual")},
+        "weather_matches_route": False,
+        "loaded_from_scenario_name": sc.scenario_name,
+        "loaded_from_scenario_id": sc.id,
+    }
+    return route_sig, route_data, ctx
 
 
 @st.cache_resource(show_spinner=False)
@@ -1474,15 +1754,25 @@ def render_saved_scenarios_library(
             st.code(txt_card, language="text")
     else:
         if allow_delete:
-            c_act1, c_act2, c_act3 = st.columns([1.2, 1.2, 0.9])
+            c_act0, c_act1, c_act2, c_act3 = st.columns([1.35, 1.05, 1.15, 0.85])
         else:
-            c_act1, c_act2 = st.columns(2)
+            c_act0, c_act1, c_act2 = st.columns([1.35, 1.1, 1.1])
             c_act3 = None
 
+        with c_act0:
+            if st.button(
+                "⚔️ Abrir en 'Qué Pasa Si...'",
+                type="primary",
+                use_container_width=True,
+                key=f"rs_open_wi_{key_prefix}_{sel_sc.id}",
+            ):
+                st.session_state["rs_loaded_saved_sc_id"] = sel_sc.id
+                st.session_state["rs_active_section"] = "comp"
+                st.rerun()
         with c_act1:
             if sel_splits:
                 st.download_button(
-                    "⬇️ Descargar Pacing (CSV)",
+                    "⬇️ Pacing (CSV)",
                     data=pd.DataFrame(sel_splits).to_csv(index=False).encode("utf-8-sig"),
                     file_name=f"pacing_{safe_slug}.csv",
                     mime="text/csv",
@@ -1491,7 +1781,7 @@ def render_saved_scenarios_library(
                 )
         with c_act2:
             st.download_button(
-                "🏷️ Descargar Ficha Manillar + Nutrición (TXT)",
+                "🏷️ Ficha Manillar (TXT)",
                 data=txt_card.encode("utf-8"),
                 file_name=f"plan_carrera_{safe_slug}.txt",
                 mime="text/plain",
@@ -1501,7 +1791,7 @@ def render_saved_scenarios_library(
         if allow_delete and c_act3 is not None:
             with c_act3:
                 if st.button(
-                    "🗑️ Eliminar Plan",
+                    "🗑️ Eliminar",
                     type="secondary",
                     use_container_width=True,
                     key=f"rs_del_sc_{key_prefix}_{sel_sc.id}",
@@ -1554,7 +1844,7 @@ def render_race_strategy_page():
                     margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.14</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.16</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Sube el circuito GPX/FIT, calibra el CdA real, simula escenarios "Qué Pasa Si..." y gestiona planes de carrera estilo Best Bike Split.
@@ -1662,17 +1952,29 @@ def render_race_strategy_page():
     uploaded_custom_file = False
     laps = int(st.session_state.get("rs_laps", 1))
 
-    if active_section in ("sim", "comp"):
-        col_top1, col_top2 = st.columns([1.15, 1.85])
-    else:
-        col_top1, col_top2 = st.columns([1.5, 1.5])
+    # Mantener SIEMPRE la misma estructura de columnas para que Streamlit nunca desincronice el deportista seleccionado
+    col_top1, col_top2 = st.columns([1.15, 1.85])
 
+    member_labels = list(member_map.keys())
     with col_top1:
+        # Sincronizar explícitamente el deportista seleccionado entre cambios de botón superior
+        if "rs_athlete_select" in st.session_state and st.session_state["rs_athlete_select"] in member_map:
+            st.session_state["rs_locked_athlete_lbl"] = st.session_state["rs_athlete_select"]
+        saved_lbl = st.session_state.get("rs_locked_athlete_lbl")
+        def_idx = member_labels.index(saved_lbl) if saved_lbl in member_labels else 0
+
+        def _on_athlete_change():
+            st.session_state["rs_locked_athlete_lbl"] = st.session_state["rs_athlete_select"]
+            st.session_state.pop("rs_loaded_saved_sc_id", None)
+
         sel_member_label = st.selectbox(
             "🏃‍♂️ Seleccionar Deportista:",
-            list(member_map.keys()),
+            member_labels,
+            index=def_idx,
             key="rs_athlete_select",
+            on_change=_on_athlete_change,
         )
+        st.session_state["rs_locked_athlete_lbl"] = sel_member_label
         member_id = member_map[sel_member_label]
         ath_defaults = _load_athlete_defaults(member_id)
         cda_pill = ""
@@ -1685,64 +1987,113 @@ def render_race_strategy_page():
             f"FTP **{ath_defaults['ftp_w']:.0f} W** ({ath_defaults['ftp_src']}){cda_pill}"
         )
 
-    # Recuperar archivo persistido en sesión para no perderlo al cambiar entre botones superiores
-    persisted = st.session_state.get("rs_persisted_route")
+    # Consultar planes guardados de ESTE deportista (para poder abrir Qué Pasa Si directo sobre ellos)
+    with SessionLocal() as _s_chk:
+        member_saved_plans = (
+            _s_chk.query(RaceStrategyScenario)
+            .filter(RaceStrategyScenario.member_id == member_id)
+            .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
+            .all()
+        )
+
+    # Recuperar archivo persistido en sesión POR DEPORTISTA para no mezclar rutas entre atletas
+    persisted_map = st.session_state.setdefault("rs_persisted_route_map", {})
+    persisted = persisted_map.get(member_id)
+    loaded_saved_sc = None
 
     if active_section in ("sim", "comp"):
         with col_top2:
+            src_options = []
+            if member_saved_plans:
+                src_options.append("🗂️ Plan Guardado del Deportista")
+            src_options.extend([
+                "📂 Subir archivo FIT / GPX / TCX",
+                "🌴 Demo: Ironman 70.3 Cartagena (90 km)",
+                "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)",
+            ])
+            # Si venimos de pulsar "Abrir en Qué Pasa Si..." o estamos en Comparador sin archivo subido y tiene planes guardados
+            want_saved_id = st.session_state.get("rs_loaded_saved_sc_id")
+            default_src_idx = 0
+            if member_saved_plans and (want_saved_id or (active_section == "comp" and not persisted)):
+                default_src_idx = 0
+            elif member_saved_plans and active_section == "sim" and persisted:
+                default_src_idx = 1  # mantener archivo subido en simulador
+
+            src_radio_key = f"rs_route_source_{member_id}_{active_section}_{1 if want_saved_id else 0}"
             route_source = st.radio(
                 "🗺️ Origen del Circuito de Ciclismo:",
-                ["📂 Subir archivo FIT / GPX / TCX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
+                src_options,
+                index=default_src_idx,
                 horizontal=True,
-                key="rs_route_source",
+                key=src_radio_key,
             )
-            c_gpx1, c_gpx2 = st.columns([2.2, 1])
-            with c_gpx1:
-                if route_source.startswith("📂"):
-                    up_gpx = st.file_uploader(
-                        "Sube la ruta o actividad (.fit, .gpx, .tcx o .zip de Garmin/Strava/Wahoo/TrainingPeaks):",
-                        type=["fit", "gpx", "tcx", "zip", "gz"],
-                        key="rs_gpx_uploader",
-                    )
-                    if up_gpx is not None:
-                        route_file_bytes = up_gpx.getvalue()
-                        route_file_label = up_gpx.name
-                        uploaded_custom_file = True
-                        st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, True)
-                    elif persisted and persisted[2]:
-                        route_file_bytes, route_file_label, uploaded_custom_file = persisted
-                        c_pr1, c_pr2 = st.columns([3, 1])
-                        with c_pr1:
-                            st.caption(f"📎 Circuito activo en memoria: **`{route_file_label}`**")
-                        with c_pr2:
-                            if st.button("✕ Quitar", key="rs_clear_persisted", use_container_width=True):
-                                st.session_state.pop("rs_persisted_route", None)
-                                st.rerun()
-                elif "Cartagena" in route_source:
-                    route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
-                    route_file_label = "demo_cartagena.gpx"
-                    st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, False)
-                else:
-                    route_file_bytes, route_file_label = generate_demo_gpx("rionegro_climb")
-                    route_file_label = "demo_rionegro.gpx"
-                    st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, False)
-            with c_gpx2:
-                laps = st.number_input(
-                    "🔁 Vueltas al circuito:",
-                    min_value=1,
-                    max_value=15,
-                    value=1,
-                    step=1,
-                    help="Si tu archivo es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
-                    key="rs_laps",
+
+            if route_source.startswith("🗂️") and member_saved_plans:
+                plan_pick_map = {
+                    f"{p.scenario_name} ({format_hms(p.estimated_time_sec)} · {float(p.distance_km or 0):.0f} km)": p
+                    for p in member_saved_plans
+                }
+                plan_keys = list(plan_pick_map.keys())
+                plan_idx = 0
+                if want_saved_id:
+                    for pi, pk in enumerate(plan_keys):
+                        if plan_pick_map[pk].id == want_saved_id:
+                            plan_idx = pi
+                            break
+                sel_plan_lbl = st.selectbox(
+                    f"📌 Plan guardado base de {ath_defaults['name']}:",
+                    plan_keys,
+                    index=plan_idx,
+                    key=f"rs_saved_base_pick_{member_id}_{active_section}",
                 )
+                loaded_saved_sc = plan_pick_map[sel_plan_lbl]
+            else:
+                c_gpx1, c_gpx2 = st.columns([2.2, 1])
+                with c_gpx1:
+                    if route_source.startswith("📂"):
+                        up_gpx = st.file_uploader(
+                            "Sube la ruta o actividad (.fit, .gpx, .tcx o .zip de Garmin/Strava/Wahoo/TrainingPeaks):",
+                            type=["fit", "gpx", "tcx", "zip", "gz"],
+                            key=f"rs_gpx_uploader_{member_id}",
+                        )
+                        if up_gpx is not None:
+                            route_file_bytes = up_gpx.getvalue()
+                            route_file_label = up_gpx.name
+                            uploaded_custom_file = True
+                            persisted_map[member_id] = (route_file_bytes, route_file_label, True)
+                        elif persisted and persisted[2]:
+                            route_file_bytes, route_file_label, uploaded_custom_file = persisted
+                            c_pr1, c_pr2 = st.columns([3, 1])
+                            with c_pr1:
+                                st.caption(f"📎 Circuito activo en memoria: **`{route_file_label}`**")
+                            with c_pr2:
+                                if st.button("✕ Quitar", key=f"rs_clear_persisted_{member_id}", use_container_width=True):
+                                    persisted_map.pop(member_id, None)
+                                    st.rerun()
+                    elif "Cartagena" in route_source:
+                        route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
+                        route_file_label = "demo_cartagena.gpx"
+                        persisted_map[member_id] = (route_file_bytes, route_file_label, False)
+                    else:
+                        route_file_bytes, route_file_label = generate_demo_gpx("rionegro_climb")
+                        route_file_label = "demo_rionegro.gpx"
+                        persisted_map[member_id] = (route_file_bytes, route_file_label, False)
+                with c_gpx2:
+                    laps = st.number_input(
+                        "🔁 Vueltas al circuito:",
+                        min_value=1,
+                        max_value=15,
+                        value=1,
+                        step=1,
+                        help="Si tu archivo es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
+                        key="rs_laps",
+                    )
     else:
-        # En Calibrar CdA o Escenarios Guardados, mantenemos en memoria el circuito si ya existía
         if persisted:
             route_file_bytes, route_file_label, uploaded_custom_file = persisted
         with col_top2:
             if active_section == "saved":
-                st.caption("🗂️ Vista directa de planes guardados. Usa los botones de arriba para simular un circuito nuevo o calibrar CdA.")
+                st.caption("🗂️ Vista directa de planes guardados. Pulsa **⚔️ Abrir en 'Qué Pasa Si...'** sobre cualquier plan para simular mejoras al instante.")
             else:
                 st.caption("📐 Calibra el CdA real usando cualquier carrera pasada (.FIT/.TCX/.GPX) sin necesidad de subir un circuito en el simulador.")
 
@@ -1757,10 +2108,13 @@ def render_race_strategy_page():
         )
         return
 
-    # Parsear ruta si existe en memoria (necesaria para Simulador / Comparador, opcional en Calibrar CdA)
+    # Parsear ruta (desde Plan Guardado seleccionado O desde archivo GPX/FIT/TCX)
     route_data = None
     route_sig = None
-    if route_file_bytes:
+    saved_plan_ctx = None
+    if loaded_saved_sc is not None:
+        route_sig, route_data, saved_plan_ctx = _build_ctx_from_saved_scenario(loaded_saved_sc, ath_defaults)
+    elif route_file_bytes:
         route_file_hash = hashlib.sha256(route_file_bytes).hexdigest()[:16]
         route_sig = f"{route_file_hash}_{route_file_label}_{int(laps)}"
         try:
@@ -1770,7 +2124,7 @@ def render_race_strategy_page():
                 st.error(f"⚠️ No se pudo leer el archivo `{route_file_label}`: {gpx_err}")
                 return
 
-    # Si estamos en Simulador o Comparador pero aún no hay circuito cargado:
+    # Si estamos en Simulador o Comparador pero aún no hay circuito cargado ni plan guardado:
     if active_section in ("sim", "comp") and not route_data:
         st.info(
             "📂 Para usar el **Simulador** o el **Comparador 'Qué Pasa Si...'**, sube arriba un archivo `.fit`, `.gpx`, `.tcx` o `.zip` (o elige una ruta Demo). "
@@ -2333,6 +2687,7 @@ def render_race_strategy_page():
                         "vi": s["vi"],
                         "resistance": sim["resistance"],
                         "nutrition": nut,
+                        "route_data_gz": _compress_route_data(route_data),
                     }
                     with SessionLocal() as s_db:
                         new_sc = RaceStrategyScenario(
@@ -2810,7 +3165,12 @@ def render_race_strategy_page():
     #  SECCIÓN 3: COMPARADOR INTERACTIVO "QUÉ PASA SI..." (ESTILO BEST BIKE SPLIT)
     # ═════════════════════════════════════════════════════════════════
     elif active_section == "comp":
-        ctx = st.session_state.get(sim_ctx_key) if sim_ctx_key else None
+        ctx = saved_plan_ctx or (st.session_state.get(sim_ctx_key) if sim_ctx_key else None)
+        if saved_plan_ctx and saved_plan_ctx.get("loaded_from_scenario_name"):
+            st.success(
+                f"📌 Analizando en **'Qué Pasa Si...'** el plan guardado: **{saved_plan_ctx['loaded_from_scenario_name']}** "
+                + ("*(perfil altimétrico reconstruido desde splits guardados)*" if route_data.get("reconstructed_from_splits") else "*(circuito GPX completo guardado)*")
+            )
         if not ctx:
             # Construir escenario base por defecto al instante si el usuario entró directo al Comparador
             bike_type = list(BIKE_TYPES.keys())[0]
@@ -3220,6 +3580,7 @@ def render_race_strategy_page():
                                         "d_cda": d_cda, "d_np_w": d_np_w, "d_weight": d_weight,
                                         "d_if": d_if_sim, "d_crr": d_crr, "d_wind": d_wind,
                                         "nutrition": wi_sim["nutrition"],
+                                        "route_data_gz": _compress_route_data(route_data),
                                     }, ensure_ascii=False),
                                     splits_json=json.dumps(wi_sim["splits"], ensure_ascii=False),
                                     created_at=datetime.now(),
