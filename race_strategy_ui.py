@@ -240,13 +240,291 @@ def _build_speed_wind_chart(segments: list) -> go.Figure:
     return fig
 
 
-def _build_gps_map_chart(segments: list, color_mode: str = "wind", wind_from_deg: float = 0.0, wind_kmh: float = 0.0) -> go.Figure:
-    """Mapa 2D del circuito GPX coloreado por viento relativo o potencia objetivo."""
+_GRADE_HEATMAP_SCALE = [
+    [0.00, "#00B0FF"],  # Descenso veloz (<= -6%)
+    [0.25, "#00E676"],  # Bajada rápida (~ -2.5%)
+    [0.43, "#94A3B8"],  # Llano (~ 0%)
+    [0.62, "#FFD600"],  # Falso llano / repecho (~ +2.7%)
+    [0.80, "#FF7A00"],  # Subida moderada (~ +5.2%)
+    [1.00, "#FF1744"],  # Subida fuerte / muro (>= +8%)
+]
+
+
+def _classify_grade_heat(grade_pct: float) -> tuple:
+    """Clasifica una pendiente (%) en cubeta de mapa de calor: (id, etiqueta, color_hex, fill_rgba)."""
+    if grade_pct >= 8.0:
+        return ("wall", "🔥 Muro (≥8%)", "#B71C1C", "rgba(183, 28, 28, 0.85)")
+    if grade_pct >= 5.0:
+        return ("steep_up", "🔴 Subida Fuerte (5–8%)", "#FF2E43", "rgba(255, 46, 67, 0.78)")
+    if grade_pct >= 2.5:
+        return ("mod_up", "🟠 Subida Moderada (2.5–5%)", "#FF8A00", "rgba(255, 138, 0, 0.74)")
+    if grade_pct >= 1.0:
+        return ("mild_up", "🟡 Repecho (+1–2.5%)", "#FFD600", "rgba(255, 214, 0, 0.62)")
+    if grade_pct > -1.0:
+        return ("flat", "⚪ Llano (-1% a +1%)", "#64748B", "rgba(100, 116, 139, 0.42)")
+    if grade_pct > -3.5:
+        return ("fast_down", "🟢 Bajada Rápida (-1% a -3.5%)", "#00E676", "rgba(0, 230, 118, 0.68)")
+    return ("steep_down", "🔵 Descenso Veloz (≤-3.5%)", "#00B0FF", "rgba(0, 176, 255, 0.78)")
+
+
+def _build_course_elevation_heatmap(route_data: dict) -> tuple:
+    """
+    Perfil altimétrico con mapa de calor de pendientes (%):
+    Rojo/Naranja = mayor desnivel positivo (subidas exigentes),
+    Verde/Azul = bajadas rápidas donde se desarrolla máxima velocidad.
+    """
+    segs = route_data.get("segments") or []
+    if not segs:
+        return go.Figure(), {}
+
+    # Estadísticas de distribución de terreno reales sobre todos los segmentos
+    climb_m = flat_m = descent_m = steep_up_m = fast_down_m = 0.0
+    for sg in segs:
+        g_pct = float(sg.get("grade", 0.0)) * 100.0
+        l_m = float(sg.get("length_m", 0.0))
+        if g_pct >= 1.0:
+            climb_m += l_m
+            if g_pct >= 5.0:
+                steep_up_m += l_m
+        elif g_pct <= -1.0:
+            descent_m += l_m
+            if g_pct <= -3.0:
+                fast_down_m += l_m
+        else:
+            flat_m += l_m
+
+    terrain_stats = {
+        "climb_km": round(climb_m / 1000.0, 1),
+        "flat_km": round(flat_m / 1000.0, 1),
+        "descent_km": round(descent_m / 1000.0, 1),
+        "steep_up_km": round(steep_up_m / 1000.0, 1),
+        "fast_down_km": round(fast_down_m / 1000.0, 1),
+        "max_grade_pct": route_data.get("max_grade_pct", 0.0),
+        "min_grade_pct": route_data.get("min_grade_pct", 0.0),
+    }
+
+    # Agrupar segmentos en ~180 bloques uniformes para una visualización limpia y veloz
+    target_bins = 180
+    group_sz = max(1, int(math.ceil(len(segs) / float(target_bins))))
+    bins = []
+    for i in range(0, len(segs), group_sz):
+        chunk = segs[i : i + group_sz]
+        d0 = float(chunk[0]["dist_start_m"]) / 1000.0
+        d1 = float(chunk[-1]["dist_end_m"]) / 1000.0
+        e0 = float(chunk[0]["ele_start"])
+        e1 = float(chunk[-1]["ele_end"])
+        tot_l = sum(float(c["length_m"]) for c in chunk)
+        g_pct = ((e1 - e0) / max(1.0, tot_l)) * 100.0
+        b_id, b_lbl, b_hex, b_rgba = _classify_grade_heat(g_pct)
+        bins.append({
+            "d0": d0, "d1": d1, "dm": 0.5 * (d0 + d1),
+            "e0": e0, "e1": e1, "em": 0.5 * (e0 + e1),
+            "grade_pct": round(g_pct, 1),
+            "b_id": b_id, "b_lbl": b_lbl, "b_hex": b_hex, "b_rgba": b_rgba,
+        })
+
+    all_eles = [b["e0"] for b in bins] + [b["e1"] for b in bins]
+    min_e = min(all_eles)
+    max_e = max(all_eles)
+    span_e = max(25.0, max_e - min_e)
+    y_floor = min_e - span_e * 0.12
+
+    # Unir bloques consecutivos del mismo color en polígonos continuos
+    runs = []
+    for b in bins:
+        if runs and runs[-1]["b_id"] == b["b_id"]:
+            runs[-1]["items"].append(b)
+        else:
+            runs.append({"b_id": b["b_id"], "b_rgba": b["b_rgba"], "b_hex": b["b_hex"], "items": [b]})
+
+    fig = go.Figure()
+    for run in runs:
+        its = run["items"]
+        xs = [its[0]["d0"]]
+        ys = [its[0]["e0"]]
+        for it in its:
+            xs.append(it["d1"])
+            ys.append(it["e1"])
+        # Cerrar el polígono hacia la base y_floor
+        poly_x = xs + [xs[-1], xs[0], xs[0]]
+        poly_y = ys + [y_floor, y_floor, ys[0]]
+        fig.add_trace(
+            go.Scatter(
+                x=poly_x,
+                y=poly_y,
+                mode="lines",
+                fill="toself",
+                fillcolor=run["b_rgba"],
+                line=dict(color=run["b_hex"], width=0.5),
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+
+    # Línea superior continua + hover interactivo detallado con color por pendiente
+    line_x = [b["dm"] for b in bins]
+    line_y = [b["em"] for b in bins]
+    hover_texts = [
+        f"<b>Km {b['dm']:.1f}</b><br>Altitud: <b>{b['em']:.0f} m</b><br>Pendiente: <b>{b['grade_pct']:+.1f}%</b><br>{b['b_lbl']}"
+        for b in bins
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=line_x,
+            y=line_y,
+            mode="lines+markers",
+            line=dict(color="rgba(255,255,255,0.75)", width=1.6),
+            marker=dict(
+                size=4,
+                color=[b["grade_pct"] for b in bins],
+                colorscale=_GRADE_HEATMAP_SCALE,
+                cmin=-6.0,
+                cmax=8.0,
+                showscale=False,
+            ),
+            text=hover_texts,
+            hoverinfo="text",
+            name="Perfil del Circuito",
+            showlegend=False,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="⛰️ Perfil Altimétrico — Mapa de Calor de Desniveles (%)",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#FFFFFF", size=14),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0", size=11),
+        height=330,
+        margin=dict(l=12, r=12, t=42, b=14),
+        hovermode="x",
+        xaxis=dict(title="Distancia (km)", gridcolor="rgba(255,255,255,0.06)"),
+        yaxis=dict(
+            title="Elevación (m)",
+            range=[y_floor, max_e + span_e * 0.12],
+            gridcolor="rgba(255,255,255,0.06)",
+        ),
+    )
+    return fig, terrain_stats
+
+
+def _build_course_planimetry_heatmap(route_data: dict) -> go.Figure:
+    """
+    Planimetría GPS 2D (vista desde arriba Lat/Lon) pintada como mapa de calor de pendientes:
+    Rojo/Naranja = subidas duras, Verde/Azul = bajadas donde se va más rápido.
+    """
+    segs = route_data.get("segments") or []
+    lap1 = [s for s in segs if s.get("lap", 1) == 1] or segs
+    if not lap1:
+        return go.Figure()
+
+    lons = [float(s["lon"]) for s in lap1]
+    lats = [float(s["lat"]) for s in lap1]
+    grades_pct = [round(float(s.get("grade", 0.0)) * 100.0, 1) for s in lap1]
+    eles = [float(s.get("ele_m", 0.0)) for s in lap1]
+    dists = [float(s.get("dist_mid_km", 0.0)) for s in lap1]
+
+    hover_txt = [
+        f"<b>Km {d:.1f}</b><br>Altitud: <b>{e:.0f} m</b><br>Pendiente: <b>{g:+.1f}%</b><br>{_classify_grade_heat(g)[1]}"
+        for d, e, g in zip(dists, eles, grades_pct)
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=lons,
+            y=lats,
+            mode="markers+lines",
+            line=dict(color="rgba(255,255,255,0.16)", width=2),
+            marker=dict(
+                size=6.5,
+                color=grades_pct,
+                colorscale=_GRADE_HEATMAP_SCALE,
+                cmin=-6.0,
+                cmax=8.0,
+                colorbar=dict(
+                    title=dict(text="Pend. %", font=dict(size=10)),
+                    thickness=11,
+                    ticksuffix="%",
+                ),
+                showscale=True,
+            ),
+            text=hover_txt,
+            hoverinfo="text",
+            name="Planimetría",
+            showlegend=False,
+        )
+    )
+
+    # Detectar si es circuito cerrado (salida cerca de meta) o punto a punto
+    d_start_end = math.hypot((lats[-1] - lats[0]) * 111.0, (lons[-1] - lons[0]) * 111.0 * math.cos(math.radians(lats[0])))
+    start_lbl = "SALIDA / META" if d_start_end < 0.35 else "SALIDA"
+    fig.add_trace(
+        go.Scatter(
+            x=[lons[0]],
+            y=[lats[0]],
+            mode="markers+text",
+            marker=dict(size=13, color="#00FF88", symbol="star", line=dict(width=1.5, color="#000")),
+            text=[start_lbl],
+            textposition="top center",
+            textfont=dict(color="#00FF88", size=10),
+            showlegend=False,
+        )
+    )
+    if d_start_end >= 0.35:
+        fig.add_trace(
+            go.Scatter(
+                x=[lons[-1]],
+                y=[lats[-1]],
+                mode="markers+text",
+                marker=dict(size=11, color="#FFD700", symbol="diamond", line=dict(width=1.5, color="#000")),
+                text=["META"],
+                textposition="bottom center",
+                textfont=dict(color="#FFD700", size=10),
+                showlegend=False,
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="🗺️ Planimetría GPS (Mapa de Calor de Pendiente)",
+            x=0.5,
+            xanchor="center",
+            font=dict(color="#00EEFF", size=13.5),
+        ),
+        paper_bgcolor="#0E121C",
+        plot_bgcolor="#0E121C",
+        font=dict(color="#E2E8F0", size=11),
+        height=330,
+        margin=dict(l=8, r=8, t=42, b=10),
+        xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, scaleanchor="y", scaleratio=1),
+        yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+        showlegend=False,
+    )
+    return fig
+
+
+def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_deg: float = 0.0, wind_kmh: float = 0.0) -> go.Figure:
+    """Mapa 2D del circuito GPX coloreado por mapa de calor de desnivel, viento relativo o potencia objetivo."""
     # Usar solo la primera vuelta para que el trazo sea nítido en circuitos multi-vuelta
     lap1 = [s for s in segments if s.get("lap", 1) == 1] or segments
     df = pd.DataFrame(lap1)
 
-    if color_mode == "power":
+    extra_marker_kwargs = {}
+    if color_mode == "grade":
+        c_vals = df["grade_pct"]
+        c_title = "Pendiente (%)"
+        c_scale = _GRADE_HEATMAP_SCALE
+        extra_marker_kwargs = {"cmin": -6.0, "cmax": 8.0}
+        hover_txt = [
+            f"Km {r['dist_km']:.1f}<br>Pendiente: <b>{r['grade_pct']:+.1f}%</b> ({_classify_grade_heat(r['grade_pct'])[1]})<br>Altitud: {r['ele_m']:.0f} m<br>Vel: {r['speed_kmh']:.1f} km/h · Pot: {r['power_w']:.0f} W"
+            for _, r in df.iterrows()
+        ]
+    elif color_mode == "power":
         c_vals = df["power_w"]
         c_title = "Potencia (W)"
         c_scale = "Turbo"
@@ -270,6 +548,7 @@ def _build_gps_map_chart(segments: list, color_mode: str = "wind", wind_from_deg
                 colorscale=c_scale,
                 colorbar=dict(title=dict(text=c_title, font=dict(size=10)), thickness=12),
                 showscale=True,
+                **extra_marker_kwargs,
             ),
             text=hover_txt,
             hoverinfo="text",
@@ -1017,7 +1296,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.8</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.9</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -1143,6 +1422,40 @@ def render_race_strategy_page():
         </div>
         """
     )
+
+    # ── PLANIMETRÍA Y ALTIMETRÍA CON MAPA DE CALOR DE DESNIVELES ────
+    fig_elev_heat, t_stats = _build_course_elevation_heatmap(route_data)
+    fig_plan_heat = _build_course_planimetry_heatmap(route_data)
+
+    with st.expander("🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles", expanded=True):
+        _render_html(
+            f"""
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
+                        background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
+                        padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#CBD5E1;">
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                    <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
+                    <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz (≤-3.5%)</span>
+                    <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada Rápida</span>
+                    <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
+                    <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
+                    <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida (2.5–5%)</span>
+                    <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte (≥5%)</span>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
+                    <span style="color:#FF6B6B;">⛰️ Subida: {t_stats.get('climb_km', 0)} km</span>
+                    <span style="color:#94A3B8;">➡️ Llano: {t_stats.get('flat_km', 0)} km</span>
+                    <span style="color:#00E676;">⬇️ Bajada: {t_stats.get('descent_km', 0)} km</span>
+                    <span style="color:#00B0FF;">🚀 Desc. rápido: {t_stats.get('fast_down_km', 0)} km</span>
+                </div>
+            </div>
+            """
+        )
+        c_hm1, c_hm2 = st.columns([1.55, 1])
+        with c_hm1:
+            st.plotly_chart(fig_elev_heat, use_container_width=True)
+        with c_hm2:
+            st.plotly_chart(fig_plan_heat, use_container_width=True)
 
     tab_sim, tab_cda, tab_comp, tab_saved = st.tabs([
         "⚙️ Simulador y Plan de Carrera",
@@ -1488,14 +1801,15 @@ def render_race_strategy_page():
         with col_vis1:
             map_color = st.radio(
                 "Colorear mapa del circuito por:",
-                ["🌬️ Viento relativo", "⚡ Potencia objetivo (W)"],
+                ["⛰️ Desnivel (Mapa de Calor)", "🌬️ Viento relativo", "⚡ Potencia objetivo (W)"],
                 horizontal=True,
                 key="rs_map_color",
             )
+            _mc = "grade" if "Desnivel" in map_color else ("power" if "Potencia" in map_color else "wind")
             st.plotly_chart(
                 _build_gps_map_chart(
                     sim["segments"],
-                    color_mode="power" if "Potencia" in map_color else "wind",
+                    color_mode=_mc,
                     wind_from_deg=wind_deg,
                     wind_kmh=wind_kmh,
                 ),
