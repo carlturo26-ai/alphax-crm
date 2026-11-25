@@ -139,27 +139,26 @@ def _build_elevation_power_chart(segments: list, ftp_w: float) -> go.Figure:
         secondary_y=True,
     )
 
-    # Curva de potencia objetivo (W)
+    # Curva de potencia objetivo (W) — Estándar AlphaX: AMARILLO para Potencia
     fig.add_trace(
         go.Scatter(
             x=df["dist_km"],
             y=df["power_w"],
             name="Potencia Objetivo (W)",
             mode="lines",
-            line=dict(color="#00EEFF", width=2.8),
+            line=dict(color="#FFD700", width=2.8),
             hovertemplate="Km %{x:.1f}<br>Potencia: %{y:.0f} W<extra></extra>",
         ),
         secondary_y=False,
     )
 
-    # Velocidad estimada (escalada visualmente o trazada en hover? Mejor en un segundo subplot limpio!)
     fig.add_hline(
         y=ftp_w,
         line_dash="dot",
-        line_color="#FF5577",
+        line_color="#FFA726",
         annotation_text=f"FTP ({ftp_w:.0f} W)",
         annotation_position="top right",
-        annotation_font=dict(color="#FF7799", size=11),
+        annotation_font=dict(color="#FFB74D", size=11),
         secondary_y=False,
     )
 
@@ -168,7 +167,7 @@ def _build_elevation_power_chart(segments: list, ftp_w: float) -> go.Figure:
             text="📈 Plan de Potencia Objetivo vs Perfil Altimétrico del Circuito",
             x=0.5,
             xanchor="center",
-            font=dict(color="#00EEFF", size=15),
+            font=dict(color="#FFD700", size=15),
         ),
         paper_bgcolor="#0E121C",
         plot_bgcolor="#0E121C",
@@ -197,13 +196,14 @@ def _build_speed_wind_chart(segments: list) -> go.Figure:
     df = pd.DataFrame(segments)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
+    # Curva de velocidad estimada (km/h) — Estándar AlphaX: VERDE para Velocidad
     fig.add_trace(
         go.Scatter(
             x=df["dist_km"],
             y=df["speed_kmh"],
             name="Velocidad Estimada (km/h)",
             mode="lines",
-            line=dict(color="#FFD700", width=2.5),
+            line=dict(color="#00FF88", width=2.6),
             hovertemplate="Km %{x:.1f}<br>Velocidad: %{y:.1f} km/h<extra></extra>",
         ),
         secondary_y=False,
@@ -213,7 +213,7 @@ def _build_speed_wind_chart(segments: list) -> go.Figure:
             x=df["dist_km"],
             y=df["headwind_kmh"],
             name="Viento (+Contra / -Favor km/h)",
-            marker_color=["rgba(255, 75, 75, 0.45)" if v > 0 else "rgba(0, 255, 136, 0.45)" for v in df["headwind_kmh"]],
+            marker_color=["rgba(255, 75, 75, 0.45)" if v > 0 else "rgba(56, 189, 248, 0.45)" for v in df["headwind_kmh"]],
             hovertemplate="Km %{x:.1f}<br>Viento relativo: %{y:+.1f} km/h<extra></extra>",
         ),
         secondary_y=True,
@@ -224,7 +224,7 @@ def _build_speed_wind_chart(segments: list) -> go.Figure:
             text="🚀 Velocidad Estimada y Viento Relativo por Kilómetro",
             x=0.5,
             xanchor="center",
-            font=dict(color="#FFD700", size=14),
+            font=dict(color="#00FF88", size=14),
         ),
         paper_bgcolor="#0E121C",
         plot_bgcolor="#0E121C",
@@ -508,8 +508,17 @@ def _build_course_planimetry_heatmap(route_data: dict) -> go.Figure:
     return fig
 
 
-def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_deg: float = 0.0, wind_kmh: float = 0.0) -> go.Figure:
-    """Mapa 2D del circuito GPX coloreado por mapa de calor de desnivel, viento relativo o potencia objetivo."""
+def _build_gps_map_chart(
+    segments: list,
+    color_mode: str = "grade",
+    wind_from_deg: float = 0.0,
+    wind_kmh: float = 0.0,
+    show_wind_arrows: bool = True,
+) -> go.Figure:
+    """
+    Mapa 2D del circuito GPX coloreado por mapa de calor de desnivel, viento relativo o potencia objetivo,
+    con flechas vectoriales de dirección del viento real y velocidad del viento relativo sobre el recorrido.
+    """
     # Usar solo la primera vuelta para que el trazo sea nítido en circuitos multi-vuelta
     lap1 = [s for s in segments if s.get("lap", 1) == 1] or segments
     df = pd.DataFrame(lap1)
@@ -521,19 +530,26 @@ def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_de
         c_scale = _GRADE_HEATMAP_SCALE
         extra_marker_kwargs = {"cmin": -6.0, "cmax": 8.0}
         hover_txt = [
-            f"Km {r['dist_km']:.1f}<br>Pendiente: <b>{r['grade_pct']:+.1f}%</b> ({_classify_grade_heat(r['grade_pct'])[1]})<br>Altitud: {r['ele_m']:.0f} m<br>Vel: {r['speed_kmh']:.1f} km/h · Pot: {r['power_w']:.0f} W"
+            f"Km {r['dist_km']:.1f}<br>Pendiente: <b>{r['grade_pct']:+.1f}%</b> ({_classify_grade_heat(r['grade_pct'])[1]})<br>Altitud: {r['ele_m']:.0f} m<br>Vel: {r['speed_kmh']:.1f} km/h · Pot: {r['power_w']:.0f} W<br>Viento rel.: {r['headwind_kmh']:+.1f} km/h"
             for _, r in df.iterrows()
         ]
     elif color_mode == "power":
         c_vals = df["power_w"]
         c_title = "Potencia (W)"
-        c_scale = "Turbo"
-        hover_txt = [f"Km {r['dist_km']:.1f}<br>Potencia: {r['power_w']:.0f} W<br>Pend: {r['grade_pct']:+.1f}%<br>Vel: {r['speed_kmh']:.1f} km/h" for _, r in df.iterrows()]
+        # Escala en tonos amarillos/dorados (Estándar AlphaX: Amarillo = Potencia)
+        c_scale = [[0.0, "#4A3800"], [0.35, "#B8860B"], [0.7, "#FFD700"], [1.0, "#FFF59D"]]
+        hover_txt = [
+            f"Km {r['dist_km']:.1f}<br>Potencia: <b>{r['power_w']:.0f} W</b><br>Pend: {r['grade_pct']:+.1f}% · Vel: {r['speed_kmh']:.1f} km/h<br>Viento rel.: {r['headwind_kmh']:+.1f} km/h"
+            for _, r in df.iterrows()
+        ]
     else:
         c_vals = df["headwind_kmh"]
-        c_title = "Viento (+Contra / -Favor)"
+        c_title = "Viento Rel. (+Contra/-Favor)"
         c_scale = [[0.0, "#00FF88"], [0.5, "#38BDF8"], [1.0, "#FF4B4B"]]
-        hover_txt = [f"Km {r['dist_km']:.1f}<br>Viento: {r['headwind_kmh']:+.1f} km/h<br>Potencia: {r['power_w']:.0f} W<br>Vel: {r['speed_kmh']:.1f} km/h" for _, r in df.iterrows()]
+        hover_txt = [
+            f"Km {r['dist_km']:.1f}<br>Viento rel.: <b>{r['headwind_kmh']:+.1f} km/h</b> (Lat: {r.get('crosswind_kmh', 0):.1f} km/h)<br>Viento real: {r.get('wind_kmh', wind_kmh):.0f} km/h desde {deg_to_compass(r.get('wind_from_deg', wind_from_deg))}<br>Potencia: {r['power_w']:.0f} W · Vel: {r['speed_kmh']:.1f} km/h"
+            for _, r in df.iterrows()
+        ]
 
     fig = go.Figure()
     fig.add_trace(
@@ -555,6 +571,117 @@ def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_de
             name="Circuito GPX",
         )
     )
+
+    # ── FLECHAS VECTORIALES DE DIRECCIÓN DEL VIENTO + VELOCIDAD RELATIVA ──
+    has_any_wind = (float(wind_kmh or 0.0) > 0.5) or (
+        "wind_kmh" in df.columns and float(df["wind_kmh"].max()) > 0.5
+    )
+    if show_wind_arrows and has_any_wind and len(df) >= 4:
+        lon_span = max(1e-4, float(df["lon"].max() - df["lon"].min()))
+        lat_span = max(1e-4, float(df["lat"].max() - df["lat"].min()))
+        base_span = max(lon_span, lat_span)
+        arrow_len = base_span * 0.085
+
+        n_pts = len(df)
+        n_arrows = min(14, max(6, n_pts // 12))
+        step = max(1, (n_pts - 1) // n_arrows)
+        sample_idxs = list(range(step // 2, n_pts, step))[:n_arrows]
+
+        arrow_hover_x, arrow_hover_y, arrow_hover_txt = [], [], []
+        for k_i, idx in enumerate(sample_idxs):
+            row = df.iloc[idx]
+            seg_w_spd = float(row["wind_kmh"]) if "wind_kmh" in df.columns else float(wind_kmh)
+            seg_w_deg = float(row["wind_from_deg"]) if "wind_from_deg" in df.columns else float(wind_from_deg)
+            if seg_w_spd <= 0.4:
+                continue
+
+            hw = float(row["headwind_kmh"])
+            cw = float(row.get("crosswind_kmh", 0.0))
+            # Convención meteorológica: el viento viene DESDE seg_w_deg y sopla HACIA (seg_w_deg + 180)°
+            blow_to_rad = math.radians((seg_w_deg + 180.0) % 360.0)
+            ux = math.sin(blow_to_rad)
+            uy = math.cos(blow_to_rad)
+
+            # Escala sutil de longitud según intensidad del viento local
+            spd_scale = max(0.75, min(1.35, seg_w_spd / max(8.0, float(wind_kmh or 12.0))))
+            dx = ux * arrow_len * spd_scale
+            dy = uy * arrow_len * spd_scale
+
+            cx = float(row["lon"])
+            cy = float(row["lat"])
+            tail_x = cx - 0.48 * dx
+            tail_y = cy - 0.48 * dy
+            tip_x = cx + 0.52 * dx
+            tip_y = cy + 0.52 * dy
+
+            if hw >= 3.0:
+                arr_col = "#FF4B4B"
+                rel_tag = "Contra"
+            elif hw <= -3.0:
+                arr_col = "#00FF88"
+                rel_tag = "Favor"
+            else:
+                arr_col = "#38BDF8"
+                rel_tag = "Cruzado"
+
+            # Flecha vectorial real en coordenadas de datos (se escala con el zoom)
+            fig.add_annotation(
+                x=tip_x,
+                y=tip_y,
+                ax=tail_x,
+                ay=tail_y,
+                xref="x",
+                yref="y",
+                axref="x",
+                ayref="y",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1.25,
+                arrowwidth=2.3,
+                arrowcolor=arr_col,
+                opacity=0.92,
+            )
+
+            # Etiqueta compacta con velocidad del viento relativo (1 de cada 2 flechas para evitar solapamientos)
+            if k_i % 2 == 0 or len(sample_idxs) <= 7:
+                lbl_x = cx + 0.72 * dx
+                lbl_y = cy + 0.72 * dy
+                fig.add_annotation(
+                    x=lbl_x,
+                    y=lbl_y,
+                    xref="x",
+                    yref="y",
+                    text=f"<b>{hw:+.0f} km/h</b>",
+                    showarrow=False,
+                    font=dict(color=arr_col, size=9.5),
+                    bgcolor="rgba(10, 14, 24, 0.78)",
+                    bordercolor=arr_col,
+                    borderwidth=1,
+                    borderpad=2,
+                )
+
+            arrow_hover_x.append(cx)
+            arrow_hover_y.append(cy)
+            arrow_hover_txt.append(
+                f"<b>🌬️ Viento en Km {row['dist_km']:.1f}</b><br>"
+                f"Viento real: <b>{seg_w_spd:.0f} km/h</b> desde {deg_to_compass(seg_w_deg)} ({seg_w_deg:.0f}°)<br>"
+                f"Viento relativo: <b>{hw:+.1f} km/h</b> ({rel_tag})<br>"
+                f"Viento lateral: <b>{cw:.1f} km/h</b>"
+            )
+
+        if arrow_hover_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=arrow_hover_x,
+                    y=arrow_hover_y,
+                    mode="markers",
+                    marker=dict(size=10, color="rgba(0,0,0,0)"),
+                    text=arrow_hover_txt,
+                    hoverinfo="text",
+                    showlegend=False,
+                )
+            )
+
     # Punto de salida
     fig.add_trace(
         go.Scatter(
@@ -569,7 +696,11 @@ def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_de
         )
     )
 
-    wind_note = f" · Viento desde {wind_from_deg:.0f}° ({wind_kmh:.0f} km/h)" if wind_kmh > 0 else " · Sin viento"
+    wind_note = (
+        f" · Viento {wind_kmh:.0f} km/h desde {deg_to_compass(wind_from_deg)} ({wind_from_deg:.0f}°)"
+        if wind_kmh > 0
+        else " · Sin viento"
+    )
     fig.update_layout(
         title=dict(
             text=f"🗺️ Trazado GPS del Circuito{wind_note}",
@@ -580,8 +711,8 @@ def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_de
         paper_bgcolor="#0E121C",
         plot_bgcolor="#0E121C",
         font=dict(color="#E2E8F0"),
-        height=350,
-        margin=dict(l=10, r=10, t=45, b=10),
+        height=395,
+        margin=dict(l=12, r=12, t=46, b=14),
         xaxis=dict(showgrid=False, showticklabels=False, zeroline=False, scaleanchor="y", scaleratio=1),
         yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
         showlegend=False,
@@ -590,10 +721,10 @@ def _build_gps_map_chart(segments: list, color_mode: str = "grade", wind_from_de
 
 
 def _build_resistance_donut(resistance: dict) -> go.Figure:
-    """Gráfica de dona del reparto de energía entre Aerodinámica, Gravedad y Rodamiento."""
+    """Gráfica de dona del reparto de energía entre Aerodinámica (Rojo), Gravedad y Rodamiento."""
     labels = ["Aerodinámica (CdA)", "Gravedad (Subidas)", "Rodamiento (Crr)"]
     values = [resistance["aero_pct"], resistance["gravity_pct"], resistance["rolling_pct"]]
-    colors = ["#00EEFF", "#FF5577", "#FFD700"]
+    colors = ["#FF3B30", "#FF9100", "#38BDF8"]
 
     fig = go.Figure(
         data=[
@@ -661,21 +792,10 @@ def _estimate_fallback_nutrition(total_time_s: float, temp_c: float = 24.0, humi
 
 
 def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "") -> go.Figure:
-    """Gráfica dual de Potencia Objetivo (W) por tramo y Velocidad Estimada (km/h) desde splits guardados."""
+    """Gráfica dual de Potencia Objetivo (W — Amarillo) y Velocidad Estimada (km/h — Verde) desde splits guardados."""
     tramos = [str(sp.get("Tramo", f"T{i+1}")) for i, sp in enumerate(splits_list)]
     watts = [float(sp.get("Potencia Obj. (W)", 0) or 0) for sp in splits_list]
     speeds = [float(sp.get("Vel. Est. (km/h)", 0) or 0) for sp in splits_list]
-    grades = [float(sp.get("Pend. %", 0) or 0) for sp in splits_list]
-    terrains = [str(sp.get("Terreno", "")) for sp in splits_list]
-
-    bar_colors = []
-    for t_txt, g_val in zip(terrains, grades):
-        if "Subida" in t_txt or g_val >= 2.5:
-            bar_colors.append("#FF6B6B")
-        elif "Bajada" in t_txt or g_val <= -2.5:
-            bar_colors.append("#00FF88")
-        else:
-            bar_colors.append("#00EEFF")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
@@ -683,11 +803,11 @@ def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "")
             x=tramos,
             y=watts,
             name="Potencia Obj. (W)",
-            marker_color=bar_colors,
+            marker=dict(color="#FFD700", line=dict(color="#FFA000", width=0.8)),
             opacity=0.88,
             text=[f"{int(round(w))}W" for w in watts] if len(tramos) <= 18 else None,
             textposition="outside",
-            textfont=dict(color="#E2E8F0", size=10),
+            textfont=dict(color="#FFD700", size=10),
             hovertemplate="<b>%{x}</b><br>Potencia: <b>%{y:.0f} W</b><extra></extra>",
         ),
         secondary_y=False,
@@ -699,8 +819,8 @@ def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "")
                 y=speeds,
                 name="Velocidad Est. (km/h)",
                 mode="lines+markers",
-                line=dict(color="#FFD700", width=2.5),
-                marker=dict(size=6, color="#FFD700"),
+                line=dict(color="#00FF88", width=2.6),
+                marker=dict(size=6, color="#00FF88"),
                 hovertemplate="<b>%{x}</b><br>Velocidad: <b>%{y:.1f} km/h</b><extra></extra>",
             ),
             secondary_y=True,
@@ -1296,7 +1416,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.9</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.10</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -1799,12 +1919,21 @@ def render_race_strategy_page():
         # Fila de Mapa GPS + Desglose de Resistencias y Nutrición
         col_vis1, col_vis2 = st.columns([1.35, 1])
         with col_vis1:
-            map_color = st.radio(
-                "Colorear mapa del circuito por:",
-                ["⛰️ Desnivel (Mapa de Calor)", "🌬️ Viento relativo", "⚡ Potencia objetivo (W)"],
-                horizontal=True,
-                key="rs_map_color",
-            )
+            c_mopt1, c_mopt2 = st.columns([2.2, 1])
+            with c_mopt1:
+                map_color = st.radio(
+                    "Colorear mapa del circuito por:",
+                    ["🌬️ Viento relativo", "⛰️ Desnivel (Mapa de Calor)", "⚡ Potencia objetivo (W)"],
+                    horizontal=True,
+                    key="rs_map_color",
+                )
+            with c_mopt2:
+                show_wind_arrows = st.checkbox(
+                    "🧭 Flechas de viento",
+                    value=True,
+                    help="Muestra las flechas con la dirección real hacia donde sopla el viento y la velocidad del viento relativo (+Contra / -Favor) a lo largo del recorrido.",
+                    key="rs_show_wind_arrows",
+                )
             _mc = "grade" if "Desnivel" in map_color else ("power" if "Potencia" in map_color else "wind")
             st.plotly_chart(
                 _build_gps_map_chart(
@@ -1812,6 +1941,7 @@ def render_race_strategy_page():
                     color_mode=_mc,
                     wind_from_deg=wind_deg,
                     wind_kmh=wind_kmh,
+                    show_wind_arrows=show_wind_arrows,
                 ),
                 use_container_width=True,
             )
@@ -2303,7 +2433,7 @@ def render_race_strategy_page():
                     go.Bar(
                         x=df_ch["Tramo"],
                         y=df_ch["CdA Est. (m²)"],
-                        marker_color="#00EEFF",
+                        marker_color="#FF3B30",
                         text=[f"{v:.3f}" for v in df_ch["CdA Est. (m²)"]],
                         textposition="outside",
                         name="CdA por tramo",
@@ -2312,10 +2442,10 @@ def render_race_strategy_page():
                 fig_cda.add_hline(
                     y=cal_res["cda"],
                     line_dash="dash",
-                    line_color="#00FF88",
+                    line_color="#FF8A80",
                     annotation_text=f"CdA Global: {cal_res['cda']:.3f} m²",
                     annotation_position="top left",
-                    annotation_font=dict(color="#00FF88"),
+                    annotation_font=dict(color="#FF8A80"),
                 )
                 fig_cda.update_layout(
                     title="📊 Estabilidad Aerodinámica (CdA) a lo largo de la Carrera",
@@ -2705,10 +2835,10 @@ def render_race_strategy_page():
                 cda_steps = [-0.04, -0.02, 0.0, 0.02, 0.04]
                 cda_mins = [(_run_whatif(delta_cda=x)["summary"]["total_time_s"] - base_t) / 60.0 for x in cda_steps]
                 fig_sw1 = go.Figure()
-                fig_sw1.add_trace(go.Scatter(x=[base_cda + x for x in cda_steps], y=cda_mins, mode="lines+markers", line=dict(color="#00EEFF", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                fig_sw1.add_trace(go.Scatter(x=[base_cda + x for x in cda_steps], y=cda_mins, mode="lines+markers", line=dict(color="#FF3B30", width=3), marker=dict(size=8, color="#FF3B30"), name="Δ Tiempo"))
                 if abs(d_cda) > 1e-6:
                     cur_y = (_run_whatif(delta_cda=d_cda)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw1.add_trace(go.Scatter(x=[sel_cda], y=[cur_y], mode="markers", marker=dict(size=13, color="#00FF88", symbol="star"), name="Tu ajuste"))
+                    fig_sw1.add_trace(go.Scatter(x=[sel_cda], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFFFFF", symbol="star", line=dict(color="#FF3B30", width=1.5)), name="Tu ajuste"))
                 fig_sw1.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw1.update_layout(title="🌬️ Sensibilidad a CdA (m²)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="CdA (m²)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw1, use_container_width=True)
@@ -2718,10 +2848,10 @@ def render_race_strategy_page():
                 if_div = max(0.45, float(target_if))
                 np_mins = [(_run_whatif(delta_w=x / if_div)["summary"]["total_time_s"] - base_t) / 60.0 for x in np_steps]
                 fig_sw2 = go.Figure()
-                fig_sw2.add_trace(go.Scatter(x=[base_np_target + x for x in np_steps], y=np_mins, mode="lines+markers", line=dict(color="#00FF88", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                fig_sw2.add_trace(go.Scatter(x=[base_np_target + x for x in np_steps], y=np_mins, mode="lines+markers", line=dict(color="#FFD700", width=3), marker=dict(size=8, color="#FFD700"), name="Δ Tiempo"))
                 if d_np_w != 0:
                     cur_y = (_run_whatif(delta_w=d_watts)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw2.add_trace(go.Scatter(x=[sel_np_w], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFD700", symbol="star"), name="Tu ajuste"))
+                    fig_sw2.add_trace(go.Scatter(x=[sel_np_w], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFFFFF", symbol="star", line=dict(color="#FFD700", width=1.5)), name="Tu ajuste"))
                 fig_sw2.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw2.update_layout(title="🔥 Sensibilidad a Potencia Objetivo (W)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="Potencia Objetivo NP (W)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw2, use_container_width=True)
@@ -2730,10 +2860,10 @@ def render_race_strategy_page():
                 kg_steps = [-6.0, -3.0, 0.0, 3.0, 6.0]
                 kg_mins = [(_run_whatif(delta_kg=x)["summary"]["total_time_s"] - base_t) / 60.0 for x in kg_steps]
                 fig_sw3 = go.Figure()
-                fig_sw3.add_trace(go.Scatter(x=[base_rw + x for x in kg_steps], y=kg_mins, mode="lines+markers", line=dict(color="#FFD700", width=3), marker=dict(size=8), name="Δ Tiempo"))
+                fig_sw3.add_trace(go.Scatter(x=[base_rw + x for x in kg_steps], y=kg_mins, mode="lines+markers", line=dict(color="#00EEFF", width=3), marker=dict(size=8, color="#00EEFF"), name="Δ Tiempo"))
                 if abs(d_weight) > 1e-6:
                     cur_y = (_run_whatif(delta_kg=d_weight)["summary"]["total_time_s"] - base_t) / 60.0
-                    fig_sw3.add_trace(go.Scatter(x=[sel_rw], y=[cur_y], mode="markers", marker=dict(size=13, color="#00EEFF", symbol="star"), name="Tu ajuste"))
+                    fig_sw3.add_trace(go.Scatter(x=[sel_rw], y=[cur_y], mode="markers", marker=dict(size=13, color="#FFFFFF", symbol="star", line=dict(color="#00EEFF", width=1.5)), name="Tu ajuste"))
                 fig_sw3.add_hline(y=0, line_dash="dot", line_color="#64748B")
                 fig_sw3.update_layout(title="⚖️ Sensibilidad a Peso (kg)", paper_bgcolor="#0E121C", plot_bgcolor="#0E121C", font=dict(color="#E2E8F0", size=11), height=235, margin=dict(l=10, r=10, t=38, b=10), xaxis_title="Peso Atleta (kg)", yaxis_title="Δ Minutos", showlegend=False)
                 st.plotly_chart(fig_sw3, use_container_width=True)

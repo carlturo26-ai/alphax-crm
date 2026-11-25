@@ -817,6 +817,8 @@ def simulate_race_strategy(
                 "cum_time_s": cum_t,
                 "headwind_kmh": round(headwind_ms * 3.6, 1),
                 "crosswind_kmh": round(crosswind_ms * 3.6, 1),
+                "wind_kmh": round(seg_w_kmh, 1),
+                "wind_from_deg": round(seg_w_deg, 1),
                 "temp_c": round(seg_t_c, 1),
                 "humidity_pct": round(seg_hum, 0),
                 "rho": rho,
