@@ -89,6 +89,11 @@ class Member(Base):
     calibrated_cda = Column(Float, nullable=True)     # CdA real calibrado desde carrera (m²)
     calibrated_cda_bike = Column(String, nullable=True)  # Bici usada en la calibración de CdA
     calibrated_cda_date = Column(Date, nullable=True)    # Fecha de la carrera usada para calibrar CdA
+    pb_5k = Column(String, nullable=True)             # Mejor marca 5K (ej. "19:30")
+    pb_10k = Column(String, nullable=True)            # Mejor marca 10K (ej. "40:15")
+    pb_21k = Column(String, nullable=True)            # Mejor marca 21.1K Media Maratón (ej. "1:28:40")
+    pb_42k = Column(String, nullable=True)            # Mejor marca 42.2K Maratón (ej. "3:08:00")
+    run_cp_w = Column(Float, nullable=True)           # Potencia Crítica en Running (Stryd / Garmin, W)
     birthday_email_last_year = Column(Integer, nullable=True)  # Último año en que se envió correo de cumpleaños
 
     transactions = relationship("Transaction", back_populates="member")
@@ -335,6 +340,11 @@ def init_db():
                 ("calibrated_cda", "FLOAT"),
                 ("calibrated_cda_bike", "VARCHAR"),
                 ("calibrated_cda_date", "DATE"),
+                ("pb_5k", "VARCHAR"),
+                ("pb_10k", "VARCHAR"),
+                ("pb_21k", "VARCHAR"),
+                ("pb_42k", "VARCHAR"),
+                ("run_cp_w", "FLOAT"),
                 ("birthday_email_last_year", "INTEGER"),
             ]
             for col_name, col_type in member_cols_to_add:

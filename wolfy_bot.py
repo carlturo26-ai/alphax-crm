@@ -399,6 +399,11 @@ def render_athlete_biometric_profile_editor(
             "blood_type": (getattr(member, "blood_type", None) or "").strip(),
             "emergency_contact": (getattr(member, "emergency_contact", None) or "").strip(),
             "medical_notes": (member.medical_notes or "").strip(),
+            "pb_5k": (getattr(member, "pb_5k", None) or "").strip(),
+            "pb_10k": (getattr(member, "pb_10k", None) or "").strip(),
+            "pb_21k": (getattr(member, "pb_21k", None) or "").strip(),
+            "pb_42k": (getattr(member, "pb_42k", None) or "").strip(),
+            "run_cp_w": getattr(member, "run_cp_w", None),
         }
 
     age = _calc_age_years(m_data["birth_date"])
@@ -601,6 +606,49 @@ def render_athlete_biometric_profile_editor(
                     key=f"{key_prefix}_mhr_{member_id}",
                 )
 
+            st.markdown("##### 🏃‍♂️ Marcas Personales de Running (PB) y Potencia Stryd (opcional)")
+            st.caption("Usa formato `MM:SS` (ej. `40:15` en 10K) o `H:MM:SS` (ej. `1:28:40` en 21K). Sirve para que Wolfy y el Simulador de Estrategias estimen tu ritmo exacto en circuitos planos o con montaña.")
+            cpb1, cpb2, cpb3, cpb4, cpb5 = st.columns(5)
+            with cpb1:
+                in_pb5 = st.text_input(
+                    "⚡ Mejor 5K",
+                    value=m_data["pb_5k"],
+                    placeholder="Ej. 19:30",
+                    key=f"{key_prefix}_pb5_{member_id}",
+                )
+            with cpb2:
+                in_pb10 = st.text_input(
+                    "🔥 Mejor 10K",
+                    value=m_data["pb_10k"],
+                    placeholder="Ej. 40:15",
+                    key=f"{key_prefix}_pb10_{member_id}",
+                )
+            with cpb3:
+                in_pb21 = st.text_input(
+                    "🏅 Mejor 21K (Media)",
+                    value=m_data["pb_21k"],
+                    placeholder="Ej. 1:28:40",
+                    key=f"{key_prefix}_pb21_{member_id}",
+                )
+            with cpb4:
+                in_pb42 = st.text_input(
+                    "🏆 Mejor 42K (Maratón)",
+                    value=m_data["pb_42k"],
+                    placeholder="Ej. 3:08:00",
+                    key=f"{key_prefix}_pb42_{member_id}",
+                )
+            with cpb5:
+                in_runcp = st.number_input(
+                    "⚡ Stryd / Run CP (W)",
+                    min_value=100.0,
+                    max_value=600.0,
+                    value=_safe_num(m_data["run_cp_w"], 100.0, 600.0, as_int=False),
+                    step=1.0,
+                    placeholder="Ej. 285",
+                    help="Potencia Crítica (CP) estimada por Stryd, Garmin o Coros Running Power.",
+                    key=f"{key_prefix}_rcp_{member_id}",
+                )
+
             st.markdown("##### 🎯 Metas, Logística del Club y Salud")
             cg1, cg2 = st.columns([2, 1])
             with cg1:
@@ -684,6 +732,11 @@ def render_athlete_biometric_profile_editor(
                                 m_db.blood_type = in_blood if in_blood else None
                                 m_db.emergency_contact = in_emerg.strip() if in_emerg and in_emerg.strip() else None
                                 m_db.medical_notes = in_med.strip() if in_med and in_med.strip() else None
+                                m_db.pb_5k = in_pb5.strip() if in_pb5 and in_pb5.strip() else None
+                                m_db.pb_10k = in_pb10.strip() if in_pb10 and in_pb10.strip() else None
+                                m_db.pb_21k = in_pb21.strip() if in_pb21 and in_pb21.strip() else None
+                                m_db.pb_42k = in_pb42.strip() if in_pb42 and in_pb42.strip() else None
+                                m_db.run_cp_w = float(in_runcp) if in_runcp else None
                                 s_save.commit()
                         try:
                             import sys as _sys
@@ -691,6 +744,10 @@ def render_athlete_biometric_profile_editor(
                                 _rsu = _sys.modules["race_strategy_ui"]
                                 if hasattr(_rsu, "_load_athlete_defaults"):
                                     _rsu._load_athlete_defaults.clear()
+                            if "running_strategy_ui" in _sys.modules:
+                                _runu = _sys.modules["running_strategy_ui"]
+                                if hasattr(_runu, "_load_running_athlete_defaults"):
+                                    _runu._load_running_athlete_defaults.clear()
                         except Exception:
                             pass
                         st.toast("¡Ficha completa actualizada para Wolfy y AlphaX!", icon="✅")
@@ -758,6 +815,11 @@ def build_athlete_context(member_id: int) -> dict:
                     "blood_type": getattr(member, "blood_type", None),
                     "calibrated_cda": getattr(member, "calibrated_cda", None),
                     "calibrated_cda_bike": getattr(member, "calibrated_cda_bike", None),
+                    "pb_5k": getattr(member, "pb_5k", None),
+                    "pb_10k": getattr(member, "pb_10k", None),
+                    "pb_21k": getattr(member, "pb_21k", None),
+                    "pb_42k": getattr(member, "pb_42k", None),
+                    "run_cp_w": getattr(member, "run_cp_w", None),
                     "medical_notes": member.medical_notes,
                     "coach_notes": member.notes,
                     "start_month": member.start_month,
@@ -953,6 +1015,20 @@ def build_athlete_context(member_id: int) -> dict:
     if prof.get("calibrated_cda"):
         bk_note = f" ({prof['calibrated_cda_bike']})" if prof.get("calibrated_cda_bike") else ""
         lines.append(f"- CdA aerodinámico real calibrado en ciclismo: {prof['calibrated_cda']:.3f} m²{bk_note}")
+    pb_parts = []
+    if prof.get("pb_5k"):
+        pb_parts.append(f"5K: {prof['pb_5k']}")
+    if prof.get("pb_10k"):
+        pb_parts.append(f"10K: {prof['pb_10k']}")
+    if prof.get("pb_21k"):
+        pb_parts.append(f"21K: {prof['pb_21k']}")
+    if prof.get("pb_42k"):
+        pb_parts.append(f"42K: {prof['pb_42k']}")
+    if pb_parts:
+        lines.append(f"- Marcas Personales (PB) en Running: {' · '.join(pb_parts)}")
+    if prof.get("run_cp_w"):
+        wkg_run = f" ({prof['run_cp_w'] / eff_weight:.2f} W/kg)" if eff_weight and eff_weight > 0 else ""
+        lines.append(f"- Potencia Crítica en Running (Stryd / Garmin CP): {prof['run_cp_w']:.0f} W{wkg_run}")
     if prof.get("athlete_goal"):
         g_line = f"- Objetivo / competencia principal: {prof['athlete_goal']}"
         if prof.get("goal_race_date"):

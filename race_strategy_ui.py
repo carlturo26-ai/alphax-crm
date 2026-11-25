@@ -1209,9 +1209,72 @@ def _estimate_fallback_nutrition(total_time_s: float, temp_c: float = 24.0, humi
     }
 
 
-def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "") -> go.Figure:
-    """Gráfica dual de Potencia Objetivo (W — Amarillo) y Velocidad Estimada (km/h — Verde) desde splits guardados."""
+def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "", is_running: bool = False) -> go.Figure:
+    """Gráfica dual de Potencia Objetivo (W — Amarillo) y Velocidad/Ritmo (Verde) desde splits guardados."""
     tramos = [str(sp.get("Tramo", f"T{i+1}")) for i, sp in enumerate(splits_list)]
+
+    if is_running:
+        from running_strategy_engine import format_pace as _fp, parse_time_str_to_sec as _pts
+        watts = [float(sp.get("Potencia Stryd (W)", sp.get("Potencia Obj. (W)", 0)) or 0) for sp in splits_list]
+        paces_min = []
+        pace_lbls = []
+        for sp in splits_list:
+            p_raw = sp.get("Ritmo Obj. (/km)", "")
+            p_s = _pts(p_raw)
+            if p_s and p_s > 0:
+                paces_min.append(p_s / 60.0)
+                pace_lbls.append(_fp(p_s))
+            else:
+                paces_min.append(None)
+                pace_lbls.append("—")
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        if any(w > 0 for w in watts):
+            fig.add_trace(
+                go.Bar(
+                    x=tramos,
+                    y=watts,
+                    name="⚡ Potencia Stryd (W)",
+                    marker=dict(color="#FFD700", line=dict(color="#FFA000", width=0.8)),
+                    opacity=0.82,
+                    text=[f"{int(round(w))}W" for w in watts] if len(tramos) <= 18 else None,
+                    textposition="outside",
+                    textfont=dict(color="#FFD700", size=10),
+                    hovertemplate="<b>%{x}</b><br>Potencia Stryd: <b>%{y:.0f} W</b><extra></extra>",
+                ),
+                secondary_y=False,
+            )
+        valid_p = [p for p in paces_min if p is not None]
+        if valid_p:
+            fig.add_trace(
+                go.Scatter(
+                    x=tramos,
+                    y=paces_min,
+                    name="🏃‍♂️ Ritmo Obj. (min/km)",
+                    mode="lines+markers",
+                    line=dict(color="#00FF88", width=2.8),
+                    marker=dict(size=7, color="#00FF88"),
+                    text=pace_lbls,
+                    hovertemplate="<b>%{x}</b><br>Ritmo Obj.: <b>%{text} /km</b><extra></extra>",
+                ),
+                secondary_y=True,
+            )
+            p_lo, p_hi = max(2.5, min(valid_p) - 0.35), min(14.0, max(valid_p) + 0.35)
+            fig.update_yaxes(title_text="Ritmo (min/km)", range=[p_hi, p_lo], showgrid=False, secondary_y=True)
+        fig.update_layout(
+            title=dict(text="🏃‍♂️ Plan de Pacing Running (Potencia Stryd W y Ritmo min/km)", font=dict(size=13.5, color="#FFFFFF")),
+            paper_bgcolor="#0E121C",
+            plot_bgcolor="#0E121C",
+            font=dict(color="#E2E8F0", size=11),
+            height=315,
+            margin=dict(l=10, r=10, t=44, b=18),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            hovermode="x unified",
+            xaxis=dict(tickangle=-30 if len(tramos) > 8 else 0, gridcolor="rgba(255,255,255,0.05)"),
+        )
+        fig.update_yaxes(title_text="Potencia Stryd (W)", gridcolor="rgba(255,255,255,0.06)", secondary_y=False)
+        return fig
+
     watts = [float(sp.get("Potencia Obj. (W)", 0) or 0) for sp in splits_list]
     speeds = [float(sp.get("Vel. Est. (km/h)", 0) or 0) for sp in splits_list]
 
@@ -1264,8 +1327,59 @@ def _build_saved_splits_pacing_chart(splits_list: list, scenario_name: str = "")
 
 
 def _build_race_plan_text_card(sc, cfg: dict, nut: dict, splits_list: list, athlete_name: str) -> str:
-    """Genera una ficha imprimible / de manillar en texto plano con Pacing + Nutrición."""
+    """Genera una ficha imprimible / de manillar o brazalete en texto plano con Pacing + Nutrición."""
     est_time_s = float(sc.estimated_time_sec or 0.0)
+    is_run = isinstance(cfg, dict) and cfg.get("sport") == "running"
+
+    if is_run:
+        lines = [
+            "==============================================================",
+            "  ALPHAX ENDURANCE COACHING — PLAN OFICIAL DE RUNNING",
+            "==============================================================",
+            f"Deportista : {athlete_name}",
+            f"Plan       : {sc.scenario_name}",
+            f"Circuito   : {sc.route_name}",
+        ]
+        if cfg.get("race_date"):
+            lines.append(f"Fecha/Hora : {cfg.get('race_date')} {cfg.get('race_start_time', '')}".strip())
+        lines.extend([
+            f"Distancia  : {float(sc.distance_km or 0):.2f} km   |   Desnivel: +{float(sc.elevation_gain_m or 0):.0f} m",
+            f"Tiempo Obj.: {format_hms(est_time_s)}   |   Ritmo Medio: {cfg.get('avg_pace_str', '—')} /km   |   GAP: {cfg.get('avg_gap_str', '—')} /km",
+            f"Potencia   : Stryd {float(sc.avg_power_w or 0):.0f} W ({cfg.get('w_per_kg', 0)} W/kg)   |   rCP ref: {cfg.get('run_cp_w', 0):.0f} W   |   rTSS: {float(sc.tss or 0):.0f}",
+        ])
+        if cfg.get("shoe_name"):
+            lines.append(f"Calzado    : {cfg.get('shoe_name')}")
+        lines.extend([
+            "",
+            "--------------------------------------------------------------",
+            "  ESTRATEGIA NUTRICIONAL Y GELES EN CARRERA",
+            "--------------------------------------------------------------",
+            f"• Carbohidratos : {nut.get('cho_g_per_h', 0)} g/h  (Total: {nut.get('cho_total_g', 0)} g · {nut.get('gels_count', 0)} geles)",
+            f"• Hidratación   : {nut.get('fluid_ml_per_h', 0)} mL/h  (Total: {nut.get('fluid_total_l', 0)} L)",
+            f"• Sodio         : {nut.get('sodium_mg_per_h', 0)} mg/h  (Total: {nut.get('sodium_total_mg', 0)} mg)",
+        ])
+        for g in nut.get("gel_schedule", []):
+            lines.append(f"  - Gel #{g['gel_num']}: Km {g['km']:.1f} (~{g['time_str']}) -> {g['cho_g']} g CHO")
+        if splits_list:
+            lines.extend([
+                "",
+                "--------------------------------------------------------------",
+                "  PLAN DE PACING RUNNING TRAMO A TRAMO",
+                "--------------------------------------------------------------",
+                f"{'Tramo':<13} {'Pend':>6} {'Ritmo':>7} {'GAP':>7} {'Stryd':>7} {'Acum':>9}  Nutrición",
+            ])
+            for sp in splits_list:
+                tramo = str(sp.get("Tramo", ""))[:12]
+                pend = f"{sp.get('Pend. %', 0)}%"
+                rit = str(sp.get("Ritmo Obj. (/km)", ""))
+                gap = str(sp.get("GAP (/km)", ""))
+                pw = f"{sp.get('Potencia Stryd (W)', 0)}W"
+                acum = str(sp.get("Tiempo Acum.", ""))
+                gel = str(sp.get("🥤 Gel / Nutrición", ""))
+                lines.append(f"{tramo:<13} {pend:>6} {rit:>7} {gap:>7} {pw:>7} {acum:>9}  {gel}")
+        lines.append("==============================================================")
+        return "\n".join(lines)
+
     work_kj = cfg.get("work_kj") or round((float(sc.avg_power_w or 0.0) * est_time_s) / 1000.0)
     bottles_750 = max(1, int(math.ceil((float(nut.get("fluid_total_l", 0.0)) * 1000.0) / 750.0)))
     cho_per_20m = int(round(float(nut.get("cho_g_per_h", 75)) / 3.0))
@@ -1444,6 +1558,27 @@ def render_saved_scenarios_library(
         race_dt_chip = f" · 📅 {html.escape(str(cfg.get('race_date')))}" if cfg.get("race_date") else ""
         sc_title = html.escape(str(r.scenario_name or f"Plan #{idx+1}"))
         rt_title = html.escape(str(r.route_name or "Circuito"))
+        is_run_card = cfg.get("sport") == "running"
+        sport_chip = (
+            '<span style="background:rgba(0,255,136,0.16); color:#00FF88; font-size:0.62rem; font-weight:900; padding:2px 6px; border-radius:5px;">🏃‍♂️ RUNNING</span>'
+            if is_run_card
+            else '<span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.62rem; font-weight:900; padding:2px 6px; border-radius:5px;">🚴‍♂️ CICLISMO</span>'
+        )
+        if is_run_card:
+            right_metric = f"<span style='color:#00FF88; font-size:0.88rem; font-weight:900;'>{html.escape(str(cfg.get('avg_pace_str', '—')))} /km</span>"
+            pills_html = (
+                f'<span style="background:rgba(56,189,248,0.12); color:#38BDF8; padding:2px 6px; border-radius:6px; font-weight:700;">GAP {html.escape(str(cfg.get("avg_gap_str", "—")))}/km</span>'
+                f'<span style="background:rgba(255,215,0,0.14); color:#FFD700; padding:2px 6px; border-radius:6px; font-weight:700;">⚡ {float(r.avg_power_w or 0):.0f} W</span>'
+                f'<span style="background:rgba(255,170,0,0.12); color:#FFAA00; padding:2px 6px; border-radius:6px; font-weight:700;">🥤 {nut.get("gels_count", 0)} geles</span>'
+            )
+        else:
+            right_metric = f"<span style='color:#00FF88; font-size:0.86rem; font-weight:800;'>{float(r.avg_speed_kmh or 0):.1f} km/h</span>"
+            pills_html = (
+                f'<span style="background:rgba(255,215,0,0.14); color:#FFD700; padding:2px 6px; border-radius:6px; font-weight:700;">⚡ NP {float(r.norm_power_w or 0):.0f} W</span>'
+                f'<span style="background:rgba(192,132,252,0.14); color:#C084FC; padding:2px 6px; border-radius:6px; font-weight:700;">IF {float(r.intensity_factor or 0):.2f} · TSS {float(r.tss or 0):.0f}</span>'
+                f'<span style="background:rgba(255,59,48,0.14); color:#FF6B6B; padding:2px 6px; border-radius:6px; font-weight:700;">CdA {float(r.cda or 0):.3f}</span>'
+                f'<span style="background:rgba(255,170,0,0.12); color:#FFAA00; padding:2px 6px; border-radius:6px; font-weight:700;">🍌 {nut.get("cho_g_per_h", 0)} g/h</span>'
+            )
 
         cards_html_parts.append(
             f"""
@@ -1452,7 +1587,7 @@ def render_saved_scenarios_library(
                         box-shadow:0 6px 18px rgba(0,0,0,0.4); display:flex; flex-direction:column; justify-content:space-between;">
                 <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;">
-                        <span style="color:#94A3B8; font-size:0.68rem; font-weight:800; text-transform:uppercase;">Escenario {idx+1}</span>
+                        {sport_chip}
                         {badge}
                     </div>
                     <div style="color:#FFFFFF; font-size:0.95rem; font-weight:800; line-height:1.25; margin-bottom:4px;">{sc_title}</div>
@@ -1461,13 +1596,10 @@ def render_saved_scenarios_library(
                 <div>
                     <div style="display:flex; align-items:baseline; justify-content:space-between; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px; margin-bottom:6px;">
                         <span style="color:#00EEFF; font-size:1.35rem; font-weight:900;">⏱️ {format_hms(t_sec)}</span>
-                        <span style="color:#FFD700; font-size:0.86rem; font-weight:800;">{float(r.avg_speed_kmh or 0):.1f} km/h</span>
+                        {right_metric}
                     </div>
                     <div style="display:flex; flex-wrap:wrap; gap:5px; font-size:0.72rem; color:#CBD5E1;">
-                        <span style="background:rgba(0,255,136,0.12); color:#00FF88; padding:2px 6px; border-radius:6px; font-weight:700;">⚡ NP {float(r.norm_power_w or 0):.0f} W</span>
-                        <span style="background:rgba(192,132,252,0.14); color:#C084FC; padding:2px 6px; border-radius:6px; font-weight:700;">IF {float(r.intensity_factor or 0):.2f} · TSS {float(r.tss or 0):.0f}</span>
-                        <span style="background:rgba(56,189,248,0.12); color:#38BDF8; padding:2px 6px; border-radius:6px; font-weight:700;">CdA {float(r.cda or 0):.3f}</span>
-                        <span style="background:rgba(255,170,0,0.12); color:#FFAA00; padding:2px 6px; border-radius:6px; font-weight:700;">🍌 {nut.get('cho_g_per_h', 0)} g/h</span>
+                        {pills_html}
                     </div>
                 </div>
             </div>
@@ -1548,8 +1680,12 @@ def render_saved_scenarios_library(
     pick_options = {}
     for idx, item in enumerate(parsed_items):
         r = item["rec"]
+        c_i = item["cfg"]
         dt_s = r.created_at.strftime("%d/%m/%Y") if r.created_at else ""
-        lbl = f"🏁 Plan #{idx+1}: {r.scenario_name} — ⏱️ {format_hms(r.estimated_time_sec or 0)} (NP {float(r.norm_power_w or 0):.0f} W · IF {float(r.intensity_factor or 0):.2f} · {dt_s})"
+        if c_i.get("sport") == "running":
+            lbl = f"🏃‍♂️ Plan #{idx+1}: {r.scenario_name} — ⏱️ {format_hms(r.estimated_time_sec or 0)} ({c_i.get('avg_pace_str', '—')}/km · Stryd {float(r.avg_power_w or 0):.0f} W · {dt_s})"
+        else:
+            lbl = f"🚴‍♂️ Plan #{idx+1}: {r.scenario_name} — ⏱️ {format_hms(r.estimated_time_sec or 0)} (NP {float(r.norm_power_w or 0):.0f} W · IF {float(r.intensity_factor or 0):.2f} · {dt_s})"
         pick_options[lbl] = item
 
     sel_lbl = st.selectbox(
@@ -1562,52 +1698,108 @@ def render_saved_scenarios_library(
     sel_cfg = sel_item["cfg"]
     sel_splits = sel_item["splits"]
     sel_nut = sel_item["nut"]
+    is_run_sel = sel_cfg.get("sport") == "running"
 
     t_sec = float(sel_sc.estimated_time_sec or 0.0)
     work_kj = sel_cfg.get("work_kj") or round((float(sel_sc.avg_power_w or 0.0) * t_sec) / 1000.0)
     w_kg_txt = f" · {sel_cfg['w_per_kg_np']:.2f} W/kg" if sel_cfg.get("w_per_kg_np") else ""
     vi_txt = f" · VI {sel_cfg['vi']:.2f}" if sel_cfg.get("vi") else ""
 
-    # KPIs Hero del Plan Seleccionado (responsive para móvil y desktop)
-    _render_html(
-        f"""
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap:8px; margin:8px 0 14px 0;">
-            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid #00EEFF; border-radius:12px; padding:11px 9px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⏱️ Tiempo Objetivo</div>
-                <div style="color:#00EEFF; font-size:1.35rem; font-weight:900; margin-top:3px;">{format_hms(t_sec)}</div>
-                <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m</div>
+    # KPIs Hero del Plan Seleccionado (Running o Ciclismo)
+    if is_run_sel:
+        _render_html(
+            f"""
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap:8px; margin:8px 0 14px 0;">
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid #00EEFF; border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⏱️ Tiempo Objetivo</div>
+                    <div style="color:#00EEFF; font-size:1.35rem; font-weight:900; margin-top:3px;">{format_hms(t_sec)}</div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.distance_km or 0):.2f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(0,255,136,0.5); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🏃‍♂️ Ritmo Medio</div>
+                    <div style="color:#00FF88; font-size:1.35rem; font-weight:900; margin-top:3px;">{html.escape(str(sel_cfg.get('avg_pace_str', '—')))} <span style="font-size:0.75rem;">/km</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.avg_speed_kmh or 0):.1f} km/h</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(56,189,248,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🏔️ Ritmo GAP</div>
+                    <div style="color:#38BDF8; font-size:1.35rem; font-weight:900; margin-top:3px;">{html.escape(str(sel_cfg.get('avg_gap_str', '—')))} <span style="font-size:0.75rem;">/km</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">1ª {sel_cfg.get('first_half_str', '—')} · 2ª {sel_cfg.get('second_half_str', '—')}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.5); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⚡ Potencia Stryd</div>
+                    <div style="color:#FFD700; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.avg_power_w or 0):.0f} <span style="font-size:0.75rem;">W</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{sel_cfg.get('w_per_kg', 0)} W/kg · rTSS {float(sel_sc.tss or 0):.0f}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,170,0,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🥤 Geles & Carbos</div>
+                    <div style="color:#FFAA00; font-size:1.3rem; font-weight:900; margin-top:3px;">{sel_nut.get('gels_count', 0)} <span style="font-size:0.72rem;">geles</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{sel_nut.get('cho_g_per_h', 0)} g/h · {sel_nut.get('fluid_total_l', 0)} L</div>
+                </div>
             </div>
-            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🚀 Velocidad Media</div>
-                <div style="color:#FFD700; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.avg_speed_kmh or 0):.1f} <span style="font-size:0.75rem;">km/h</span></div>
-                <div style="color:#94A3B8; font-size:0.68rem;">{html.escape(str(sel_sc.route_name or '')[:24])}</div>
+            """
+        )
+    else:
+        _render_html(
+            f"""
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap:8px; margin:8px 0 14px 0;">
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid #00EEFF; border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⏱️ Tiempo Objetivo</div>
+                    <div style="color:#00EEFF; font-size:1.35rem; font-weight:900; margin-top:3px;">{format_hms(t_sec)}</div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(0,255,136,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🚀 Velocidad Media</div>
+                    <div style="color:#00FF88; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.avg_speed_kmh or 0):.1f} <span style="font-size:0.75rem;">km/h</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{html.escape(str(sel_sc.route_name or '')[:24])}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,215,0,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⚡ Potencia NP / AP</div>
+                    <div style="color:#FFD700; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.norm_power_w or 0):.0f} <span style="font-size:0.75rem;">W</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">AP: {float(sel_sc.avg_power_w or 0):.0f} W{w_kg_txt}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(192,132,252,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🎯 Intensidad & TSS</div>
+                    <div style="color:#C084FC; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.intensity_factor or 0):.2f} <span style="font-size:0.75rem;">IF</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">TSS: {float(sel_sc.tss or 0):.0f}{vi_txt}</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(255,59,48,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🌬️ CdA & Gasto</div>
+                    <div style="color:#FF5252; font-size:1.3rem; font-weight:900; margin-top:3px;">{float(sel_sc.cda or 0):.3f} <span style="font-size:0.72rem;">m²</span></div>
+                    <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.total_mass_kg or 0):.1f} kg · ~{int(work_kj)} kJ</div>
+                </div>
             </div>
-            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(0,255,136,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">⚡ Potencia NP / AP</div>
-                <div style="color:#00FF88; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.norm_power_w or 0):.0f} <span style="font-size:0.75rem;">W</span></div>
-                <div style="color:#94A3B8; font-size:0.68rem;">AP: {float(sel_sc.avg_power_w or 0):.0f} W{w_kg_txt}</div>
-            </div>
-            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(192,132,252,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🎯 Intensidad & TSS</div>
-                <div style="color:#C084FC; font-size:1.35rem; font-weight:900; margin-top:3px;">{float(sel_sc.intensity_factor or 0):.2f} <span style="font-size:0.75rem;">IF</span></div>
-                <div style="color:#94A3B8; font-size:0.68rem;">TSS: {float(sel_sc.tss or 0):.0f}{vi_txt}</div>
-            </div>
-            <div style="background:linear-gradient(145deg,#111827,#0B1120); border:1.5px solid rgba(56,189,248,0.45); border-radius:12px; padding:11px 9px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.65rem; font-weight:800; text-transform:uppercase;">🌬️ CdA & Gasto</div>
-                <div style="color:#38BDF8; font-size:1.3rem; font-weight:900; margin-top:3px;">{float(sel_sc.cda or 0):.3f} <span style="font-size:0.72rem;">m²</span></div>
-                <div style="color:#94A3B8; font-size:0.68rem;">{float(sel_sc.total_mass_kg or 0):.1f} kg · ~{int(work_kj)} kJ</div>
-            </div>
-        </div>
-        """
-    )
+            """
+        )
 
     # ── ESTRATEGIA NUTRICIONAL E HIDRATACIÓN COMPLETA ────────────────
     bottles_750 = max(1, int(math.ceil((float(sel_nut.get("fluid_total_l", 0.0)) * 1000.0) / 750.0)))
     cho_per_20m = int(round(float(sel_nut.get("cho_g_per_h", 75)) / 3.0))
-    gels_est = max(1, int(round(float(sel_nut.get("cho_total_g", 0)) / 30.0)))
+    gels_est = sel_nut.get("gels_count") if is_run_sel else max(1, int(round(float(sel_nut.get("cho_total_g", 0)) / 30.0)))
     climate_tag = ""
     if sel_cfg.get("temp_c") is not None:
         climate_tag = f" ({sel_cfg.get('temp_c')}°C · {sel_cfg.get('humidity_pct', 65)}% HR · Viento {sel_cfg.get('wind_kmh', 0)} km/h)"
+
+    gel_sched_html = ""
+    if is_run_sel and sel_nut.get("gel_schedule"):
+        gel_chips = "".join(
+            f'<span style="background:rgba(255,170,0,0.16); border:1px solid rgba(255,170,0,0.45); color:#FFD166; '
+            f'padding:3px 8px; border-radius:7px; font-size:0.75rem; font-weight:800;">'
+            f'⚡ Gel #{g["gel_num"]} · Km {g["km"]:.1f} ({g["time_str"]}) · {g["cho_g"]}g</span>'
+            for g in sel_nut["gel_schedule"]
+        )
+        gel_sched_html = f'<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">{gel_chips}</div>'
+
+    nut_tip = (
+        html.escape(str(sel_nut.get("gel_note", "Toma cada gel con un sorbo de agua en los puestos de hidratación.")))
+        if is_run_sel
+        else f"Toma <b>~{cho_per_20m} g de CHO cada 20 minutos</b> desde el minuto 15 (gel, goma o mezcla en bidón), bebe <b>2–3 sorbos cada 10–15 min</b> y repón electrolitos de forma continua. Gasto energético estimado del segmento: <b>~{int(work_kj)} kcal</b>."
+    )
+    seg_noun = "carrera" if is_run_sel else "bici"
+    fluid_sub = (
+        f"Total carrera: <b>{sel_nut.get('fluid_total_l', 0)} L</b> (hidratación en puestos)"
+        if is_run_sel
+        else f"Total bici: <b>{sel_nut.get('fluid_total_l', 0)} L</b> (~{bottles_750} bidones de 750 mL)"
+    )
 
     _render_html(
         f"""
@@ -1620,21 +1812,22 @@ def render_saved_scenarios_library(
                 <div style="background:rgba(255,170,0,0.09); border:1px solid rgba(255,170,0,0.35); border-radius:10px; padding:10px 12px;">
                     <div style="color:#FFAA00; font-size:0.7rem; font-weight:800; text-transform:uppercase;">🍌 Carbohidratos (CHO)</div>
                     <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('cho_g_per_h', 0)} g/hora</div>
-                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('cho_total_g', 0)} g</b> (~{gels_est} porciones de 30 g)</div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total {seg_noun}: <b>{sel_nut.get('cho_total_g', 0)} g</b> (~{gels_est} geles)</div>
                 </div>
                 <div style="background:rgba(0,238,255,0.09); border:1px solid rgba(0,238,255,0.35); border-radius:10px; padding:10px 12px;">
                     <div style="color:#00EEFF; font-size:0.7rem; font-weight:800; text-transform:uppercase;">💧 Hidratación</div>
                     <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('fluid_ml_per_h', 0)} mL/hora</div>
-                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('fluid_total_l', 0)} L</b> (~{bottles_750} bidones de 750 mL)</div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">{fluid_sub}</div>
                 </div>
                 <div style="background:rgba(192,132,252,0.10); border:1px solid rgba(192,132,252,0.35); border-radius:10px; padding:10px 12px;">
                     <div style="color:#C084FC; font-size:0.7rem; font-weight:800; text-transform:uppercase;">🧂 Sodio / Electrolitos</div>
                     <div style="color:#FFFFFF; font-size:1.25rem; font-weight:900; margin-top:2px;">{sel_nut.get('sodium_mg_per_h', 0)} mg/hora</div>
-                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total bici: <b>{sel_nut.get('sodium_total_mg', 0)} mg</b></div>
+                    <div style="color:#CBD5E1; font-size:0.76rem; margin-top:2px;">Total {seg_noun}: <b>{sel_nut.get('sodium_total_mg', 0)} mg</b></div>
                 </div>
             </div>
+            {gel_sched_html}
             <div style="color:#CBD5E1; font-size:0.8rem; line-height:1.5; background:rgba(255,255,255,0.03); border-radius:8px; padding:8px 11px;">
-                💡 <b>Guía práctica de ejecución:</b> Toma <b>~{cho_per_20m} g de CHO cada 20 minutos</b> desde el minuto 15 (gel, goma o mezcla en bidón), bebe <b>2–3 sorbos cada 10–15 min</b> y repón electrolitos de forma continua. Gasto energético estimado del segmento: <b>~{int(work_kj)} kcal</b>.
+                💡 <b>Guía práctica de ejecución:</b> {nut_tip}
             </div>
         </div>
         """
@@ -1642,35 +1835,40 @@ def render_saved_scenarios_library(
 
     # ── PLAN DE PACING TRAMO A TRAMO (GRÁFICA + TABLA + TÁCTICA) ─────
     if sel_splits:
-        st.markdown("#### 📋 Plan de Pacing Completo (Hoja de Ruta de Potencia)")
+        st.markdown(
+            "#### 📋 Plan de Pacing Running Completo (Hoja de Ruta de Ritmo, Stryd y Geles)"
+            if is_run_sel
+            else "#### 📋 Plan de Pacing Completo (Hoja de Ruta de Potencia)"
+        )
 
-        # Resumen táctico automático según los splits guardados
-        climb_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Subida" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) >= 2.5]
-        flat_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Llano" in str(sp.get("Terreno", ""))]
-        desc_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Bajada" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) <= -2.5]
-        hw_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Contra" in str(sp.get("Viento", ""))]
+        if not is_run_sel:
+            # Resumen táctico automático según los splits guardados (Ciclismo)
+            climb_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Subida" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) >= 2.5]
+            flat_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Llano" in str(sp.get("Terreno", ""))]
+            desc_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Bajada" in str(sp.get("Terreno", "")) or float(sp.get("Pend. %", 0) or 0) <= -2.5]
+            hw_w = [float(sp.get("Potencia Obj. (W)", 0)) for sp in sel_splits if "Contra" in str(sp.get("Viento", ""))]
 
-        tac_pills = []
-        if flat_w:
-            tac_pills.append(f"➡️ <b>Llano:</b> {sum(flat_w)/len(flat_w):.0f} W prom.")
-        if climb_w:
-            tac_pills.append(f"⛰️ <b>Subidas:</b> {sum(climb_w)/len(climb_w):.0f} W prom.")
-        if desc_w:
-            tac_pills.append(f"⬇️ <b>Bajadas:</b> {sum(desc_w)/len(desc_w):.0f} W prom.")
-        if hw_w:
-            tac_pills.append(f"🔴 <b>Viento en contra ({len(hw_w)} tramos):</b> {sum(hw_w)/len(hw_w):.0f} W prom.")
+            tac_pills = []
+            if flat_w:
+                tac_pills.append(f"➡️ <b>Llano:</b> {sum(flat_w)/len(flat_w):.0f} W prom.")
+            if climb_w:
+                tac_pills.append(f"⛰️ <b>Subidas:</b> {sum(climb_w)/len(climb_w):.0f} W prom.")
+            if desc_w:
+                tac_pills.append(f"⬇️ <b>Bajadas:</b> {sum(desc_w)/len(desc_w):.0f} W prom.")
+            if hw_w:
+                tac_pills.append(f"🔴 <b>Viento en contra ({len(hw_w)} tramos):</b> {sum(hw_w)/len(hw_w):.0f} W prom.")
 
-        if tac_pills:
-            _render_html(
-                f"""
-                <div style="background:rgba(15,20,32,0.86); border:1px solid rgba(0,238,255,0.22); border-radius:10px;
-                            padding:9px 13px; margin-bottom:10px; color:#E2E8F0; font-size:0.82rem; display:flex; flex-wrap:wrap; gap:14px;">
-                    {' '.join(f'<span>{p}</span>' for p in tac_pills)}
-                </div>
-                """
-            )
+            if tac_pills:
+                _render_html(
+                    f"""
+                    <div style="background:rgba(15,20,32,0.86); border:1px solid rgba(0,238,255,0.22); border-radius:10px;
+                                padding:9px 13px; margin-bottom:10px; color:#E2E8F0; font-size:0.82rem; display:flex; flex-wrap:wrap; gap:14px;">
+                        {' '.join(f'<span>{p}</span>' for p in tac_pills)}
+                    </div>
+                    """
+                )
 
-        st.plotly_chart(_build_saved_splits_pacing_chart(sel_splits, sel_sc.scenario_name), use_container_width=True)
+        st.plotly_chart(_build_saved_splits_pacing_chart(sel_splits, sel_sc.scenario_name, is_running=is_run_sel), use_container_width=True)
         df_sp = pd.DataFrame(sel_splits)
         st.dataframe(df_sp, use_container_width=True, hide_index=True)
     else:
@@ -1710,27 +1908,49 @@ def render_saved_scenarios_library(
     if is_athlete_portal:
         # En la App móvil / iOS PWA (pantalla de inicio), st.download_button navega el WebView
         # a /media/... y deja al usuario sin botón "Atrás". Usamos WhatsApp + Copia inline 100% segura.
-        wa_lines = [
-            f"🏁 *PLAN DE CARRERA ALPHAX — {athlete_name}*",
-            f"📌 *{sel_sc.scenario_name}*",
-            f"🗺️ {sel_sc.route_name} ({float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m)",
-            f"⏱️ Tiempo Obj: *{format_hms(t_sec)}* ({float(sel_sc.avg_speed_kmh or 0):.1f} km/h)",
-            f"⚡ Potencia: *NP {float(sel_sc.norm_power_w or 0):.0f} W* (AP {float(sel_sc.avg_power_w or 0):.0f} W) · IF {float(sel_sc.intensity_factor or 0):.2f} · TSS {float(sel_sc.tss or 0):.0f}",
-            "",
-            "🥤 *NUTRICIÓN E HIDRATACIÓN:*",
-            f"• Carbos: *{sel_nut.get('cho_g_per_h', 0)} g/h* (Total {sel_nut.get('cho_total_g', 0)} g · ~{cho_per_20m} g c/20m)",
-            f"• Líquidos: *{sel_nut.get('fluid_ml_per_h', 0)} mL/h* (Total {sel_nut.get('fluid_total_l', 0)} L · ~{bottles_750} bidones)",
-            f"• Sodio: *{sel_nut.get('sodium_mg_per_h', 0)} mg/h* (Total {sel_nut.get('sodium_total_mg', 0)} mg)",
-        ]
-        if sel_splits:
-            wa_lines.append("")
-            wa_lines.append("📋 *PACING POR TRAMO:*")
-            for sp in sel_splits[:18]:
-                wa_lines.append(
-                    f"• {sp.get('Tramo', '')}: *{sp.get('Potencia Obj. (W)', 0)}W* ({sp.get('% FTP', '')}) · {sp.get('Vel. Est. (km/h)', 0)} km/h · Acum {sp.get('Tiempo Acum.', '')}"
-                )
-            if len(sel_splits) > 18:
-                wa_lines.append(f"_(+{len(sel_splits) - 18} tramos más en tu App AlphaX)_")
+        if is_run_sel:
+            wa_lines = [
+                f"🏃‍♂️ *PLAN DE RUNNING ALPHAX — {athlete_name}*",
+                f"📌 *{sel_sc.scenario_name}*",
+                f"🗺️ {sel_sc.route_name} ({float(sel_sc.distance_km or 0):.2f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m)",
+                f"⏱️ Tiempo Obj: *{format_hms(t_sec)}* · Ritmo *{sel_cfg.get('avg_pace_str', '—')}/km* (GAP {sel_cfg.get('avg_gap_str', '—')}/km)",
+                f"⚡ Potencia Stryd: *{float(sel_sc.avg_power_w or 0):.0f} W* ({sel_cfg.get('w_per_kg', 0)} W/kg)",
+                "",
+                "🥤 *NUTRICIÓN Y GELES:*",
+                f"• Carbos: *{sel_nut.get('cho_g_per_h', 0)} g/h* ({sel_nut.get('gels_count', 0)} geles · Total {sel_nut.get('cho_total_g', 0)} g)",
+                f"• Líquidos: *{sel_nut.get('fluid_ml_per_h', 0)} mL/h* (Total {sel_nut.get('fluid_total_l', 0)} L) · Sodio {sel_nut.get('sodium_mg_per_h', 0)} mg/h",
+            ]
+            for g in sel_nut.get("gel_schedule", []):
+                wa_lines.append(f"  ⚡ Gel #{g['gel_num']}: Km {g['km']:.1f} ({g['time_str']}) · {g['cho_g']}g")
+            if sel_splits:
+                wa_lines.append("")
+                wa_lines.append("📋 *PACING POR TRAMO:*")
+                for sp in sel_splits[:18]:
+                    wa_lines.append(
+                        f"• {sp.get('Tramo', '')}: *{sp.get('Ritmo Obj. (/km)', '')}/km* · {sp.get('Potencia Stryd (W)', 0)}W · Acum {sp.get('Tiempo Acum.', '')}"
+                    )
+        else:
+            wa_lines = [
+                f"🏁 *PLAN DE CARRERA ALPHAX — {athlete_name}*",
+                f"📌 *{sel_sc.scenario_name}*",
+                f"🗺️ {sel_sc.route_name} ({float(sel_sc.distance_km or 0):.1f} km · +{float(sel_sc.elevation_gain_m or 0):.0f} m)",
+                f"⏱️ Tiempo Obj: *{format_hms(t_sec)}* ({float(sel_sc.avg_speed_kmh or 0):.1f} km/h)",
+                f"⚡ Potencia: *NP {float(sel_sc.norm_power_w or 0):.0f} W* (AP {float(sel_sc.avg_power_w or 0):.0f} W) · IF {float(sel_sc.intensity_factor or 0):.2f} · TSS {float(sel_sc.tss or 0):.0f}",
+                "",
+                "🥤 *NUTRICIÓN E HIDRATACIÓN:*",
+                f"• Carbos: *{sel_nut.get('cho_g_per_h', 0)} g/h* (Total {sel_nut.get('cho_total_g', 0)} g · ~{cho_per_20m} g c/20m)",
+                f"• Líquidos: *{sel_nut.get('fluid_ml_per_h', 0)} mL/h* (Total {sel_nut.get('fluid_total_l', 0)} L · ~{bottles_750} bidones)",
+                f"• Sodio: *{sel_nut.get('sodium_mg_per_h', 0)} mg/h* (Total {sel_nut.get('sodium_total_mg', 0)} mg)",
+            ]
+            if sel_splits:
+                wa_lines.append("")
+                wa_lines.append("📋 *PACING POR TRAMO:*")
+                for sp in sel_splits[:18]:
+                    wa_lines.append(
+                        f"• {sp.get('Tramo', '')}: *{sp.get('Potencia Obj. (W)', 0)}W* ({sp.get('% FTP', '')}) · {sp.get('Vel. Est. (km/h)', 0)} km/h · Acum {sp.get('Tiempo Acum.', '')}"
+                    )
+                if len(sel_splits) > 18:
+                    wa_lines.append(f"_(+{len(sel_splits) - 18} tramos más en tu App AlphaX)_")
 
         wa_text = "\n".join(wa_lines)[:1800]
         wa_url = f"https://wa.me/?text={urllib.parse.quote(wa_text)}"
@@ -1749,7 +1969,7 @@ def render_saved_scenarios_library(
             """
         )
 
-        with st.expander("📋 Ver y Copiar Ficha Completa (Manillar + Nutrición para Notas)", expanded=False):
+        with st.expander("📋 Ver y Copiar Ficha Completa (Pacing + Nutrición para Notas)", expanded=False):
             st.caption("Toca el ícono de copiar en la esquina superior derecha del recuadro para pegarlo en Notas de tu teléfono sin salir de la app:")
             st.code(txt_card, language="text")
     else:
@@ -1766,8 +1986,14 @@ def render_saved_scenarios_library(
                 use_container_width=True,
                 key=f"rs_open_wi_{key_prefix}_{sel_sc.id}",
             ):
-                st.session_state["rs_loaded_saved_sc_id"] = sel_sc.id
-                st.session_state["rs_active_section"] = "comp"
+                if is_run_sel:
+                    st.session_state["rs_sport_mode"] = "running"
+                    st.session_state["run_loaded_saved_sc_id"] = sel_sc.id
+                    st.session_state["run_active_section"] = "comp"
+                else:
+                    st.session_state["rs_sport_mode"] = "cycling"
+                    st.session_state["rs_loaded_saved_sc_id"] = sel_sc.id
+                    st.session_state["rs_active_section"] = "comp"
                 st.rerun()
         with c_act1:
             if sel_splits:
@@ -1841,22 +2067,17 @@ def render_race_strategy_page():
         """
         <div style="background: linear-gradient(135deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98));
                     border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 14px 20px;
-                    margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
+                    margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
-                🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.17</span>
+                🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.18</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
-                Sube el circuito GPX/FIT, calibra el CdA real, simula escenarios "Qué Pasa Si..." y gestiona planes de carrera estilo Best Bike Split.
+                Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
             </div>
         </div>
         """
     )
-
-    # ── NAVEGACIÓN PRINCIPAL EN 4 BOTONES GRANDES Y COLORIDOS (SIEMPRE ARRIBA) ──
-    if "rs_active_section" not in st.session_state:
-        st.session_state["rs_active_section"] = "sim"
-    active_section = st.session_state["rs_active_section"]
 
     def _nav_btn_css(key_name: str, is_active: bool, grad: str, solid_col: str, tint_bg: str, active_txt: str, glow: str) -> str:
         if is_active:
@@ -1866,7 +2087,7 @@ def render_race_strategy_page():
                 color: {active_txt} !important;
                 border: 2.5px solid {solid_col} !important;
                 box-shadow: 0 0 22px {glow}, 0 6px 16px rgba(0,0,0,0.45) !important;
-                min-height: 62px !important;
+                min-height: 58px !important;
                 border-radius: 14px !important;
                 font-size: 0.96rem !important;
                 font-weight: 900 !important;
@@ -1885,7 +2106,7 @@ def render_race_strategy_page():
             color: {solid_col} !important;
             border: 2px solid {solid_col} !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.35) !important;
-            min-height: 62px !important;
+            min-height: 58px !important;
             border-radius: 14px !important;
             font-size: 0.94rem !important;
             font-weight: 800 !important;
@@ -1907,6 +2128,44 @@ def render_race_strategy_page():
             color: {active_txt} !important;
         }}
         """
+
+    # ── SELECTOR DE DISCIPLINA: 🚴‍♂️ CICLISMO  |  🏃‍♂️ RUNNING (PACE & STRYD) ──
+    if "rs_sport_mode" not in st.session_state:
+        st.session_state["rs_sport_mode"] = "cycling"
+    sport_mode = st.session_state["rs_sport_mode"]
+
+    sport_css = "<style>" + "".join([
+        _nav_btn_css("rs_sp_cyc", sport_mode == "cycling", "linear-gradient(135deg,#00EEFF,#0066FF)", "#00EEFF", "rgba(0,238,255,0.10)", "#04101C", "rgba(0,238,255,0.45)"),
+        _nav_btn_css("rs_sp_run", sport_mode == "running", "linear-gradient(135deg,#00FF88,#00B86B)", "#00FF88", "rgba(0,255,136,0.10)", "#031A0E", "rgba(0,255,136,0.45)"),
+    ]) + "</style>"
+    _render_html(sport_css)
+
+    sp_c1, sp_c2 = st.columns(2)
+    with sp_c1:
+        if st.button(("● " if sport_mode == "cycling" else "") + "🚴‍♂️ MODO CICLISMO (Potencia · CdA · Best Bike Split)", use_container_width=True, key="rs_sp_cyc"):
+            st.session_state["rs_sport_mode"] = "cycling"
+            st.rerun()
+    with sp_c2:
+        if st.button(("● " if sport_mode == "running" else "") + "🏃‍♂️ MODO RUNNING (Pace / PB 5K–42K · Potencia Stryd)", use_container_width=True, key="rs_sp_run"):
+            st.session_state["rs_sport_mode"] = "running"
+            st.rerun()
+
+    st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+
+    # Si estamos en MODO RUNNING, delegar directamente al módulo Running
+    if sport_mode == "running":
+        member_map = _load_active_members_map()
+        if not member_map:
+            st.warning("Aún no hay deportistas registrados en el CRM.")
+            return
+        import running_strategy_ui
+        running_strategy_ui.render_running_strategy_section(member_map, _nav_btn_css)
+        return
+
+    # ── NAVEGACIÓN PRINCIPAL CICLISMO EN 4 BOTONES GRANDES Y COLORIDOS ──
+    if "rs_active_section" not in st.session_state:
+        st.session_state["rs_active_section"] = "sim"
+    active_section = st.session_state["rs_active_section"]
 
     nav_css = "<style>" + "".join([
         _nav_btn_css("rs_nav_sim", active_section == "sim", "linear-gradient(135deg,#00EEFF,#0088FF)", "#00EEFF", "rgba(0,238,255,0.14)", "#04101C", "rgba(0,238,255,0.5)"),
@@ -1987,14 +2246,18 @@ def render_race_strategy_page():
             f"FTP **{ath_defaults['ftp_w']:.0f} W** ({ath_defaults['ftp_src']}){cda_pill}"
         )
 
-    # Consultar planes guardados de ESTE deportista (para poder abrir Qué Pasa Si directo sobre ellos)
+    # Consultar planes guardados de CICLISMO de ESTE deportista (para poder abrir Qué Pasa Si directo sobre ellos)
     with SessionLocal() as _s_chk:
-        member_saved_plans = (
+        _all_saved_plans = (
             _s_chk.query(RaceStrategyScenario)
             .filter(RaceStrategyScenario.member_id == member_id)
             .order_by(RaceStrategyScenario.created_at.desc(), RaceStrategyScenario.id.desc())
             .all()
         )
+    member_saved_plans = [
+        p for p in _all_saved_plans
+        if not (isinstance(_safe_parse_json(p.config_json, {}), dict) and _safe_parse_json(p.config_json, {}).get("sport") == "running")
+    ]
 
     # Recuperar archivo persistido en sesión POR DEPORTISTA para no mezclar rutas entre atletas
     persisted_map = st.session_state.setdefault("rs_persisted_route_map", {})
