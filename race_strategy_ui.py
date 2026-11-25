@@ -1416,7 +1416,7 @@ def render_race_strategy_page():
                     margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.10</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.11</span>
             </div>
             <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
                 Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
@@ -2930,38 +2930,104 @@ def render_race_strategy_page():
             ])
             st.dataframe(sens_df, use_container_width=True, hide_index=True)
 
-        # ── C. BENCHMARK DE TIPOS DE BICICLETA SOBRE THIS GPX ───────
-        st.markdown("##### 🚲 3. Comparación Directa de Bicicletas en este Circuito")
-        bike_bench = []
-        for b_name, w_name, h_name in [
+        # ── C. BENCHMARK DE TIPOS DE BICICLETA SOBRE ESTE GPX (EDITABLE) ───
+        c_bk_hdr1, c_bk_hdr2 = st.columns([3.2, 1])
+        with c_bk_hdr1:
+            st.markdown("##### 🚲 3. Comparación Directa de Bicicletas en este Circuito (CdA y Peso Editables)")
+        bench_ver_key = f"rs_bike_bench_ver_{member_id}"
+        bench_ver = st.session_state.get(bench_ver_key, 0)
+        with c_bk_hdr2:
+            if st.button("🔄 Restablecer Valores", use_container_width=True, key=f"rs_bk_reset_{member_id}_{bench_ver}"):
+                st.session_state[bench_ver_key] = bench_ver + 1
+                st.rerun()
+
+        st.caption(
+            f"Referencias científicas para triatleta aficionado competitivo (estatura `{rider_height:.0f} cm`, peso atleta `{rider_weight:.1f} kg`). "
+            "✏️ Haz clic en cualquier valor de **CdA (m²)** o **Peso Bici + Equipo (kg)** para personalizarlo: la **Masa Total** y los tiempos se recalculan al instante."
+        )
+
+        bike_presets_spec = [
             ("Contrarreloj / Triatlón (TT / Cabra)", "Lenticular trasera + Perfil Alto 80 mm", "Casco Aero TT con visor"),
             ("Ruta Aero con acoples", "Perfil Alto Carbono (60–80 mm)", "Casco Aero Ruta (semi-cerrado)"),
             ("Ruta Aero (manubrio normal / drops)", "Perfil Medio Carbono (45–50 mm)", "Casco Aero Ruta (semi-cerrado)"),
             ("Ruta Escaladora / Ligera", "Ultraligeras Escaladoras (28–35 mm)", "Casco Ruta Ventilado estándar"),
-        ]:
+        ]
+
+        default_eq_list = []
+        edit_init_rows = []
+        for b_name, w_name, h_name in bike_presets_spec:
             b_eq = estimate_equipment_specs(
                 bike_type=b_name, wheels=w_name, helmet=h_name, tires=tires,
                 drivetrain=drivetrain, apparel=apparel, hydration=hydration,
                 surface=surface, rider_height_cm=rider_height,
             )
+            default_eq_list.append((b_name, b_eq))
+            edit_init_rows.append({
+                "Configuración": b_name,
+                "CdA (m²)": round(float(b_eq["cda"]), 3),
+                "Peso Bici + Equipo (kg)": round(float(b_eq["bike_and_gear_kg"]), 2),
+            })
+
+        edited_bikes_df = st.data_editor(
+            pd.DataFrame(edit_init_rows),
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            disabled=["Configuración"],
+            column_config={
+                "Configuración": st.column_config.TextColumn("🚲 Configuración"),
+                "CdA (m²)": st.column_config.NumberColumn(
+                    "🌬️ CdA (m²)",
+                    min_value=0.170,
+                    max_value=0.450,
+                    step=0.005,
+                    format="%.3f",
+                    help="Edita el CdA real o estimado para cada bicicleta.",
+                ),
+                "Peso Bici + Equipo (kg)": st.column_config.NumberColumn(
+                    "⚖️ Peso Bici + Equipo (kg)",
+                    min_value=5.5,
+                    max_value=18.0,
+                    step=0.1,
+                    format="%.2f",
+                    help="Peso de bici + ruedas + hidratación/herramientas. Al cambiarlo actualiza la Masa Total.",
+                ),
+            },
+            key=f"rs_bike_bench_ed_{member_id}_{round(rider_height)}_{bench_ver}",
+        )
+
+        bike_bench = []
+        for idx_b, (b_name, base_eq) in enumerate(default_eq_list):
+            row_ed = edited_bikes_df.iloc[idx_b]
+            raw_cda_ed = row_ed["CdA (m²)"]
+            raw_kg_ed = row_ed["Peso Bici + Equipo (kg)"]
+            ed_cda = float(raw_cda_ed) if pd.notna(raw_cda_ed) and float(raw_cda_ed) >= 0.15 else float(base_eq["cda"])
+            ed_bike_kg = float(raw_kg_ed) if pd.notna(raw_kg_ed) and float(raw_kg_ed) >= 4.0 else float(base_eq["bike_and_gear_kg"])
+
+            custom_eq = dict(
+                base_eq,
+                cda=round(ed_cda, 4),
+                bike_and_gear_kg=round(ed_bike_kg, 2),
+            )
             b_sim = simulate_race_strategy(
-                route_data, rider_weight, ftp_w, target_if, b_eq,
+                route_data, rider_weight, ftp_w, target_if, custom_eq,
                 float(temp_c), float(humidity_pct), float(wind_kmh), float(wind_deg),
                 strategy_code, max_climb_pct, float(max_desc_kmh), hourly_weather=active_hourly_weather,
             )["summary"]
-            bike_bench.append((b_name, b_sim))
+            bike_bench.append((b_name, ed_bike_kg, b_sim))
 
-        fastest_b = min(x[1]["total_time_s"] for x in bike_bench)
+        fastest_b = min(x[2]["total_time_s"] for x in bike_bench)
         bike_df = pd.DataFrame([
             {
                 "Configuración": bn,
-                "CdA (m²)": bs["cda"],
-                "Masa Total (kg)": bs["total_mass_kg"],
+                "CdA (m²)": round(bs["cda"], 3),
+                "Peso Bici + Eq. (kg)": round(bk_kg, 2),
+                "Masa Total (kg)": round(bs["total_mass_kg"], 2),
                 "Tiempo Estimado": bs["total_time_str"],
                 "Diferencia vs Más Rápida": "🥇 Más rápida" if abs(bs["total_time_s"] - fastest_b) < 0.5 else format_time_delta(bs["total_time_s"] - fastest_b),
                 "Vel. Media (km/h)": bs["avg_speed_kmh"],
             }
-            for bn, bs in bike_bench
+            for bn, bk_kg, bs in bike_bench
         ])
         st.dataframe(bike_df, use_container_width=True, hide_index=True)
 

@@ -34,14 +34,14 @@ R_WATER_VAPOR = 461.495
 
 BIKE_TYPES = {
     "Contrarreloj / Triatlón (TT / Cabra)": {
-        "cda": 0.235,
+        "cda": 0.278,
         "weight_kg": 8.6,
-        "desc": "Posición acoplada sobre barras aerodinámicas. Mínima resistencia al viento.",
+        "desc": "Posición acoplada TT (triatleta aficionado competitivo: ~0.230–0.245 m² con equipo aero completo).",
     },
     "Ruta Aero con acoples": {
-        "cda": 0.272,
+        "cda": 0.288,
         "weight_kg": 7.7,
-        "desc": "Bicicleta de ruta con barras clip-on cortas o largas.",
+        "desc": "Bicicleta de ruta aero con acoples clip-on (~0.250–0.268 m² con equipo aero).",
     },
     "Ruta Aero (manubrio normal / drops)": {
         "cda": 0.305,
