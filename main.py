@@ -14,7 +14,7 @@ if st.query_params.get("app") == "atletas":
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.13)
+# Configuración de página principal del CRM Administrador (Build v2.14)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -2748,7 +2748,7 @@ elif page == "Analíticas AlphaX":
 
 elif page == "🏁 Estrategias de Carrera":
     import race_strategy_ui
-    _RS_BUILD_TAG = "2.13"
+    _RS_BUILD_TAG = "2.14"
     if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
         import importlib
         import race_strategy_engine

@@ -1550,27 +1550,123 @@ def render_race_strategy_page():
     _render_html(
         """
         <div style="background: linear-gradient(135deg, rgba(14, 22, 38, 0.96), rgba(8, 12, 22, 0.98));
-                    border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 16px 20px;
-                    margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
+                    border: 1.5px solid rgba(0, 238, 255, 0.35); border-radius: 16px; padding: 14px 20px;
+                    margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador y Estrategias de Carrera (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.13</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.14</span>
             </div>
-            <div style="color:#94A3B8; font-size:0.86rem; margin-top:4px;">
-                Sube el circuito GPX, configura CdA, bicicleta, componentes, viento y temperatura, y modela escenarios de potencia óptimos estilo Best Bike Split.
+            <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
+                Sube el circuito GPX/FIT, calibra el CdA real, simula escenarios "Qué Pasa Si..." y gestiona planes de carrera estilo Best Bike Split.
             </div>
         </div>
         """
     )
 
-    # ── 1. SELECCIÓN DE DEPORTISTA Y CARGA DE RUTA GPX ──────────────
+    # ── NAVEGACIÓN PRINCIPAL EN 4 BOTONES GRANDES Y COLORIDOS (SIEMPRE ARRIBA) ──
+    if "rs_active_section" not in st.session_state:
+        st.session_state["rs_active_section"] = "sim"
+    active_section = st.session_state["rs_active_section"]
+
+    def _nav_btn_css(key_name: str, is_active: bool, grad: str, solid_col: str, tint_bg: str, active_txt: str, glow: str) -> str:
+        if is_active:
+            return f"""
+            .st-key-{key_name} button {{
+                background: {grad} !important;
+                color: {active_txt} !important;
+                border: 2.5px solid {solid_col} !important;
+                box-shadow: 0 0 22px {glow}, 0 6px 16px rgba(0,0,0,0.45) !important;
+                min-height: 62px !important;
+                border-radius: 14px !important;
+                font-size: 0.96rem !important;
+                font-weight: 900 !important;
+                letter-spacing: 0.2px !important;
+                transition: all 0.2s ease !important;
+            }}
+            .st-key-{key_name} button p {{
+                color: {active_txt} !important;
+                font-weight: 900 !important;
+                font-size: 0.96rem !important;
+            }}
+            """
+        return f"""
+        .st-key-{key_name} button {{
+            background: {tint_bg} !important;
+            color: {solid_col} !important;
+            border: 2px solid {solid_col} !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35) !important;
+            min-height: 62px !important;
+            border-radius: 14px !important;
+            font-size: 0.94rem !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.2px !important;
+            transition: all 0.2s ease !important;
+        }}
+        .st-key-{key_name} button p {{
+            color: {solid_col} !important;
+            font-weight: 800 !important;
+            font-size: 0.94rem !important;
+        }}
+        .st-key-{key_name} button:hover {{
+            background: {grad} !important;
+            color: {active_txt} !important;
+            box-shadow: 0 0 18px {glow} !important;
+            transform: translateY(-2px) !important;
+        }}
+        .st-key-{key_name} button:hover p {{
+            color: {active_txt} !important;
+        }}
+        """
+
+    nav_css = "<style>" + "".join([
+        _nav_btn_css("rs_nav_sim", active_section == "sim", "linear-gradient(135deg,#00EEFF,#0088FF)", "#00EEFF", "rgba(0,238,255,0.14)", "#04101C", "rgba(0,238,255,0.5)"),
+        _nav_btn_css("rs_nav_cda", active_section == "cda", "linear-gradient(135deg,#FF3B30,#FF6B6B)", "#FF5252", "rgba(255,59,48,0.16)", "#FFFFFF", "rgba(255,59,48,0.5)"),
+        _nav_btn_css("rs_nav_comp", active_section == "comp", "linear-gradient(135deg,#FFD700,#FF9100)", "#FFD700", "rgba(255,215,0,0.14)", "#140E00", "rgba(255,215,0,0.5)"),
+        _nav_btn_css("rs_nav_saved", active_section == "saved", "linear-gradient(135deg,#00FF88,#00B86B)", "#00FF88", "rgba(0,255,136,0.14)", "#031A0E", "rgba(0,255,136,0.5)"),
+    ]) + "</style>"
+    _render_html(nav_css)
+
+    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
+    with b_col1:
+        lbl_sim = ("● " if active_section == "sim" else "") + "⚙️ Simulador y Plan de Carrera"
+        if st.button(lbl_sim, use_container_width=True, key="rs_nav_sim"):
+            st.session_state["rs_active_section"] = "sim"
+            st.rerun()
+    with b_col2:
+        lbl_cda = ("● " if active_section == "cda" else "") + "📐 Calibrar CdA Real"
+        if st.button(lbl_cda, use_container_width=True, key="rs_nav_cda"):
+            st.session_state["rs_active_section"] = "cda"
+            st.rerun()
+    with b_col3:
+        lbl_comp = ("● " if active_section == "comp" else "") + "⚔️ Comparador 'Qué Pasa Si...'"
+        if st.button(lbl_comp, use_container_width=True, key="rs_nav_comp"):
+            st.session_state["rs_active_section"] = "comp"
+            st.rerun()
+    with b_col4:
+        lbl_sav = ("● " if active_section == "saved" else "") + "🗂️ Escenarios Guardados"
+        if st.button(lbl_sav, use_container_width=True, key="rs_nav_saved"):
+            st.session_state["rs_active_section"] = "saved"
+            st.rerun()
+
+    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
+    # ── 1. SELECCIÓN DE DEPORTISTA (+ CARGA DE RUTA GPX/FIT) ────────
     member_map = _load_active_members_map()
 
     if not member_map:
         st.warning("Aún no hay deportistas registrados en el CRM.")
         return
 
-    col_top1, col_top2 = st.columns([1.15, 1.85])
+    route_file_bytes = None
+    route_file_label = ""
+    uploaded_custom_file = False
+    laps = int(st.session_state.get("rs_laps", 1))
+
+    if active_section in ("sim", "comp"):
+        col_top1, col_top2 = st.columns([1.15, 1.85])
+    else:
+        col_top1, col_top2 = st.columns([1.5, 1.5])
+
     with col_top1:
         sel_member_label = st.selectbox(
             "🏃‍♂️ Seleccionar Deportista:",
@@ -1589,50 +1685,96 @@ def render_race_strategy_page():
             f"FTP **{ath_defaults['ftp_w']:.0f} W** ({ath_defaults['ftp_src']}){cda_pill}"
         )
 
-    with col_top2:
-        route_source = st.radio(
-            "🗺️ Origen del Circuito de Ciclismo:",
-            ["📂 Subir archivo FIT / GPX / TCX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
-            horizontal=True,
-            key="rs_route_source",
-        )
+    # Recuperar archivo persistido en sesión para no perderlo al cambiar entre botones superiores
+    persisted = st.session_state.get("rs_persisted_route")
 
-        route_file_bytes = None
-        route_file_label = ""
-        uploaded_custom_file = False
-        c_gpx1, c_gpx2 = st.columns([2.2, 1])
-        with c_gpx1:
-            if route_source.startswith("📂"):
-                up_gpx = st.file_uploader(
-                    "Sube la ruta o actividad (.fit, .gpx, .tcx o .zip de Garmin/Strava/Wahoo/TrainingPeaks):",
-                    type=["fit", "gpx", "tcx", "zip", "gz"],
-                    key="rs_gpx_uploader",
-                )
-                if up_gpx is not None:
-                    route_file_bytes = up_gpx.getvalue()
-                    route_file_label = up_gpx.name
-                    uploaded_custom_file = True
-            elif "Cartagena" in route_source:
-                route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
-                route_file_label = "demo_cartagena.gpx"
-            else:
-                route_file_bytes, route_file_label = generate_demo_gpx("rionegro_climb")
-                route_file_label = "demo_rionegro.gpx"
-        with c_gpx2:
-            laps = st.number_input(
-                "🔁 Vueltas al circuito:",
-                min_value=1,
-                max_value=15,
-                value=1,
-                step=1,
-                help="Si tu archivo es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
-                key="rs_laps",
+    if active_section in ("sim", "comp"):
+        with col_top2:
+            route_source = st.radio(
+                "🗺️ Origen del Circuito de Ciclismo:",
+                ["📂 Subir archivo FIT / GPX / TCX", "🌴 Demo: Ironman 70.3 Cartagena (90 km)", "⛰️ Demo: Circuito Rionegro–Las Palmas (45 km)"],
+                horizontal=True,
+                key="rs_route_source",
             )
+            c_gpx1, c_gpx2 = st.columns([2.2, 1])
+            with c_gpx1:
+                if route_source.startswith("📂"):
+                    up_gpx = st.file_uploader(
+                        "Sube la ruta o actividad (.fit, .gpx, .tcx o .zip de Garmin/Strava/Wahoo/TrainingPeaks):",
+                        type=["fit", "gpx", "tcx", "zip", "gz"],
+                        key="rs_gpx_uploader",
+                    )
+                    if up_gpx is not None:
+                        route_file_bytes = up_gpx.getvalue()
+                        route_file_label = up_gpx.name
+                        uploaded_custom_file = True
+                        st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, True)
+                    elif persisted and persisted[2]:
+                        route_file_bytes, route_file_label, uploaded_custom_file = persisted
+                        c_pr1, c_pr2 = st.columns([3, 1])
+                        with c_pr1:
+                            st.caption(f"📎 Circuito activo en memoria: **`{route_file_label}`**")
+                        with c_pr2:
+                            if st.button("✕ Quitar", key="rs_clear_persisted", use_container_width=True):
+                                st.session_state.pop("rs_persisted_route", None)
+                                st.rerun()
+                elif "Cartagena" in route_source:
+                    route_file_bytes, route_file_label = generate_demo_gpx("cartagena_703")
+                    route_file_label = "demo_cartagena.gpx"
+                    st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, False)
+                else:
+                    route_file_bytes, route_file_label = generate_demo_gpx("rionegro_climb")
+                    route_file_label = "demo_rionegro.gpx"
+                    st.session_state["rs_persisted_route"] = (route_file_bytes, route_file_label, False)
+            with c_gpx2:
+                laps = st.number_input(
+                    "🔁 Vueltas al circuito:",
+                    min_value=1,
+                    max_value=15,
+                    value=1,
+                    step=1,
+                    help="Si tu archivo es una sola vuelta de un circuito, indica cuántas vueltas tiene la carrera.",
+                    key="rs_laps",
+                )
+    else:
+        # En Calibrar CdA o Escenarios Guardados, mantenemos en memoria el circuito si ya existía
+        if persisted:
+            route_file_bytes, route_file_label, uploaded_custom_file = persisted
+        with col_top2:
+            if active_section == "saved":
+                st.caption("🗂️ Vista directa de planes guardados. Usa los botones de arriba para simular un circuito nuevo o calibrar CdA.")
+            else:
+                st.caption("📐 Calibra el CdA real usando cualquier carrera pasada (.FIT/.TCX/.GPX) sin necesidad de subir un circuito en el simulador.")
 
-    if not route_file_bytes:
+    # ── SECCIÓN DIRECTA: ESCENARIOS GUARDADOS (NO REQUIERE SUBIR ARCHIVO) ──
+    if active_section == "saved":
+        render_saved_scenarios_library(
+            member_id=member_id,
+            athlete_name=ath_defaults["name"],
+            allow_delete=True,
+            is_athlete_portal=False,
+            key_prefix="admin_tab",
+        )
+        return
+
+    # Parsear ruta si existe en memoria (necesaria para Simulador / Comparador, opcional en Calibrar CdA)
+    route_data = None
+    route_sig = None
+    if route_file_bytes:
+        route_file_hash = hashlib.sha256(route_file_bytes).hexdigest()[:16]
+        route_sig = f"{route_file_hash}_{route_file_label}_{int(laps)}"
+        try:
+            route_data = _cached_parse_route(route_file_hash, route_file_bytes, route_file_label, int(laps))
+        except Exception as gpx_err:
+            if active_section in ("sim", "comp"):
+                st.error(f"⚠️ No se pudo leer el archivo `{route_file_label}`: {gpx_err}")
+                return
+
+    # Si estamos en Simulador o Comparador pero aún no hay circuito cargado:
+    if active_section in ("sim", "comp") and not route_data:
         st.info(
-            "📂 Para **crear una nueva simulación o calibrar CdA**, sube un archivo `.fit`, `.gpx`, `.tcx` o `.zip` arriba (o elige una ruta demo). "
-            f"Mientras tanto, aquí tienes de inmediato los planes ya guardados de **{ath_defaults['name']}**:"
+            "📂 Para usar el **Simulador** o el **Comparador 'Qué Pasa Si...'**, sube arriba un archivo `.fit`, `.gpx`, `.tcx` o `.zip` (o elige una ruta Demo). "
+            f"Mientras tanto, aquí tienes los planes ya guardados de **{ath_defaults['name']}**:"
         )
         render_saved_scenarios_library(
             member_id=member_id,
@@ -1643,86 +1785,77 @@ def render_race_strategy_page():
         )
         return
 
-    route_file_hash = hashlib.sha256(route_file_bytes).hexdigest()[:16]
-    route_sig = f"{route_file_hash}_{route_file_label}_{int(laps)}"
-    try:
-        route_data = _cached_parse_route(route_file_hash, route_file_bytes, route_file_label, int(laps))
-    except Exception as gpx_err:
-        st.error(f"⚠️ No se pudo leer el archivo `{route_file_label}`: {gpx_err}")
-        return
-
-    # Banner compacto del circuito cargado
-    _render_html(
-        f"""
-        <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:6px 0 14px 0;">
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Circuito</div>
-                <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{route_data['route_name'][:32]}</div>
-            </div>
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Distancia Total</div>
-                <div style="color:#00EEFF; font-size:1.1rem; font-weight:900;">{route_data['total_distance_km']:.1f} km</div>
-            </div>
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Desnivel Positivo</div>
-                <div style="color:#FF6B6B; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
-            </div>
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Altitud (Mín–Máx)</div>
-                <div style="color:#F8FAFC; font-size:1.0rem; font-weight:800;">{route_data['min_ele_m']:.0f}–{route_data['max_ele_m']:.0f} m</div>
-            </div>
-            <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
-                <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Pendiente Máx</div>
-                <div style="color:#FFD700; font-size:1.1rem; font-weight:900;">{route_data['max_grade_pct']:.1f}%</div>
-            </div>
-        </div>
-        """
-    )
-
-    # ── PLANIMETRÍA Y ALTIMETRÍA CON MAPA DE CALOR DE DESNIVELES (CACHEADOS) ──
-    fig_elev_heat, t_stats, fig_plan_heat = _cached_course_heatmaps(route_sig, route_data)
-
-    with st.expander("🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles", expanded=True):
+    # Banner compacto del circuito + Planimetría/Altimetría (en Simulador y Comparador)
+    if active_section in ("sim", "comp") and route_data:
         _render_html(
             f"""
-            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
-                        background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
-                        padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#CBD5E1;">
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                    <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
-                    <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz (≤-3.5%)</span>
-                    <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada Rápida</span>
-                    <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
-                    <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
-                    <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida (2.5–5%)</span>
-                    <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte (≥5%)</span>
+            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin:6px 0 12px 0;">
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Circuito</div>
+                    <div style="color:#FFFFFF; font-size:0.86rem; font-weight:800; margin-top:2px;">{route_data['route_name'][:32]}</div>
                 </div>
-                <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
-                    <span style="color:#FF6B6B;">⛰️ Subida: {t_stats.get('climb_km', 0)} km</span>
-                    <span style="color:#94A3B8;">➡️ Llano: {t_stats.get('flat_km', 0)} km</span>
-                    <span style="color:#00E676;">⬇️ Bajada: {t_stats.get('descent_km', 0)} km</span>
-                    <span style="color:#00B0FF;">🚀 Desc. rápido: {t_stats.get('fast_down_km', 0)} km</span>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Distancia Total</div>
+                    <div style="color:#00EEFF; font-size:1.1rem; font-weight:900;">{route_data['total_distance_km']:.1f} km</div>
+                </div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Desnivel Positivo</div>
+                    <div style="color:#FF6B6B; font-size:1.1rem; font-weight:900;">+{route_data['elevation_gain_m']:.0f} m</div>
+                </div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Altitud (Mín–Máx)</div>
+                    <div style="color:#F8FAFC; font-size:1.0rem; font-weight:800;">{route_data['min_ele_m']:.0f}–{route_data['max_ele_m']:.0f} m</div>
+                </div>
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,238,255,0.25); border-radius:10px; padding:8px 10px; text-align:center;">
+                    <div style="color:#8E9BAE; font-size:0.68rem; font-weight:700; text-transform:uppercase;">Pendiente Máx</div>
+                    <div style="color:#FFD700; font-size:1.1rem; font-weight:900;">{route_data['max_grade_pct']:.1f}%</div>
                 </div>
             </div>
             """
         )
-        c_hm1, c_hm2 = st.columns([1.55, 1])
-        with c_hm1:
-            st.plotly_chart(fig_elev_heat, use_container_width=True)
-        with c_hm2:
-            st.plotly_chart(fig_plan_heat, use_container_width=True)
 
-    tab_sim, tab_cda, tab_comp, tab_saved = st.tabs([
-        "⚙️ Simulador y Plan de Carrera",
-        "📐 Calibrar CdA Real (desde Carrera)",
-        "⚔️ Comparador 'Qué Pasa Si...'",
-        "🗂️ Escenarios Guardados",
-    ])
+        # ── PLANIMETRÍA Y ALTIMETRÍA CON MAPA DE CALOR DE DESNIVELES (CACHEADOS) ──
+        fig_elev_heat, t_stats, fig_plan_heat = _cached_course_heatmaps(route_sig, route_data)
+
+        with st.expander(
+            "🗺️ Planimetría y Altimetría del Circuito — Mapa de Calor de Desniveles",
+            expanded=(active_section == "sim"),
+        ):
+            _render_html(
+                f"""
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
+                            background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
+                            padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#CBD5E1;">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
+                        <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz (≤-3.5%)</span>
+                        <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada Rápida</span>
+                        <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
+                        <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
+                        <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida (2.5–5%)</span>
+                        <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte (≥5%)</span>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
+                        <span style="color:#FF6B6B;">⛰️ Subida: {t_stats.get('climb_km', 0)} km</span>
+                        <span style="color:#94A3B8;">➡️ Llano: {t_stats.get('flat_km', 0)} km</span>
+                        <span style="color:#00E676;">⬇️ Bajada: {t_stats.get('descent_km', 0)} km</span>
+                        <span style="color:#00B0FF;">🚀 Desc. rápido: {t_stats.get('fast_down_km', 0)} km</span>
+                    </div>
+                </div>
+                """
+            )
+            c_hm1, c_hm2 = st.columns([1.55, 1])
+            with c_hm1:
+                st.plotly_chart(fig_elev_heat, use_container_width=True)
+            with c_hm2:
+                st.plotly_chart(fig_plan_heat, use_container_width=True)
+
+    sim_ctx_key = f"rs_sim_ctx_{member_id}_{route_sig}" if route_sig else None
 
     # ═════════════════════════════════════════════════════════════════
-    #  TAB 1: SIMULADOR COMPLETO ESTILO BEST BIKE SPLIT
+    #  SECCIÓN 1: SIMULADOR COMPLETO ESTILO BEST BIKE SPLIT
     # ═════════════════════════════════════════════════════════════════
-    with tab_sim:
+    if active_section == "sim":
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
 
         # ── COL 1: BICICLETA, COMPONENTES Y CDA ─────────────────────
@@ -2009,6 +2142,41 @@ def render_race_strategy_page():
         s = sim["summary"]
         nut = sim["nutrition"]
 
+        # Persistir contexto completo de la simulación base para que el Comparador "Qué Pasa Si..." lo use al instante
+        if sim_ctx_key:
+            st.session_state[sim_ctx_key] = {
+                "sim": sim,
+                "s": s,
+                "nut": nut,
+                "equipment": equipment,
+                "rider_weight": rider_weight,
+                "rider_height": rider_height,
+                "ftp_w": ftp_w,
+                "target_if": target_if,
+                "temp_c": temp_c,
+                "humidity_pct": humidity_pct,
+                "wind_kmh": wind_kmh,
+                "wind_deg": wind_deg,
+                "strategy_code": strategy_code,
+                "strat_label": strat_label,
+                "max_climb_pct": max_climb_pct,
+                "max_desc_kmh": max_desc_kmh,
+                "split_step_km": split_step_km,
+                "active_hourly_weather": active_hourly_weather,
+                "bike_type": bike_type,
+                "wheels": wheels,
+                "helmet": helmet,
+                "tires": tires,
+                "drivetrain": drivetrain,
+                "apparel": apparel,
+                "hydration": hydration,
+                "surface": surface,
+                "race_date": race_date,
+                "race_time_str": race_time_str,
+                "weather_data": weather_data,
+                "weather_matches_route": weather_matches_route,
+            }
+
         # ── TARJETAS HERO DE RESULTADO DE SIMULACIÓN ────────────────
         st.markdown("---")
         _render_html(
@@ -2193,9 +2361,9 @@ def render_race_strategy_page():
                     st.error(f"Error guardando escenario: {save_err}")
 
     # ═════════════════════════════════════════════════════════════════
-    #  TAB 2: CALIBRAR CdA REAL DESDE ARCHIVO O RESUMEN DE COMPETENCIA
+    #  SECCIÓN 2: CALIBRAR CdA REAL DESDE ARCHIVO O RESUMEN DE COMPETENCIA
     # ═════════════════════════════════════════════════════════════════
-    with tab_cda:
+    elif active_section == "cda":
         st.subheader(f"📐 Calibración Real de CdA (m²) — {ath_defaults['name']}")
         _render_html(
             """
@@ -2454,6 +2622,8 @@ def render_race_strategy_page():
                     st.error(f"⚠️ No se pudo leer la ruta pasada: {sr_err}")
                     sum_route_data = None
 
+            if not sum_route_data:
+                st.info("📂 Sube el archivo de la ruta de ESA carrera pasada (.fit, .gpx, .tcx o .zip) arriba para calcular tu CdA con el resumen oficial.")
             if sum_route_data:
                 sum_segs = sum_route_data["segments"]
                 sum_lat = sum(seg["lat"] for seg in sum_segs) / max(1, len(sum_segs))
@@ -2624,6 +2794,8 @@ def render_race_strategy_page():
                             s_up.commit()
                     # Invalidar caché de perfil e incrementar versión de widgets de CdA
                     _load_athlete_defaults.clear()
+                    if sim_ctx_key:
+                        st.session_state.pop(sim_ctx_key, None)
                     st.session_state[f"rs_cda_ver_{member_id}"] = st.session_state.get(f"rs_cda_ver_{member_id}", 0) + 1
                     st.session_state[cda_flash_key] = (
                         f"🎉 CdA real (`{cal_res['cda']:.3f} m²`) guardado en el perfil de **{ath_defaults['name']}** "
@@ -2635,9 +2807,78 @@ def render_race_strategy_page():
                     st.error(f"Error guardando CdA: {save_cda_err}")
 
     # ═════════════════════════════════════════════════════════════════
-    #  TAB 3: COMPARADOR INTERACTIVO "QUÉ PASA SI..." (ESTILO BEST BIKE SPLIT)
+    #  SECCIÓN 3: COMPARADOR INTERACTIVO "QUÉ PASA SI..." (ESTILO BEST BIKE SPLIT)
     # ═════════════════════════════════════════════════════════════════
-    with tab_comp:
+    elif active_section == "comp":
+        ctx = st.session_state.get(sim_ctx_key) if sim_ctx_key else None
+        if not ctx:
+            # Construir escenario base por defecto al instante si el usuario entró directo al Comparador
+            bike_type = list(BIKE_TYPES.keys())[0]
+            wheels = list(WHEEL_SETS.keys())[1]
+            helmet = list(HELMETS.keys())[0]
+            tires = list(TIRES_CRR.keys())[1]
+            drivetrain = list(DRIVETRAINS.keys())[1]
+            apparel = list(APPAREL_OPTIONS.keys())[0]
+            hydration = list(HYDRATION_SETUP.keys())[0]
+            surface = list(ROAD_SURFACES.keys())[1]
+            rider_weight = float(ath_defaults["weight_kg"])
+            rider_height = float(ath_defaults["height_cm"])
+            ftp_w = float(ath_defaults["ftp_w"])
+            target_if = 0.80
+            temp_c, humidity_pct, wind_kmh, wind_deg = 24.0, 65.0, 8.0, 45.0
+            strategy_code = "optimal"
+            strat_label = "⚡ Óptimo AlphaX (Variable por Pendiente y Viento)"
+            max_climb_pct, max_desc_kmh, split_step_km = 1.05, 68.0, 5.0
+            active_hourly_weather = None
+            race_date = date.today() + timedelta(days=3)
+            race_time_str = "07:00"
+            weather_data = None
+            weather_matches_route = False
+            equipment = estimate_equipment_specs(
+                bike_type=bike_type, wheels=wheels, helmet=helmet, tires=tires,
+                drivetrain=drivetrain, apparel=apparel, hydration=hydration,
+                surface=surface, rider_height_cm=rider_height,
+                manual_cda=ath_defaults.get("calibrated_cda"),
+            )
+            sim = _sim_fast(
+                route_sig=route_sig, route_data=route_data, rider_weight_kg=rider_weight,
+                ftp_w=ftp_w, target_if=target_if, equipment=equipment,
+                temp_c=temp_c, humidity_pct=humidity_pct, wind_kmh=wind_kmh, wind_deg=wind_deg,
+                strategy=strategy_code, max_climb_pct=max_climb_pct, max_desc_kmh=max_desc_kmh,
+                split_step_km=split_step_km, hourly_weather=active_hourly_weather,
+            )
+            s = sim["summary"]
+        else:
+            sim = ctx["sim"]
+            s = ctx["s"]
+            equipment = ctx["equipment"]
+            rider_weight = ctx["rider_weight"]
+            rider_height = ctx["rider_height"]
+            ftp_w = ctx["ftp_w"]
+            target_if = ctx["target_if"]
+            temp_c = ctx["temp_c"]
+            humidity_pct = ctx["humidity_pct"]
+            wind_kmh = ctx["wind_kmh"]
+            wind_deg = ctx["wind_deg"]
+            strategy_code = ctx["strategy_code"]
+            strat_label = ctx["strat_label"]
+            max_climb_pct = ctx["max_climb_pct"]
+            max_desc_kmh = ctx["max_desc_kmh"]
+            split_step_km = ctx["split_step_km"]
+            active_hourly_weather = ctx["active_hourly_weather"]
+            bike_type = ctx["bike_type"]
+            wheels = ctx["wheels"]
+            helmet = ctx["helmet"]
+            tires = ctx["tires"]
+            drivetrain = ctx["drivetrain"]
+            apparel = ctx["apparel"]
+            hydration = ctx["hydration"]
+            surface = ctx["surface"]
+            race_date = ctx["race_date"]
+            race_time_str = ctx["race_time_str"]
+            weather_data = ctx["weather_data"]
+            weather_matches_route = ctx["weather_matches_route"]
+
         st.subheader("🎚️ Simulador Interactivo 'Qué Pasa Si...' (Estilo Best Bike Split)")
         st.caption(
             f"Desliza cualquier variable desde tu escenario objetivo para ver al instante su impacto real en tiempo, velocidad y TSS para **{ath_defaults['name']}** "
@@ -3280,16 +3521,4 @@ def render_race_strategy_page():
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
         else:
-            st.info("Guarda al menos 2 escenarios desde la pestaña **⚙️ Simulador y Plan de Carrera** para compararlos aquí lado a lado.")
-
-    # ═════════════════════════════════════════════════════════════════
-    #  TAB 4: HISTORIAL Y GESTIÓN DE ESCENARIOS GUARDADOS
-    # ═════════════════════════════════════════════════════════════════
-    with tab_saved:
-        render_saved_scenarios_library(
-            member_id=member_id,
-            athlete_name=ath_defaults["name"],
-            allow_delete=True,
-            is_athlete_portal=False,
-            key_prefix="admin_tab",
-        )
+            st.info("Guarda al menos 2 escenarios desde **⚙️ Simulador y Plan de Carrera** para compararlos aquí lado a lado.")
