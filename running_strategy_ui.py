@@ -24,6 +24,7 @@ from interactive_course_charts import (
     render_interactive_pacing_zoom_widget,
     render_synced_elevation_planimetry_widget,
 )
+from fit_export_ui import render_garmin_fit_export_panel
 from race_strategy_engine import format_hms, format_time_delta
 from running_strategy_engine import (
     PB_DISTANCES_KM,
@@ -1948,6 +1949,25 @@ def render_running_strategy_section(
     ]
     df_splits = pd.DataFrame(visible_splits)
     st.dataframe(df_splits, use_container_width=True, hide_index=True)
+
+    # ── EXPORTACIÓN GARMIN .FIT (TRAYECTO + VIRTUAL PARTNER + WORKOUT) ──
+    try:
+        _r_hh, _r_mm = (str(race_time_str or "07:00").split(":") + ["0"])[:2]
+        _run_fit_start_dt = datetime(race_date.year, race_date.month, race_date.day, int(_r_hh), int(_r_mm))
+    except Exception:
+        _run_fit_start_dt = None
+
+    render_garmin_fit_export_panel(
+        plan_name=f"{route_data['route_name']} {ath['name']}",
+        sim_segments=sim["segments"],
+        sport="running",
+        default_target_metric=("power" if plan_mode == "stryd" else "pace"),
+        ref_threshold_w=run_cp_w,
+        nutrition=nut,
+        default_split_km=split_interval_km,
+        key_prefix=f"run_fit_{member_id}_{route_sig}",
+        start_dt=_run_fit_start_dt,
+    )
 
     # ── GUARDAR ESCENARIO EN CRM Y APP DEL ATLETA ───────────────────
     st.markdown("---")

@@ -24,6 +24,7 @@ from interactive_course_charts import (
     render_interactive_pacing_zoom_widget,
     render_synced_elevation_planimetry_widget,
 )
+from fit_export_ui import render_garmin_fit_export_panel
 from cda_estimator import (
     estimate_cda_from_activity,
     estimate_cda_from_race_summary,
@@ -2037,6 +2038,46 @@ def render_saved_scenarios_library(
                     except Exception as err_d:
                         st.error(f"Error al eliminar: {err_d}")
 
+        # Exportación directa a Garmin .FIT desde la biblioteca de escenarios guardados
+        with st.expander("⌚ Exportar este Plan al Reloj (Garmin .FIT — Trayecto + Virtual Partner + Workout)", expanded=False):
+            try:
+                if is_run_sel:
+                    from running_strategy_ui import _build_run_ctx_from_saved, _load_running_athlete_defaults
+                    _run_ath_def = _load_running_athlete_defaults(member_id)
+                    _, _rd_sav, _ctx_sav = _build_run_ctx_from_saved(sel_sc, _run_ath_def)
+                    _fit_sport = "running"
+                    _fit_metric = "power" if _ctx_sav.get("mode") == "stryd" else "pace"
+                    _fit_thr = float(_ctx_sav.get("run_cp_w") or 285.0)
+                    _fit_split_km = float(_ctx_sav.get("split_interval_km") or 2.0)
+                else:
+                    _cyc_ath_def = _load_athlete_defaults(member_id)
+                    _, _rd_sav, _ctx_sav = _build_ctx_from_saved_scenario(sel_sc, _cyc_ath_def)
+                    _fit_sport = "cycling"
+                    _fit_metric = "power"
+                    _fit_thr = float(_ctx_sav.get("ftp_w") or 250.0)
+                    _fit_split_km = float(_ctx_sav.get("split_step_km") or 5.0)
+
+                if _rd_sav.get("reconstructed_from_splits"):
+                    st.warning(
+                        "⚠️ Este escenario antiguo no guardó el trazado GPS completo. "
+                        "El **Workout (.FIT por distancia)** es 100% preciso; para un **Trayecto GPS exacto** "
+                        "vuelve a guardar el plan cargando el archivo GPX/FIT del circuito."
+                    )
+
+                render_garmin_fit_export_panel(
+                    plan_name=str(sel_sc.scenario_name or sel_sc.route_name or f"AlphaX_{sel_sc.id}"),
+                    sim_segments=_ctx_sav["sim"]["segments"],
+                    sport=_fit_sport,
+                    default_target_metric=_fit_metric,
+                    ref_threshold_w=_fit_thr,
+                    nutrition=_ctx_sav.get("nut") or sel_nut,
+                    default_split_km=_fit_split_km,
+                    key_prefix=f"sav_fit_{key_prefix}_{sel_sc.id}",
+                    compact=True,
+                )
+            except Exception as _fit_sav_err:
+                st.error(f"No se pudo preparar la exportación .FIT para este escenario: {_fit_sav_err}")
+
 
 def render_athlete_race_plans_tab(member_id: int, athlete_name: str):
     """Vista exclusiva de solo lectura para la App del Atleta: Planes de Pacing y Nutrición creados por el Coach."""
@@ -2891,11 +2932,30 @@ def render_race_strategy_page():
                 """
             )
 
-        # Tabla de Splits + Descarga CSV
+        # Tabla de Splits + Exportación Garmin .FIT + Descarga CSV
         st.markdown("---")
         st.markdown("### 📋 Plan de Splits (Hoja de Ruta de Potencia para Carrera)")
         df_splits = pd.DataFrame(sim["splits"])
         st.dataframe(df_splits, use_container_width=True, hide_index=True)
+
+        # Centro de Exportación Garmin .FIT (Trayecto + Virtual Partner + Workout por Distancia)
+        try:
+            _hh, _mm = (str(race_time_str or "07:00").split(":") + ["0"])[:2]
+            _fit_start_dt = datetime(race_date.year, race_date.month, race_date.day, int(_hh), int(_mm))
+        except Exception:
+            _fit_start_dt = None
+
+        render_garmin_fit_export_panel(
+            plan_name=f"{route_data['route_name']} {ath_defaults['name']}",
+            sim_segments=sim["segments"],
+            sport="cycling",
+            default_target_metric="power",
+            ref_threshold_w=ftp_w,
+            nutrition=nut,
+            default_split_km=split_step_km,
+            key_prefix=f"cyc_fit_{member_id}_{route_sig}",
+            start_dt=_fit_start_dt,
+        )
 
         c_dl, c_save1, c_save2 = st.columns([1, 1.8, 1])
         with c_dl:
