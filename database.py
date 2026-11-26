@@ -40,14 +40,15 @@ def get_engine(db_url):
     if db_url.startswith("sqlite"):
         return create_engine(db_url, echo=False, connect_args={"check_same_thread": False})
     else:
-        # pool_recycle=300 limits lifespan of connections to 5 min, matching Neon's default autosuspend
+        # pool_recycle=240 limits lifespan of connections to 4 min, below Neon's default autosuspend
         return create_engine(
-            db_url, 
-            echo=False, 
-            pool_size=5, 
-            max_overflow=10, 
-            pool_recycle=300, 
-            pool_pre_ping=True
+            db_url,
+            echo=False,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=240,
+            pool_pre_ping=True,
+            connect_args={"connect_timeout": 10},
         )
 
 engine = get_engine(DB_PATH)
@@ -311,7 +312,12 @@ def init_db():
     global _db_initialized
     if _db_initialized:
         return
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        engine.dispose()
+        Base.metadata.create_all(bind=engine)
+    migrated_ok = False
     try:
         from sqlalchemy import text
         is_sqlite = "sqlite" in str(engine.url)
@@ -379,9 +385,11 @@ def init_db():
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
                 except Exception:
                     pass
+            migrated_ok = True
     except Exception:
-        pass
-    _db_initialized = True
+        migrated_ok = False
+    if migrated_ok:
+        _db_initialized = True
 
     
 def get_db():

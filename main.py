@@ -2883,7 +2883,7 @@ elif page == "Analíticas AlphaX":
 
 elif page == "🏁 Estrategias de Carrera":
     import race_strategy_ui
-    _RS_BUILD_TAG = "2.22"
+    _RS_BUILD_TAG = "2.23"
     if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
         import importlib
         import interactive_course_charts
@@ -2892,11 +2892,15 @@ elif page == "🏁 Estrategias de Carrera":
         import running_strategy_ui
         import weather_service
         import cda_estimator
+        import fit_race_exporter
+        import fit_export_ui
         importlib.reload(interactive_course_charts)
         importlib.reload(race_strategy_engine)
         importlib.reload(running_strategy_engine)
         importlib.reload(weather_service)
         importlib.reload(cda_estimator)
+        importlib.reload(fit_race_exporter)
+        importlib.reload(fit_export_ui)
         importlib.reload(running_strategy_ui)
         importlib.reload(race_strategy_ui)
         st.session_state["_rs_loaded_build"] = _RS_BUILD_TAG

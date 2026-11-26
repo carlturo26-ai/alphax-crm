@@ -346,12 +346,40 @@ def _ensure_db_ready() -> bool:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _load_active_members_map() -> dict:
-    """Carga lista de deportistas activos con caché de 60 s."""
-    with SessionLocal() as session:
-        members = session.query(Member).filter(Member.active == True).order_by(Member.name).all()
-        if not members:
-            members = session.query(Member).order_by(Member.name).all()
-        return {f"{m.name} ({m.group or 'AlphaX'})": m.id for m in members}
+    """
+    Carga lista de deportistas activos con caché de 60 s.
+    Consulta únicamente (id, name, group) y reintenta automáticamente ante
+    desconexiones transitorias de Neon/PostgreSQL (SSL closed / autosuspend).
+    """
+    import time
+    from database import engine
+
+    last_err = None
+    for attempt in range(2):
+        try:
+            with SessionLocal() as session:
+                rows = (
+                    session.query(Member.id, Member.name, Member.group)
+                    .filter(Member.active == True)
+                    .order_by(Member.name)
+                    .all()
+                )
+                if not rows:
+                    rows = (
+                        session.query(Member.id, Member.name, Member.group)
+                        .order_by(Member.name)
+                        .all()
+                    )
+                return {f"{r[1]} ({r[2] or 'AlphaX'})": r[0] for r in rows}
+        except Exception as exc:
+            last_err = exc
+            try:
+                engine.dispose()
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(0.5)
+    raise last_err
 
 
 @st.cache_data(max_entries=16, show_spinner=False)
@@ -2114,7 +2142,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.22</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.23</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
