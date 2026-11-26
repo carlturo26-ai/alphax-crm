@@ -151,6 +151,9 @@ class AthleteUser(Base):
     password_hash = Column(String)
     athlete_name = Column(String) # Link logically to Member.name
     last_ip = Column(String, nullable=True)
+    reset_code_hash = Column(String, nullable=True)
+    reset_code_expires = Column(DateTime, nullable=True)
+    reset_attempts = Column(Integer, default=0, nullable=True)
     created_at = Column(Date, default=datetime.now)
 
 class LactateTest(Base):
@@ -385,6 +388,22 @@ def init_db():
                         conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
                 except Exception:
                     pass
+            # Migración de columnas de recuperación de contraseña en athlete_users
+            athlete_user_cols = [
+                ("last_ip", "VARCHAR"),
+                ("reset_code_hash", "VARCHAR"),
+                ("reset_code_expires", "TIMESTAMP"),
+                ("reset_attempts", "INTEGER DEFAULT 0"),
+            ]
+            for col_name, col_type in athlete_user_cols:
+                try:
+                    if is_sqlite:
+                        conn.execute(text(f"ALTER TABLE athlete_users ADD COLUMN {col_name} {col_type};"))
+                    else:
+                        conn.execute(text(f"ALTER TABLE athlete_users ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
+                except Exception:
+                    pass
+
             migrated_ok = True
     except Exception:
         migrated_ok = False

@@ -1,5 +1,6 @@
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+import html as _html
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -9,6 +10,15 @@ import unicodedata
 from streamlit_cookies_controller import CookieController
 from logo_base64 import SIMBOLO_B64, TEXTO_BLANCO_B64
 import urllib.parse
+from password_reset_service import (
+    MIN_PASSWORD_LEN,
+    is_email_recovery_available,
+    lookup_account_hint_by_name,
+    request_email_reset_code,
+    resolve_account_by_email,
+    verify_crm_identity_and_set_password,
+    verify_email_reset_code_and_set_password,
+)
 
 try:
     from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, Transaction, engine
@@ -550,28 +560,36 @@ if not st.session_state["logged_out"] and st.session_state["athlete_user"] is No
 
 submitted = False
 
+def _render_inactive_member_notice(athlete_name: str):
+    """Muestra un aviso claro y respetuoso explicando por qué un deportista inactivo no puede acceder."""
+    safe_name = _html.escape(str(athlete_name or "Deportista"))
+    notice_html = f"""
+    <div style="background: rgba(255, 75, 75, 0.10); border: 2px solid #FF4B4B; border-radius: 14px; padding: 18px 20px; margin: 10px 0 18px 0;">
+        <h4 style="color: #FF4B4B; margin: 0 0 8px 0; font-size: 1.02rem; font-weight: 800;">
+            🔒 Acceso Restringido: Deportista Inactivo en AlphaX
+        </h4>
+        <p style="color: #F1F5F9; font-size: 0.92rem; margin: 0 0 8px 0; line-height: 1.5;">
+            El perfil vinculado a <strong>{safe_name}</strong> figura actualmente como <strong>inactivo</strong> en la base de datos administrativa de <strong>AlphaX Endurance Coaching</strong>.
+        </p>
+        <p style="color: #CBD5E1; font-size: 0.85rem; margin: 0; line-height: 1.5;">
+            El acceso a la App de Atletas (planes de carrera, pruebas de lactato, laboratorios clínicos, monitoreo de sueño y Wolfy AI) es un beneficio exclusivo para deportistas activos del club.
+            Si deseas reactivar tu membresía o crees que se trata de un error, por favor comunícate con tu entrenador.
+        </p>
+    </div>
+    """
+    if hasattr(st, "html"):
+        st.html(notice_html)
+    else:
+        st.markdown(notice_html, unsafe_allow_html=True)
+
+
 if not st.session_state["athlete_user"]:
     # AVISO DE ACCESO RESTRINGIDO SI SE DETECTA CUENTA INACTIVA
     denied_name = st.session_state.get("inactive_denied_athlete")
     if denied_name:
-        st.markdown(
-            f"""
-            <div style="background: rgba(255, 75, 75, 0.1); border: 2px solid #FF4B4B; border-radius: 14px; padding: 18px 22px; margin-bottom: 20px;">
-                <h4 style="color: #FF4B4B; margin-top: 0; display: flex; align-items: center; gap: 8px;">
-                    🔒 Acceso Restringido: Socio Inactivo
-                </h4>
-                <p style="color: #EEEEEE; font-size: 0.95rem; margin-bottom: 8px;">
-                    La cuenta vinculada a <strong>{denied_name}</strong> se encuentra actualmente inactiva en el CRM de <strong>AlphaX Coaching</strong>.
-                </p>
-                <p style="color: #AAAAAA; font-size: 0.88rem; margin: 0;">
-                    El portal de evolución clínica, sueño y pruebas de lactato es un beneficio exclusivo para deportistas activos. Para reactivar tu membresía, por favor contacta a tu entrenador.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        _render_inactive_member_notice(denied_name)
 
-    # LOGIN / REGISTRO
+    # LOGIN / REGISTRO / RECUPERACIÓN DE CONTRASEÑA
     col_acc, col_ref = st.columns([2.8, 1.2])
     with col_acc:
         st.subheader("👤 Acceso de Atleta")
@@ -581,7 +599,7 @@ if not st.session_state["athlete_user"]:
             st.cache_resource.clear()
             st.query_params["_t"] = str(int(datetime.now().timestamp()))
             st.rerun()
-    tab1, tab2 = st.tabs(["Iniciar Sesión", "Crear Cuenta"])
+    tab1, tab2, tab3 = st.tabs(["🔐 Iniciar Sesión", "🆕 Crear Cuenta", "🔑 Recuperar Contraseña"])
     
     with tab1:
         st.markdown("Si ya tienes cuenta, ingresa aquí:")
@@ -590,32 +608,31 @@ if not st.session_state["athlete_user"]:
         if st.button("Entrar", use_container_width=True, key="btn_login"):
             try:
                 with SessionLocal() as session:
-                    user = session.query(AthleteUser).filter(AthleteUser.email == login_email.lower().strip()).first()
-                    if user and user.password_hash == hash_password(login_pass):
-                        m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
-                        if not m_obj or not m_obj.active:
-                            st.session_state["athlete_user"] = None
-                            st.session_state["athlete_member_id"] = None
-                            st.session_state["inactive_denied_athlete"] = user.athlete_name
-                            st.error(f"🔒 Acceso denegado: El deportista '{user.athlete_name}' se encuentra INACTIVO en AlphaX CRM. Este portal es exclusivo para deportistas activos.")
-                        else:
-                            st.session_state["athlete_user"] = user.athlete_name
-                            st.session_state["athlete_member_id"] = m_obj.id
-                            st.session_state["logged_out"] = False
-                            st.session_state.pop("inactive_denied_athlete", None)
-                            client_ip = get_client_ip()
-                            if client_ip:
-                                user.last_ip = client_ip
-                                session.commit()
-                            cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                            st.query_params["app"] = "atletas"
-                            st.query_params["athlete"] = user.athlete_name
-                            st.rerun()
+                    acc_status, user, m_obj = resolve_account_by_email(session, login_email)
+                    if acc_status == "inactive":
+                        ath_inact = (m_obj.name if m_obj else (user.athlete_name if user else login_email))
+                        st.session_state["athlete_user"] = None
+                        st.session_state["athlete_member_id"] = None
+                        st.session_state["inactive_denied_athlete"] = ath_inact
+                        _render_inactive_member_notice(ath_inact)
+                    elif acc_status == "active" and user and user.password_hash and user.password_hash == hash_password(login_pass):
+                        st.session_state["athlete_user"] = m_obj.name
+                        st.session_state["athlete_member_id"] = m_obj.id
+                        st.session_state["logged_out"] = False
+                        st.session_state.pop("inactive_denied_athlete", None)
+                        client_ip = get_client_ip()
+                        if client_ip:
+                            user.last_ip = client_ip
+                            session.commit()
+                        cookie_controller.set("athlete_user_cookie", m_obj.name, max_age=30*86400)
+                        st.query_params["app"] = "atletas"
+                        st.query_params["athlete"] = m_obj.name
+                        st.rerun()
                     else:
-                        st.error("Correo o contraseña incorrectos.")
+                        st.error("Correo o contraseña incorrectos. Si olvidaste tu clave, puedes restablecerla en la pestaña **🔑 Recuperar Contraseña**.")
             except Exception as e:
                 st.error(f"Error al iniciar sesión: {e}")
-        st.caption("¿Olvidaste tu contraseña? Comunícate con tu entrenador para restablecer tu acceso.")
+        st.caption("¿Olvidaste tu contraseña? Entra a la pestaña **🔑 Recuperar Contraseña** arriba para restablecerla tú mismo al instante.")
             
     with tab2:
         st.markdown("¿Es tu primera vez? Crea tu cuenta para vincular tu progreso.")
@@ -636,38 +653,177 @@ if not st.session_state["athlete_user"]:
                         )
                         m_obj = options[selected_name]
                     else:
-                        st.error("❌ No encontramos coincidencias en la base de datos.")
+                        # Verificar si coincide con un deportista INACTIVO para darle un aviso claro del motivo
+                        inactive_members = session.query(Member).filter(Member.active == False).all()
+                        inact_matches = get_best_matches(reg_name_query, inactive_members)
+                        if inact_matches:
+                            _render_inactive_member_notice(inact_matches[0].name)
+                        else:
+                            st.error("❌ No encontramos coincidencias activas en la base de datos del club. Verifica tu nombre o contacta a tu entrenador.")
             except Exception as e:
                 st.error(f"Error buscando deportistas: {e}")
         else:
             st.info("Escribe tu nombre o apellido arriba para buscar tu perfil en AlphaX.")
             
         reg_email = st.text_input("Tu Correo Electrónico", key="reg_email")
-        reg_pass = st.text_input("Crea una Contraseña", type="password", key="reg_pass")
+        reg_pass = st.text_input("Crea una Contraseña (mínimo 6 caracteres)", type="password", key="reg_pass")
         
         if st.button("Registrarme", use_container_width=True, key="btn_reg"):
             if not reg_name_query.strip() or not m_obj:
-                st.error("Debes buscar y seleccionar tu nombre oficial de la lista.")
-            elif not reg_email or not reg_pass:
-                st.warning("Por favor, llena todos los campos.")
+                st.error("Debes buscar y seleccionar tu nombre oficial activo de la lista.")
+            elif not reg_email or "@" not in reg_email:
+                st.warning("Por favor, ingresa un correo electrónico válido.")
+            elif not reg_pass or len(reg_pass.strip()) < MIN_PASSWORD_LEN:
+                st.warning(f"La contraseña debe tener al menos {MIN_PASSWORD_LEN} caracteres.")
             else:
                 try:
                     with SessionLocal() as session:
-                        existing_email = session.query(AthleteUser).filter(AthleteUser.email == reg_email.lower().strip()).first()
-                        if existing_email:
-                            st.error("Este correo ya está registrado.")
+                        m_fresh = session.query(Member).filter(Member.id == m_obj.id).first()
+                        if not m_fresh or not m_fresh.active:
+                            _render_inactive_member_notice(m_obj.name)
                         else:
-                            new_user = AthleteUser(
-                                email=reg_email.lower().strip(),
-                                password_hash=hash_password(reg_pass),
-                                athlete_name=m_obj.name,
-                                last_ip=get_client_ip()
-                            )
-                            session.add(new_user)
-                            session.commit()
-                            st.success(f"✅ Cuenta creada exitosamente vinculada a **{m_obj.name}**. Puedes iniciar sesión ahora.")
+                            email_clean = reg_email.lower().strip()
+                            existing_email = session.query(AthleteUser).filter(AthleteUser.email == email_clean).first()
+                            if existing_email:
+                                st.error("Este correo ya está registrado. Si olvidaste tu contraseña, usa la pestaña **🔑 Recuperar Contraseña**.")
+                            else:
+                                new_user = AthleteUser(
+                                    email=email_clean,
+                                    password_hash=hash_password(reg_pass),
+                                    athlete_name=m_fresh.name,
+                                    last_ip=get_client_ip()
+                                )
+                                session.add(new_user)
+                                # Sincronizar correo al perfil del CRM si estaba vacío
+                                if not getattr(m_fresh, "email", None):
+                                    m_fresh.email = email_clean
+                                session.commit()
+                                st.success(f"✅ Cuenta creada exitosamente vinculada a **{m_fresh.name}**. Puedes iniciar sesión ahora.")
                 except Exception as e:
                     st.error(f"Error al registrar la cuenta: {e}")
+
+    with tab3:
+        st.markdown("Restablece tu contraseña tú mismo en menos de 1 minuto *(exclusivo para deportistas activos de AlphaX)*:")
+        smtp_ready = is_email_recovery_available()
+
+        def _complete_auto_login(res_dict: dict):
+            ath_n = res_dict["athlete_name"]
+            mem_id = res_dict["member_id"]
+            st.session_state["athlete_user"] = ath_n
+            st.session_state["athlete_member_id"] = mem_id
+            st.session_state["logged_out"] = False
+            st.session_state.pop("inactive_denied_athlete", None)
+            st.session_state.pop("pwd_reset_email_sent", None)
+            try:
+                client_ip = get_client_ip()
+                if client_ip:
+                    with SessionLocal() as s_ip:
+                        u_ip = s_ip.query(AthleteUser).filter(AthleteUser.athlete_name == ath_n).first()
+                        if u_ip:
+                            u_ip.last_ip = client_ip
+                            s_ip.commit()
+                cookie_controller.set("athlete_user_cookie", ath_n, max_age=30*86400)
+            except Exception:
+                pass
+            st.query_params["app"] = "atletas"
+            st.query_params["athlete"] = ath_n
+            st.rerun()
+
+        if smtp_ready:
+            st.markdown("##### 1️⃣ Recibir código de 6 dígitos en tu correo electrónico")
+            rst_email = st.text_input(
+                "Tu Correo Electrónico registrado en AlphaX:",
+                value=st.session_state.get("pwd_reset_email_sent", ""),
+                placeholder="ejemplo@correo.com",
+                key="rst_email_input",
+            )
+            if st.button("📨 Enviar código de verificación a mi correo", use_container_width=True, key="btn_send_otp"):
+                res_send = request_email_reset_code(rst_email)
+                if res_send.get("ok"):
+                    st.session_state["pwd_reset_email_sent"] = res_send.get("target_email", rst_email.strip().lower())
+                    st.success(res_send["message"])
+                elif res_send.get("status") == "inactive":
+                    st.session_state["inactive_denied_athlete"] = res_send.get("athlete_name", "Deportista")
+                    _render_inactive_member_notice(res_send.get("athlete_name", "Deportista"))
+                else:
+                    st.warning(res_send.get("message", "No se pudo enviar el código."))
+
+            if st.session_state.get("pwd_reset_email_sent"):
+                st.markdown("---")
+                st.markdown(f"##### 2️⃣ Ingresa el código enviado a `{st.session_state['pwd_reset_email_sent']}`")
+                otp_code = st.text_input("Código de 6 dígitos:", max_chars=8, placeholder="123456", key="rst_otp_code")
+                new_p1 = st.text_input("Nueva Contraseña (mínimo 6 caracteres):", type="password", key="rst_new_p1")
+                new_p2 = st.text_input("Confirmar Nueva Contraseña:", type="password", key="rst_new_p2")
+                if st.button("✅ Restablecer Contraseña e Ingresar", use_container_width=True, key="btn_verify_otp"):
+                    if new_p1 != new_p2:
+                        st.error("Las contraseñas no coinciden.")
+                    else:
+                        res_v = verify_email_reset_code_and_set_password(
+                            st.session_state["pwd_reset_email_sent"],
+                            otp_code,
+                            new_p1,
+                        )
+                        if res_v.get("ok"):
+                            st.success(res_v["message"])
+                            _complete_auto_login(res_v)
+                        elif res_v.get("status") == "inactive":
+                            _render_inactive_member_notice(res_v.get("athlete_name", "Deportista"))
+                        else:
+                            st.error(res_v.get("message", "No se pudo validar el código."))
+
+            crm_box = st.expander("📱 ¿No recibiste el correo? Verificar identidad con tus datos del CRM", expanded=False)
+        else:
+            st.info(
+                "🔐 Verifica tu identidad con los datos registrados en tu ficha de **AlphaX CRM** "
+                "(correo, WhatsApp/teléfono y fecha de nacimiento) para crear una nueva contraseña al instante."
+            )
+            crm_box = st.container()
+
+        with crm_box:
+            crm_email = st.text_input("Correo Electrónico registrado:", placeholder="ejemplo@correo.com", key="crm_rst_email")
+            crm_phone = st.text_input("Teléfono / WhatsApp registrado en AlphaX:", placeholder="Ej. 3001234567", key="crm_rst_phone")
+            crm_bdate = st.date_input(
+                "Fecha de Nacimiento (si está registrada en tu ficha del club):",
+                value=date(1990, 1, 1),
+                min_value=date(1940, 1, 1),
+                max_value=date.today(),
+                key="crm_rst_bdate",
+            )
+            crm_p1 = st.text_input("Nueva Contraseña (mínimo 6 caracteres):", type="password", key="crm_rst_p1")
+            crm_p2 = st.text_input("Confirmar Nueva Contraseña:", type="password", key="crm_rst_p2")
+            if st.button("🔐 Verificar Identidad y Cambiar Contraseña", use_container_width=True, key="btn_crm_rst"):
+                if crm_p1 != crm_p2:
+                    st.error("Las contraseñas no coinciden.")
+                else:
+                    res_crm = verify_crm_identity_and_set_password(crm_email, crm_phone, crm_bdate, crm_p1)
+                    if res_crm.get("ok"):
+                        st.success(res_crm["message"])
+                        _complete_auto_login(res_crm)
+                    elif res_crm.get("status") == "inactive":
+                        st.session_state["inactive_denied_athlete"] = res_crm.get("athlete_name", "Deportista")
+                        _render_inactive_member_notice(res_crm.get("athlete_name", "Deportista"))
+                    else:
+                        st.error(res_crm.get("message", "No se pudo verificar tu identidad."))
+
+        with st.expander("🔍 ¿No recuerdas con qué correo te registraste?", expanded=False):
+            hint_q = st.text_input("Escribe tu nombre y apellido:", key="rst_hint_name")
+            if hint_q.strip():
+                hint_res = lookup_account_hint_by_name(hint_q, get_best_matches)
+                if hint_res.get("status") == "inactive":
+                    _render_inactive_member_notice(hint_res.get("athlete_name", "Deportista"))
+                elif hint_res.get("status") == "active":
+                    if hint_res.get("masked_email"):
+                        st.success(
+                            f"Encontramos el perfil activo de **{hint_res['athlete_name']}**. "
+                            f"El correo registrado es: **`{hint_res['masked_email']}`**"
+                        )
+                    else:
+                        st.warning(
+                            f"Encontramos el perfil activo de **{hint_res['athlete_name']}**, "
+                            "pero aún no tiene un correo registrado. Ve a la pestaña **🆕 Crear Cuenta** o pídele a tu entrenador que agregue tu correo en el CRM."
+                        )
+                elif hint_res.get("status") == "not_found":
+                    st.info("No encontramos ningún deportista con ese nombre.")
 
 else:
     atleta = st.session_state["athlete_user"]
