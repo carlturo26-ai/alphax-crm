@@ -1283,32 +1283,10 @@ def render_running_strategy_section(
         """
     )
 
-    if active_section == "sim":
-        with st.expander("🗺️ Planimetría GPS y Altimetría del Circuito — Cursor Sincronizado & Zoom (+D / −D)", expanded=True):
-            _fig_e_r, t_stats_r, _fig_p_r = _cached_course_heatmaps(route_sig, route_data)
-            _render_html(
-                f"""
-                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
-                            background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
-                            padding:8px 12px; margin-bottom:8px; font-size:0.75rem; color:#CBD5E1;">
-                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                        <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
-                        <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz</span>
-                        <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada</span>
-                        <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
-                        <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
-                        <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida</span>
-                        <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte</span>
-                    </div>
-                    <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
-                        <span style="color:#FF6B6B;">⛰️ Subida: {t_stats_r.get('climb_km', 0)} km</span>
-                        <span style="color:#94A3B8;">➡️ Llano: {t_stats_r.get('flat_km', 0)} km</span>
-                        <span style="color:#00E676;">⬇️ Bajada: {t_stats_r.get('descent_km', 0)} km</span>
-                    </div>
-                </div>
-                """
-            )
-            render_synced_elevation_planimetry_widget(route_data, height=475)
+    # En modo Simulador mostramos un único Mapa GPS Real + Altimetría unificado debajo de los KPIs (con Ritmo/Stryd/Viento/Geles)
+    if active_section != "sim":
+        with st.expander("🗺️ Mapa GPS Real de Calles y Altimetría del Circuito", expanded=False):
+            render_synced_elevation_planimetry_widget(route_data, height=555)
 
     # ── COMPARADOR DIRECTO SI SE ELIGIÓ 'QUÉ PASA SI...' ────────────
     if active_section == "comp":
@@ -1896,11 +1874,19 @@ def render_running_strategy_section(
             st.dataframe(pd.DataFrame(re_sens_rows), use_container_width=True, hide_index=True)
             st.caption("💡 **Tiempo en Llano (Palladino)** = `v = RE × (W/kg)` sin desnivel ni clima. **Tiempo en ESTE Circuito** incluye las subidas/bajadas reales del GPX/FIT, el viento y la altitud respecto a donde entrena.")
 
-    # ── GRÁFICA PRINCIPAL DE PACING INTERACTIVO CON ZOOM EN VIVO + MAPA GPS ──
-    render_interactive_pacing_zoom_widget(sim, sport="running", ftp_or_rcp=run_cp_w, height=535)
+    # ── MAPA GPS REAL DE CALLES + ALTIMETRÍA SINCRONIZADA (UNIFICADO CON RITMO / STRYD / VIENTO / GELES) ──
+    st.markdown("#### 🗺️ Mapa GPS Real del Circuito y Altimetría Sincronizada")
+    render_synced_elevation_planimetry_widget(
+        route_data=route_data,
+        height=565,
+        sim=sim,
+        sport="running",
+        wind_from_deg=wind_deg,
+        wind_kmh=wind_kmh,
+    )
 
-    with st.expander("🗺️ Mapa GPS Interactivo del Circuito Running (con Flechas de Viento)", expanded=False):
-        _render_running_gps_map_fragment(sim, wind_deg, wind_kmh, member_id)
+    # ── GRÁFICA PRINCIPAL DE PACING INTERACTIVO CON ZOOM EN VIVO ──
+    render_interactive_pacing_zoom_widget(sim, sport="running", ftp_or_rcp=run_cp_w, height=535)
 
     # ── ESTRATEGIA NUTRICIONAL Y CALENDARIO EXACTO DE GELES ─────────
     gel_pills = ""

@@ -2883,7 +2883,7 @@ elif page == "Analíticas AlphaX":
 
 elif page == "🏁 Estrategias de Carrera":
     import race_strategy_ui
-    _RS_BUILD_TAG = "2.23"
+    _RS_BUILD_TAG = "2.24"
     if st.session_state.get("_rs_loaded_build") != _RS_BUILD_TAG:
         import importlib
         import interactive_course_charts

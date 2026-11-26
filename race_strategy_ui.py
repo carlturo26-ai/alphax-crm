@@ -2142,7 +2142,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.23</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.24</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
@@ -2504,37 +2504,14 @@ def render_race_strategy_page():
             """
         )
 
-        # ── PLANIMETRÍA Y ALTIMETRÍA SINCRONIZADAS CON MAPA DE CALOR Y ZOOM EN VIVO ──
-        _fig_elev_h, t_stats, _fig_plan_h = _cached_course_heatmaps(route_sig, route_data)
-
-        with st.expander(
-            "🗺️ Planimetría GPS y Altimetría del Circuito — Cursor Sincronizado & Zoom (+D / −D)",
-            expanded=(active_section == "sim"),
-        ):
-            _render_html(
-                f"""
-                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px;
-                            background:rgba(14,18,28,0.9); border:1px solid rgba(255,255,255,0.09); border-radius:10px;
-                            padding:8px 12px; margin-bottom:8px; font-size:0.75rem; color:#CBD5E1;">
-                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                        <span style="font-weight:800; color:#94A3B8;">MAPA DE CALOR:</span>
-                        <span style="background:rgba(0,176,255,0.18); color:#00B0FF; padding:2px 7px; border-radius:6px; font-weight:700;">🔵 Descenso Veloz (≤-3.5%)</span>
-                        <span style="background:rgba(0,230,118,0.16); color:#00E676; padding:2px 7px; border-radius:6px; font-weight:700;">🟢 Bajada Rápida</span>
-                        <span style="background:rgba(100,116,139,0.22); color:#CBD5E1; padding:2px 7px; border-radius:6px; font-weight:700;">⚪ Llano</span>
-                        <span style="background:rgba(255,214,0,0.16); color:#FFD600; padding:2px 7px; border-radius:6px; font-weight:700;">🟡 Repecho</span>
-                        <span style="background:rgba(255,138,0,0.18); color:#FF8A00; padding:2px 7px; border-radius:6px; font-weight:700;">🟠 Subida (2.5–5%)</span>
-                        <span style="background:rgba(255,46,67,0.2); color:#FF4D5E; padding:2px 7px; border-radius:6px; font-weight:700;">🔴 Subida Fuerte (≥5%)</span>
-                    </div>
-                    <div style="display:flex; flex-wrap:wrap; gap:10px; font-weight:700;">
-                        <span style="color:#FF6B6B;">⛰️ Subida: {t_stats.get('climb_km', 0)} km</span>
-                        <span style="color:#94A3B8;">➡️ Llano: {t_stats.get('flat_km', 0)} km</span>
-                        <span style="color:#00E676;">⬇️ Bajada: {t_stats.get('descent_km', 0)} km</span>
-                        <span style="color:#00B0FF;">🚀 Desc. rápido: {t_stats.get('fast_down_km', 0)} km</span>
-                    </div>
-                </div>
-                """
-            )
-            render_synced_elevation_planimetry_widget(route_data, height=475)
+        # En modos Calibrar CdA / Comparador (donde no corre el simulador completo), mostrar vista previa del circuito en mapa real
+        if active_section != "sim":
+            _fig_elev_h, t_stats, _fig_plan_h = _cached_course_heatmaps(route_sig, route_data)
+            with st.expander(
+                "🗺️ Mapa GPS Real de Calles y Altimetría del Circuito — Cursor Sincronizado & Zoom (+D / −D)",
+                expanded=False,
+            ):
+                render_synced_elevation_planimetry_widget(route_data, height=555)
 
     sim_ctx_key = f"rs_sim_ctx_{member_id}_{route_sig}" if route_sig else None
 
@@ -2902,55 +2879,34 @@ def render_race_strategy_page():
             """
         )
 
+        # Gráfica unificada: Altimetría + Mapa GPS Real de Calles (Desnivel / Viento / Potencia + Flechas de Viento + Satélite/Calles)
+        st.markdown("#### 🗺️ Mapa GPS Real del Circuito y Altimetría Sincronizada")
+        render_synced_elevation_planimetry_widget(
+            route_data=route_data,
+            height=565,
+            sim=sim,
+            sport="cycling",
+            wind_from_deg=wind_deg,
+            wind_kmh=wind_kmh,
+        )
+
         # Gráfica principal interactiva: Plan de Pacing con Zoom en vivo (Distancia, Velocidad, Potencia, % FTP y +D/-D)
         render_interactive_pacing_zoom_widget(sim, sport="cycling", ftp_or_rcp=ftp_w, height=535)
         st.plotly_chart(_build_speed_wind_chart(sim["segments"]), use_container_width=True)
 
-        # Fila de Mapa GPS + Desglose de Resistencias y Nutrición
-        col_vis1, col_vis2 = st.columns([1.35, 1])
+        # Fila de Desglose de Resistencias y Plan Nutricional
+        col_vis1, col_vis2 = st.columns([1.1, 1])
         with col_vis1:
-            def _render_tab1_gps_map():
-                c_mopt1, c_mopt2 = st.columns([2.2, 1])
-                with c_mopt1:
-                    map_color = st.radio(
-                        "Colorear mapa del circuito por:",
-                        ["🌬️ Viento relativo", "⛰️ Desnivel (Mapa de Calor)", "⚡ Potencia objetivo (W)"],
-                        horizontal=True,
-                        key="rs_map_color",
-                    )
-                with c_mopt2:
-                    show_wind_arrows = st.checkbox(
-                        "🧭 Flechas de viento",
-                        value=True,
-                        help="Muestra las flechas con la dirección real hacia donde sopla el viento y la velocidad del viento relativo (+Contra / -Favor) a lo largo del recorrido.",
-                        key="rs_show_wind_arrows",
-                    )
-                _mc = "grade" if "Desnivel" in map_color else ("power" if "Potencia" in map_color else "wind")
-                st.plotly_chart(
-                    _build_gps_map_chart(
-                        sim["segments"],
-                        color_mode=_mc,
-                        wind_from_deg=wind_deg,
-                        wind_kmh=wind_kmh,
-                        show_wind_arrows=show_wind_arrows,
-                    ),
-                    use_container_width=True,
-                )
-
-            if hasattr(st, "fragment"):
-                st.fragment(_render_tab1_gps_map)()
-            else:
-                _render_tab1_gps_map()
-
-        with col_vis2:
             st.plotly_chart(_build_resistance_donut(sim["resistance"]), use_container_width=True)
+        with col_vis2:
+            st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
             _render_html(
                 f"""
-                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,255,136,0.35); border-radius:12px; padding:12px 14px; margin-top:4px;">
-                    <div style="color:#00FF88; font-weight:800; font-size:0.86rem; margin-bottom:6px;">
+                <div style="background:rgba(16,22,34,0.92); border:1px solid rgba(0,255,136,0.35); border-radius:12px; padding:16px 18px; margin-top:4px;">
+                    <div style="color:#00FF88; font-weight:800; font-size:0.92rem; margin-bottom:8px;">
                         🥤 Plan Nutricional e Hidratación Sugerido ({s['avg_temp_c']}°C · {s['avg_humidity_pct']}% HR{" · Dinámico" if s.get("dynamic_weather") else ""})
                     </div>
-                    <div style="color:#E2E8F0; font-size:0.82rem; line-height:1.55;">
+                    <div style="color:#E2E8F0; font-size:0.86rem; line-height:1.75;">
                         • <b>Carbohidratos:</b> <code>{nut['cho_g_per_h']} g/h</code> → <b>Total: {nut['cho_total_g']} g</b><br>
                         • <b>Líquidos:</b> <code>{nut['fluid_ml_per_h']} mL/h</code> → <b>Total: {nut['fluid_total_l']} L</b><br>
                         • <b>Sodio (Electrolitos):</b> <code>{nut['sodium_mg_per_h']} mg/h</code> → <b>Total: {nut['sodium_total_mg']} mg</b>
