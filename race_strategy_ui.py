@@ -1172,23 +1172,135 @@ def _build_gps_map_chart(
 
 
 def _build_resistance_donut(resistance: dict) -> go.Figure:
-    """Gráfica de dona del reparto de energía entre Aerodinámica (Rojo), Gravedad y Rodamiento."""
-    labels = ["Aerodinámica (CdA)", "Gravedad (Subidas)", "Rodamiento (Crr)"]
-    values = [resistance["aero_pct"], resistance["gravity_pct"], resistance["rolling_pct"]]
-    colors = ["#FF3B30", "#FF9100", "#38BDF8"]
+    """
+    Gráfica de dona del reparto de energía entre Aerodinámica (Rojo), Gravedad (Naranja)
+    y Rodamiento (Azul), con etiquetas 100% horizontales fuera del círculo y flechas
+    de color señalando exactamente cada sector.
+    """
+    raw_items = [
+        ("Aerodinámica (CdA)", float(resistance.get("aero_pct", 0.0) or 0.0), "#FF3B30"),
+        ("Gravedad (Subidas)", float(resistance.get("gravity_pct", 0.0) or 0.0), "#FF9100"),
+        ("Rodamiento (Crr)", float(resistance.get("rolling_pct", 0.0) or 0.0), "#38BDF8"),
+    ]
+    labels = [it[0] for it in raw_items]
+    values = [max(0.0, it[1]) for it in raw_items]
+    colors = [it[2] for it in raw_items]
+    total_v = sum(values) or 100.0
 
     fig = go.Figure(
         data=[
             go.Pie(
                 labels=labels,
                 values=values,
-                hole=0.58,
-                marker=dict(colors=colors, line=dict(color="#0E121C", width=2)),
-                textinfo="label+percent",
-                textfont=dict(color="#FFFFFF", size=11),
+                hole=0.56,
+                sort=False,
+                direction="clockwise",
+                rotation=0,
+                domain=dict(x=[0.32, 0.68], y=[0.12, 0.88]),
+                marker=dict(colors=colors, line=dict(color="#0E121C", width=2.5)),
+                textinfo="none",
+                hovertemplate="<b>%{label}</b><br>%{value:.1f}% de tu energía<extra></extra>",
             )
         ]
     )
+
+    # Calcular punto medio exacto de cada sector y colocar etiquetas horizontales con flechas (axref/ayref en píxeles)
+    cx, cy = 0.50, 0.50
+    rx, ry = 0.145, 0.30
+    left_side = []
+    right_side = []
+
+    cum_frac = 0.0
+    for lbl, val, col in zip(labels, values, colors):
+        frac = val / total_v
+        mid_frac = cum_frac + frac / 2.0
+        cum_frac += frac
+        # Plotly rotation=0 + clockwise comienza en las 12 en punto (pi/2) en sentido horario
+        ang = (math.pi / 2.0) - (2.0 * math.pi * mid_frac)
+        tx = cx + rx * math.cos(ang)
+        ty = cy + ry * math.sin(ang)
+        entry = {
+            "label": lbl,
+            "val": val,
+            "color": col,
+            "tx": tx,
+            "ty": ty,
+            "ang": ang,
+        }
+        if math.cos(ang) >= 0:
+            right_side.append(entry)
+        else:
+            left_side.append(entry)
+
+    def _assign_spaced_y(items: list) -> list:
+        if not items:
+            return []
+        items = sorted(items, key=lambda it: it["ty"])
+        n_it = len(items)
+        if n_it == 1:
+            items[0]["ay_target"] = max(0.20, min(0.82, items[0]["ty"]))
+        elif n_it == 2:
+            y0 = max(0.18, min(0.38, items[0]["ty"]))
+            y1 = max(y0 + 0.34, min(0.84, max(items[1]["ty"], 0.70)))
+            if y1 > 0.86:
+                y1 = 0.86
+                y0 = min(y0, y1 - 0.34)
+            items[0]["ay_target"] = y0
+            items[1]["ay_target"] = y1
+        else:
+            ys = [0.16, 0.50, 0.84]
+            for it, y_pos in zip(items, ys):
+                it["ay_target"] = y_pos
+        return items
+
+    annotations = [
+        dict(
+            x=cx,
+            y=cy,
+            xref="paper",
+            yref="paper",
+            text="<b>100%</b><br><span style='font-size:10px;color:#94A3B8;'>Energía</span>",
+            showarrow=False,
+            font=dict(color="#FFFFFF", size=14),
+            align="center",
+        )
+    ]
+
+    plot_h_px = 245.0
+    for side_items, is_right in ((_assign_spaced_y(right_side), True), (_assign_spaced_y(left_side), False)):
+        for it in side_items:
+            # En píxeles de Plotly, ay positivo baja y ay negativo sube
+            dy_px = int(round((it["ty"] - it["ay_target"]) * plot_h_px))
+            dx_px = 46 if is_right else -46
+            annotations.append(
+                dict(
+                    x=it["tx"],
+                    y=it["ty"],
+                    xref="paper",
+                    yref="paper",
+                    ax=dx_px,
+                    ay=dy_px,
+                    axref="pixel",
+                    ayref="pixel",
+                    xanchor="left" if is_right else "right",
+                    yanchor="middle",
+                    text=f"<b>{it['label']}</b><br><span style='color:{it['color']};font-size:12px;'><b>{it['val']:.1f}%</b></span>",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowsize=1.15,
+                    arrowwidth=2.0,
+                    arrowcolor=it["color"],
+                    standoff=2,
+                    align="left" if is_right else "right",
+                    font=dict(color="#F8FAFC", size=10.5),
+                    bgcolor="rgba(14, 18, 28, 0.92)",
+                    bordercolor=it["color"],
+                    borderwidth=1.2,
+                    borderpad=4,
+                    textangle=0,
+                )
+            )
+
     fig.update_layout(
         title=dict(
             text="⚖️ ¿Dónde se va tu energía?",
@@ -1196,11 +1308,12 @@ def _build_resistance_donut(resistance: dict) -> go.Figure:
             xanchor="center",
             font=dict(color="#00EEFF", size=13),
         ),
+        annotations=annotations,
         paper_bgcolor="#0E121C",
         plot_bgcolor="#0E121C",
         font=dict(color="#E2E8F0"),
-        height=270,
-        margin=dict(l=10, r=10, t=42, b=10),
+        height=310,
+        margin=dict(l=12, r=12, t=44, b=12),
         showlegend=False,
     )
     return fig
@@ -2142,7 +2255,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.25</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.26</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
