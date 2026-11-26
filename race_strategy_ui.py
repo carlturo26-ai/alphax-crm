@@ -2038,8 +2038,8 @@ def render_saved_scenarios_library(
                     except Exception as err_d:
                         st.error(f"Error al eliminar: {err_d}")
 
-        # Exportación directa a Garmin .FIT desde la biblioteca de escenarios guardados
-        with st.expander("⌚ Exportar este Plan al Reloj (Garmin .FIT — Trayecto + Virtual Partner + Workout)", expanded=False):
+        # Exportación directa a Garmin .FIT Course desde la biblioteca de escenarios guardados
+        with st.expander("⌚ Exportar este Plan al Reloj (Garmin .FIT Course — Trayecto + Virtual Partner)", expanded=False):
             try:
                 if is_run_sel:
                     from running_strategy_ui import _build_run_ctx_from_saved, _load_running_athlete_defaults
@@ -2059,9 +2059,8 @@ def render_saved_scenarios_library(
 
                 if _rd_sav.get("reconstructed_from_splits"):
                     st.warning(
-                        "⚠️ Este escenario antiguo no guardó el trazado GPS completo. "
-                        "El **Workout (.FIT por distancia)** es 100% preciso; para un **Trayecto GPS exacto** "
-                        "vuelve a guardar el plan cargando el archivo GPX/FIT del circuito."
+                        "⚠️ Este escenario antiguo no guardó las coordenadas GPS originales del circuito. "
+                        "Para descargar un **Trayecto GPS exacto (`.FIT Course`)**, vuelve a guardar el plan cargando el archivo GPX/FIT del recorrido."
                     )
 
                 render_garmin_fit_export_panel(
@@ -2076,7 +2075,7 @@ def render_saved_scenarios_library(
                     compact=True,
                 )
             except Exception as _fit_sav_err:
-                st.error(f"No se pudo preparar la exportación .FIT para este escenario: {_fit_sav_err}")
+                st.error(f"No se pudo preparar la exportación .FIT Course para este escenario: {_fit_sav_err}")
 
 
 def render_athlete_race_plans_tab(member_id: int, athlete_name: str):

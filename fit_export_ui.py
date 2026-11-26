@@ -1,5 +1,6 @@
 """
-fit_export_ui.py — Panel reutilizable de exportación Garmin .FIT (Course + Workout)
+fit_export_ui.py — Panel reutilizable de exportación Garmin `.FIT` Course
+(Trayecto GPS + Virtual Partner + Alertas de intensidad por segmento y nutrición)
 para AlphaX Race Planner (Ciclismo y Running).
 """
 
@@ -34,12 +35,12 @@ def render_garmin_fit_export_panel(
     compact: bool = False,
 ) -> None:
     """
-    Renderiza el Centro de Exportación Garmin .FIT al final de un plan de carrera:
-      - Archivo 1: `.FIT` Course (Trayecto GPS + Virtual Partner + Alertas de segmento y nutrición)
-      - Archivo 2: `.FIT` Workout (Plan estructurado por distancia con alertas de rango W / ritmo)
+    Renderiza el Centro de Exportación Garmin `.FIT` Course al final de un plan de carrera:
+      - Trazado GPS completo + Virtual Partner (adelantado/atrasado respecto al plan físico AlphaX)
+      - Course Points anclados a coordenadas GPS exactas del recorrido (sin desfase aunque cambien la salida)
     """
     if not sim_segments or len(sim_segments) < 2:
-        st.info("Carga una ruta GPS válida para habilitar la exportación al reloj (.FIT).")
+        st.info("Carga una ruta GPS válida para habilitar la exportación al reloj (.FIT Course).")
         return
 
     sport_title = "Ciclismo (Garmin Edge / Fenix / Forerunner)" if sport == "cycling" else "Running (Garmin Forerunner / Fenix / Epix)"
@@ -53,7 +54,7 @@ def render_garmin_fit_export_panel(
                         margin:14px 0 12px 0; box-shadow:0 6px 20px rgba(0,0,0,0.35);">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <div style="color:#00EEFF; font-size:1.03rem; font-weight:900; letter-spacing:0.3px;">
-                        ⌚ EXPORTAR AL RELOJ / CICLOCOMPUTADOR (GARMIN .FIT — ESTILO BEST BIKE SPLIT)
+                        ⌚ EXPORTAR TRAYECTO AL RELOJ (GARMIN .FIT COURSE · GPS + VIRTUAL PARTNER)
                     </div>
                     <span style="background:rgba(0,238,255,0.14); color:{accent}; border:1px solid rgba(0,238,255,0.35);
                                  border-radius:999px; padding:2px 10px; font-size:0.74rem; font-weight:800;">
@@ -61,15 +62,15 @@ def render_garmin_fit_export_panel(
                     </span>
                 </div>
                 <div style="color:#CBD5E1; font-size:0.82rem; margin-top:6px; line-height:1.45;">
-                    Descarga ambos archivos <b>.FIT</b> nativos: el <b>Trayecto (Course)</b> con mapa GPS, <b>Virtual Partner</b>
-                    (adelantado/atrasado al plan) y banners por segmento, más el <b>Workout por Distancia</b> con alertas activas
-                    de pitido/vibración si el deportista se sale del rango objetivo.
+                    Descarga el archivo <b>.FIT Course</b> con mapa GPS, <b>Virtual Partner</b> (muestra si vas adelantado o atrasado al plan)
+                    y <b>alertas emergentes ancladas a la ubicación GPS exacta</b> de cada segmento del recorrido — aunque la organización
+                    mueva la salida o T1, el reloj siempre te avisa en el lugar real del circuito.
                 </div>
             </div>
             """
         )
 
-    # Controles de personalización de segmentos y tolerancia
+    # Controles de personalización de alertas GPS
     if sport == "running":
         c1, c2, c3, c4 = st.columns([1.45, 1.25, 1.15, 1.05])
     else:
@@ -78,7 +79,7 @@ def render_garmin_fit_export_panel(
 
     with c1:
         seg_choice = st.selectbox(
-            "🧠 Segmentación para el reloj:",
+            "🧠 Alertas de segmento en el mapa:",
             [
                 "🧠 Inteligente por Terreno (Subidas / Llanos / Bajadas)",
                 f"📏 Splits Fijos (cada {default_split_km:g} km)",
@@ -92,7 +93,7 @@ def render_garmin_fit_export_panel(
             metric_opts = ["⏱️ Ritmo (min/km)", "⚡ Potencia (Stryd / Garmin W)"]
             default_idx = 1 if default_target_metric == "power" else 0
             metric_choice = st.selectbox(
-                "🎯 Objetivo de alertas (Workout):",
+                "🎯 Dato en los banners GPS:",
                 metric_opts,
                 index=default_idx,
                 key=f"{key_prefix}_run_metric",
@@ -109,7 +110,7 @@ def render_garmin_fit_export_panel(
         if target_metric == "power":
             tol_pct = float(
                 st.slider(
-                    "🎚️ Margen alerta (±% W):",
+                    "🎚️ Rango de potencia (±% W):",
                     min_value=3,
                     max_value=10,
                     value=5 if sport == "cycling" else 3,
@@ -121,7 +122,7 @@ def render_garmin_fit_export_panel(
         else:
             pace_tol_s = float(
                 st.slider(
-                    "🎚️ Margen ritmo (±s/km):",
+                    "🎚️ Margen de ritmo (±s/km):",
                     min_value=3,
                     max_value=12,
                     value=5,
@@ -137,7 +138,7 @@ def render_garmin_fit_export_panel(
             "🥤 Alertas nutrición/geles",
             value=True,
             key=f"{key_prefix}_inc_nut",
-            help="Inserta Course Points GPS de nutrición/geles en el archivo Trayecto (.FIT Course).",
+            help="Inserta Course Points GPS de nutrición/geles en el punto exacto del recorrido.",
         )
 
     try:
@@ -150,67 +151,51 @@ def render_garmin_fit_export_panel(
             nutrition=nutrition,
             segmentation_mode=seg_mode,
             fixed_split_km=float(default_split_km or 5.0),
-            max_steps=45,
+            max_steps=55,
             tolerance_pct=tol_pct,
             pace_tol_sec=pace_tol_s,
             include_nutrition_alerts=include_nut,
             start_dt=start_dt,
         )
     except Exception as exc:
-        st.error(f"No se pudieron generar los archivos .FIT: {exc}")
+        st.error(f"No se pudo generar el archivo .FIT Course: {exc}")
         return
 
-    # Botones de descarga duales (.FIT Course + .FIT Workout)
-    b1, b2 = st.columns(2)
-    with b1:
-        st.download_button(
-            f"🗺️ Descargar Trayecto + Virtual Partner (.FIT · {bundle['course_size_kb']} KB)",
-            data=bundle["course_fit_bytes"],
-            file_name=bundle["course_filename"],
-            mime="application/octet-stream",
-            type="primary",
-            use_container_width=True,
-            key=f"{key_prefix}_dl_course_fit",
-        )
-        st.caption(
-            f"Incluye ruta GPS + Virtual Partner + **{bundle['num_steps']} alertas de segmento**"
-            + (" + avisos de nutrición/geles." if include_nut else ".")
-        )
-    with b2:
-        metric_lbl = "Potencia (W)" if target_metric == "power" else "Ritmo (/km)"
-        st.download_button(
-            f"⚡ Descargar Workout por Distancia (.FIT · {bundle['num_steps']} pasos)",
-            data=bundle["workout_fit_bytes"],
-            file_name=bundle["workout_filename"],
-            mime="application/octet-stream",
-            type="primary",
-            use_container_width=True,
-            key=f"{key_prefix}_dl_workout_fit",
-        )
-        st.caption(
-            f"Plan estructurado por distancia (km) con alertas activas de **{metric_lbl}** (límite Garmin ≤ 50 pasos)."
-        )
+    # Botón principal de descarga (.FIT Course)
+    nut_txt = f" + **{bundle['num_nutrition_points']} alertas de nutrición/geles**" if (include_nut and bundle["num_nutrition_points"] > 0) else ""
+    st.download_button(
+        f"🗺️ Descargar Trayecto + Virtual Partner (.FIT Course · {bundle['course_size_kb']} KB)",
+        data=bundle["course_fit_bytes"],
+        file_name=bundle["course_filename"],
+        mime="application/octet-stream",
+        type="primary",
+        use_container_width=True,
+        key=f"{key_prefix}_dl_course_fit",
+    )
+    st.caption(
+        f"Incluye ruta GPS suavizada + Virtual Partner + **{bundle['num_steps']} alertas GPS de intensidad por segmento**{nut_txt}."
+    )
 
-    # Previsualización de los segmentos y alertas exactas del reloj
+    # Previsualización exacta de todas las alertas GPS (Up Ahead / Course Points)
     with st.expander(
-        f"👁️ Ver los {bundle['num_steps']} segmentos y alertas exactas que recibirá el reloj",
+        f"👁️ Ver las {bundle['num_total_alerts']} alertas GPS exactas que recibirá el reloj en el circuito",
         expanded=False,
     ):
         st.dataframe(pd.DataFrame(bundle["preview_rows"]), use_container_width=True, hide_index=True)
 
     # Guía rápida de instalación en el dispositivo
-    with st.expander("📖 Cómo cargar los archivos .FIT en Garmin (Edge / Forerunner / Fenix)", expanded=False):
+    with st.expander("📖 Cómo cargar el .FIT Course en Garmin (Edge / Forerunner / Fenix) y consejo de salida", expanded=False):
         st.markdown(
             """
-            **1. Archivo Trayecto + Virtual Partner (`AlphaX_Trayecto_...fit`):**
-            - **Sin cable (Garmin Connect Web):** Entra a *Entrenamiento y planificación → Trayectos → Importar*, sube el `.fit` y dale **Enviar al dispositivo**.
-            - **Por USB (100% preserva todos los Course Points y Virtual Partner):** Conecta el reloj o Garmin Edge al PC/Mac y copia el archivo en la carpeta **`GARMIN/NewFiles`**. Al desconectar aparece en *Navegación → Trayectos*.
+            **Opción A — Por USB (100% conserva todos los Course Points y Virtual Partner):**
+            - Conecta tu Garmin al PC/Mac y copia el archivo `.fit` dentro de la carpeta **`GARMIN/NewFiles`**.
+            - Al desconectar aparecerá listo en **Navegación → Trayectos** (con la pantalla *Más adelante / Up Ahead* y el *Virtual Partner* activos).
 
-            **2. Archivo Workout por Distancia (`AlphaX_Workout_...fit`):**
-            - Conecta el Garmin por USB y copia el archivo en **`GARMIN/NewFiles`**. Al desconectar aparece en *Entrenamiento → Sesiones de entrenamiento*.
-            - En carrera, el reloj/Edge cambia automáticamente de paso al completar cada distancia GPS y **pita/vibra si te sales del rango objetivo**.
+            **Opción B — Desde Garmin Connect Web (sin cable):**
+            - Entra a **Entrenamiento y planificación → Trayectos → Importar**, sube el `.fit` y pulsa **Enviar al dispositivo**.
 
-            **🏆 Truco Pro (Estilo Best Bike Split completo):**
-            En Garmin Edge, Forerunner y Fenix puedes iniciar **primero el Workout** y luego en *Navegación → Trayectos* activar **el Trayecto AlphaX** dentro de la misma actividad: así llevas **simultáneamente** mapa + *Virtual Partner* + banners GPS + alertas activas de rango de potencia/ritmo.
+            **📍 Si el día de carrera cambian el punto de salida o T1 (ej. arrancas en el km 1–2):**
+            - Cuando el reloj te pregunte *«¿Navegar al inicio?»*, elige **NO**.
+            - En cuanto entres al circuito real, el GPS detecta tu ubicación (*«Trayecto encontrado»*) y **todas las alertas de intensidad y nutrición saltan en el punto exacto del recorrido**, sin desfases.
             """
         )

@@ -463,7 +463,7 @@ def build_device_segments(
     if not norm:
         return []
 
-    max_steps = max(2, min(48, int(max_steps)))
+    max_steps = max(2, min(64, int(max_steps)))
     total_m = norm[-1]["dist_end_m"]
 
     groups: List[List[Dict]] = []
@@ -996,19 +996,19 @@ def build_fit_export_bundle(
     nutrition: Optional[Dict] = None,
     segmentation_mode: str = "terrain",
     fixed_split_km: float = 5.0,
-    max_steps: int = 45,
+    max_steps: int = 55,
     tolerance_pct: float = 5.0,
     pace_tol_sec: float = 5.0,
     include_nutrition_alerts: bool = True,
     start_dt: Optional[datetime] = None,
 ) -> Dict:
     """
-    Construye el paquete completo para el reloj/ciclocomputador:
-      - `course_fit_bytes`: Archivo .FIT Course (Trayecto + Virtual Partner + Course Points)
-      - `workout_fit_bytes`: Archivo .FIT Workout (Estructurado por distancia con alertas de rango)
-      - `blocks`: Lista detallada de segmentos generados
-      - `preview_rows`: Filas listas para mostrar en tabla de previsualización en Streamlit
-      - `course_filename` y `workout_filename`
+    Construye el paquete Garmin `.FIT` Course (Trayecto GPS + Virtual Partner + Alertas por Segmento)
+    anclado 100% a coordenadas GPS del recorrido:
+      - `course_fit_bytes`: Archivo binario `.FIT` Course (`file_id.type = 6`)
+      - `blocks`: Segmentos tácticos del recorrido
+      - `preview_rows`: Filas de previsualización de todas las alertas GPS (segmentos + nutrición)
+      - `course_filename`, `num_steps`, `num_nutrition_points`, `course_size_kb`
     """
     blocks = build_device_segments(
         sim_segments=sim_segments,
@@ -1032,39 +1032,58 @@ def build_fit_export_bundle(
         start_dt=start_dt,
     )
 
-    workout_bytes = generate_fit_workout_bytes(
-        workout_name=plan_name,
-        device_blocks=blocks,
-        sport=sport,
-        target_metric=target_metric,
-        start_dt=start_dt,
-    )
-
     slug = _clean_ascii(plan_name, 36).replace(" ", "_")
     slug = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in slug).strip("_") or "AlphaX_Plan"
     sport_tag = "Bici" if sport == "cycling" else "Run"
 
-    preview_rows = []
+    # Construir previsualización combinada y ordenada por km de todas las alertas GPS (segmentos + nutrición)
+    norm_segs = _normalize_sim_segments(sim_segments)
+    nut_pts = (
+        _build_nutrition_course_points(norm_segs, sport, nutrition, _to_fit_timestamp(start_dt))
+        if include_nutrition_alerts
+        else []
+    )
+    start_ts_ref = _to_fit_timestamp(start_dt)
+
+    combined_events: List[Tuple[float, Dict]] = []
     for blk in blocks:
-        preview_rows.append({
-            "Paso": f"#{blk['index']}",
-            "Tramo (km)": f"{blk['dist_start_m']/1000:.1f}–{blk['dist_end_m']/1000:.1f}",
-            "Dist.": f"{blk['length_m']/1000:.2f} km",
-            "Terreno": f"{blk['ui_terrain']} ({blk['avg_grade_pct']:+.1f}%)",
-            "Alerta Reloj (Workout)": blk["target_ui"],
-            "Banner GPS (Course)": blk["cp_label"],
-            "Tiempo Est.": _format_hms_short(blk["duration_s"]),
-            "Acumulado": _format_hms_short(blk["cum_time_end_s"]),
-        })
+        combined_events.append((
+            blk["dist_start_m"],
+            {
+                "Km GPS": f"Km {blk['dist_start_m']/1000:.1f}",
+                "Tramo": f"{blk['dist_start_m']/1000:.1f}–{blk['dist_end_m']/1000:.1f} km",
+                "Tipo": f"{blk['ui_terrain']} ({blk['avg_grade_pct']:+.1f}%)",
+                "Banner en Reloj (GPS)": blk["cp_label"],
+                "Intensidad Objetivo": blk["target_ui"],
+                "Tiempo Acum.": _format_hms_short(blk["cum_time_start_s"]),
+            },
+        ))
+    for np_item in nut_pts:
+        rel_s = max(0, int(np_item["timestamp"]) - start_ts_ref)
+        combined_events.append((
+            float(np_item["distance_m"]),
+            {
+                "Km GPS": f"Km {np_item['distance_m']/1000:.1f}",
+                "Tramo": "Punto puntual",
+                "Tipo": "🥤 Nutrición / Gel",
+                "Banner en Reloj (GPS)": np_item["name"],
+                "Intensidad Objetivo": "Tomar CHO + agua",
+                "Tiempo Acum.": _format_hms_short(rel_s),
+            },
+        ))
+
+    combined_events.sort(key=lambda item: item[0])
+    preview_rows = []
+    for idx_ev, (_, row) in enumerate(combined_events[:80], start=1):
+        preview_rows.append({"#": idx_ev, **row})
 
     return {
         "course_fit_bytes": course_bytes,
-        "workout_fit_bytes": workout_bytes,
         "course_filename": f"AlphaX_Trayecto_{sport_tag}_{slug}.fit",
-        "workout_filename": f"AlphaX_Workout_{sport_tag}_{slug}.fit",
         "blocks": blocks,
         "preview_rows": preview_rows,
         "num_steps": len(blocks),
+        "num_nutrition_points": len(nut_pts),
+        "num_total_alerts": len(preview_rows),
         "course_size_kb": round(len(course_bytes) / 1024.0, 1),
-        "workout_size_kb": round(len(workout_bytes) / 1024.0, 1),
     }
