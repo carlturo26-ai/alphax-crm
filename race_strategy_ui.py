@@ -61,11 +61,11 @@ def _render_html(html_str: str):
 
 
 def _compress_route_data(route_data: dict) -> str:
-    """Comprime route_data (máx. ~240 segmentos) a gzip+base64 (~4 KB) para guardarlo en config_json."""
+    """Comprime route_data (máx. ~480 segmentos) a gzip+base64 (~7 KB) para guardarlo con trazado GPS fiel en config_json."""
     if not route_data or not route_data.get("segments"):
         return ""
     segs = route_data["segments"]
-    step = max(1, int(math.ceil(len(segs) / 240.0)))
+    step = max(1, int(math.ceil(len(segs) / 480.0)))
     compact_segs = []
     for i in range(0, len(segs), step):
         chunk = segs[i : i + step]
@@ -2142,7 +2142,7 @@ def render_race_strategy_page():
                     margin-bottom: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
             <div style="color:#00EEFF; font-size:1.45rem; font-weight:900; letter-spacing:0.4px;">
                 🏁 ALPHAX RACE SPLIT <span style="color:#FFFFFF; font-weight:400; font-size:1.05rem;">| Simulador de Ciclismo & Running (FIT / GPX / TCX)</span>
-                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.24</span>
+                <span style="background:rgba(0,238,255,0.14); color:#00EEFF; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle;">v2.25</span>
             </div>
             <div style="color:#94A3B8; font-size:0.84rem; margin-top:3px;">
                 Planifica carreras de <b>Ciclismo</b> (Potencia, CdA, viento) y <b>Running</b> (5K–42K por Ritmo/PB o Potencia Stryd, desnivel GAP y geles) sobre cualquier circuito GPX/FIT.
@@ -2364,8 +2364,12 @@ def render_race_strategy_page():
             )
 
             if route_source.startswith("🗂️") and member_saved_plans:
+                def _plan_has_gps(plan_obj) -> bool:
+                    c_p = _safe_parse_json(plan_obj.config_json, {})
+                    return isinstance(c_p, dict) and bool(c_p.get("route_data_gz"))
+
                 plan_pick_map = {
-                    f"{p.scenario_name} ({format_hms(p.estimated_time_sec)} · {float(p.distance_km or 0):.0f} km)": p
+                    f"{'📍 ' if _plan_has_gps(p) else '⚠️ '}{p.scenario_name} ({format_hms(p.estimated_time_sec)} · {float(p.distance_km or 0):.0f} km{'' if _plan_has_gps(p) else ' · sin GPS'})": p
                     for p in member_saved_plans
                 }
                 plan_keys = list(plan_pick_map.keys())
@@ -2446,6 +2450,43 @@ def render_race_strategy_page():
     saved_plan_ctx = None
     if loaded_saved_sc is not None:
         route_sig, route_data, saved_plan_ctx = _build_ctx_from_saved_scenario(loaded_saved_sc, ath_defaults)
+        if route_data.get("reconstructed_from_splits"):
+            st.warning(
+                f"⚠️ El plan guardado **{loaded_saved_sc.scenario_name}** fue creado en una versión anterior que **no guardó las coordenadas GPS reales** "
+                "(solo la tabla de splits). Por eso no puede dibujarse sobre las calles reales ni exportar el `.FIT Course`."
+            )
+            with st.expander("📎 Vincular el archivo GPX / FIT real a este plan guardado (1 sola vez)", expanded=True):
+                c_lk1, c_lk2, c_lk3 = st.columns([2.2, 0.8, 1.1])
+                with c_lk1:
+                    link_up = st.file_uploader(
+                        "Sube el archivo .GPX / .FIT / .TCX real de esta carrera para guardarlo permanentemente en este plan:",
+                        type=["fit", "gpx", "tcx", "zip", "gz"],
+                        key=f"rs_link_gps_up_{loaded_saved_sc.id}",
+                    )
+                with c_lk2:
+                    link_laps = st.number_input("Vueltas:", min_value=1, max_value=15, value=1, step=1, key=f"rs_link_gps_laps_{loaded_saved_sc.id}")
+                with c_lk3:
+                    st.markdown("<div style='height:27px;'></div>", unsafe_allow_html=True)
+                    if st.button("💾 Guardar GPS en este plan", type="primary", use_container_width=True, disabled=(link_up is None), key=f"rs_link_gps_btn_{loaded_saved_sc.id}"):
+                        try:
+                            raw_lk = link_up.getvalue()
+                            rd_real = parse_route_from_any_file(raw_lk, link_up.name, laps=int(link_laps))
+                            gz_real = _compress_route_data(rd_real)
+                            with SessionLocal() as _s_up:
+                                _obj = _s_up.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == loaded_saved_sc.id).first()
+                                if _obj:
+                                    _cfg_old = _safe_parse_json(_obj.config_json, {})
+                                    if not isinstance(_cfg_old, dict):
+                                        _cfg_old = {}
+                                    _cfg_old["route_data_gz"] = gz_real
+                                    _obj.config_json = json.dumps(_cfg_old, ensure_ascii=False)
+                                    _obj.distance_km = rd_real["total_distance_km"]
+                                    _obj.elevation_gain_m = rd_real["elevation_gain_m"]
+                                    _s_up.commit()
+                            st.toast("✅ Trazado GPS real guardado permanentemente en este plan!", icon="🗺️")
+                            st.rerun()
+                        except Exception as _lk_err:
+                            st.error(f"Error vinculando el archivo GPS: {_lk_err}")
     elif route_file_bytes:
         route_file_hash = hashlib.sha256(route_file_bytes).hexdigest()[:16]
         route_sig = f"{route_file_hash}_{route_file_label}_{int(laps)}"

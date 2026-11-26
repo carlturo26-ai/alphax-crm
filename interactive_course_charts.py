@@ -26,13 +26,13 @@ import streamlit.components.v1 as components
 
 
 def _grade_heat_color(grade_pct: float) -> str:
-    if grade_pct <= -3.5:
+    if grade_pct <= -3.0:
         return "#00B0FF"   # Descenso veloz
-    if grade_pct <= -1.0:
+    if grade_pct <= -0.8:
         return "#00E676"   # Bajada rápida
-    if grade_pct < 1.2:
+    if grade_pct < 0.8:
         return "#94A3B8"   # Llano
-    if grade_pct < 2.8:
+    if grade_pct < 2.5:
         return "#FFD600"   # Repecho
     if grade_pct < 5.0:
         return "#FF8A00"   # Subida moderada
@@ -40,27 +40,27 @@ def _grade_heat_color(grade_pct: float) -> str:
 
 
 def _grade_heat_rgba(grade_pct: float) -> str:
-    if grade_pct <= -3.5:
-        return "rgba(0, 176, 255, 0.46)"
-    if grade_pct <= -1.0:
-        return "rgba(0, 230, 118, 0.42)"
-    if grade_pct < 1.2:
-        return "rgba(100, 116, 139, 0.34)"
-    if grade_pct < 2.8:
-        return "rgba(255, 214, 0, 0.46)"
+    if grade_pct <= -3.0:
+        return "rgba(0, 176, 255, 0.62)"
+    if grade_pct <= -0.8:
+        return "rgba(0, 230, 118, 0.56)"
+    if grade_pct < 0.8:
+        return "rgba(100, 116, 139, 0.42)"
+    if grade_pct < 2.5:
+        return "rgba(255, 214, 0, 0.60)"
     if grade_pct < 5.0:
-        return "rgba(255, 138, 0, 0.54)"
-    return "rgba(255, 46, 67, 0.60)"
+        return "rgba(255, 138, 0, 0.68)"
+    return "rgba(255, 46, 67, 0.74)"
 
 
 def _grade_heat_label(grade_pct: float) -> str:
-    if grade_pct <= -3.5:
+    if grade_pct <= -3.0:
         return "🔵 Descenso Veloz"
-    if grade_pct <= -1.0:
+    if grade_pct <= -0.8:
         return "🟢 Bajada Rápida"
-    if grade_pct < 1.2:
+    if grade_pct < 0.8:
         return "⚪ Llano"
-    if grade_pct < 2.8:
+    if grade_pct < 2.5:
         return "🟡 Repecho"
     if grade_pct < 5.0:
         return "🟠 Subida Moderada"
@@ -220,6 +220,7 @@ def _downsample_route_for_synced_widget(
         "route_name": str(route_data.get("route_name", "Circuito")),
         "sport": sport,
         "has_sim": has_sim,
+        "is_synthetic_gps": bool(route_data.get("reconstructed_from_splits", False)),
         "total_dist_km": round(float(route_data.get("total_distance_km", sum(len_km))), 2),
         "total_gain_m": round(float(route_data.get("elevation_gain_m", sum(pos_m))), 0),
         "total_loss_m": round(float(route_data.get("elevation_loss_m", sum(neg_m))), 0),
@@ -681,74 +682,94 @@ def render_synced_elevation_planimetry_widget(
   const cfg = {{ displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "autoScale2d", "toggleSpikelines"] }};
 
   // ── 2. MAPA GPS REAL DE CALLES (DERECHA - LEAFLET.JS) ──
-  const map = L.map("map_{uid}", {{
-    zoomControl: true,
-    attributionControl: true,
-    preferCanvas: true
-  }});
-  map.attributionControl.setPrefix("");
-
-  const baseLayers = {{
-    osm: L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png", {{
-      maxZoom: 19, attribution: "© OpenStreetMap"
-    }}),
-    voyager: L.tileLayer("https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png", {{
-      maxZoom: 19, attribution: "© CARTO / OSM"
-    }}),
-    dark: L.tileLayer("https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png", {{
-      maxZoom: 19, attribution: "© CARTO / OSM"
-    }}),
-    sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", {{
-      maxZoom: 18, attribution: "© Esri Satélite"
-    }}),
-    topo: L.tileLayer("https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png", {{
-      maxZoom: 17, attribution: "© OpenTopoMap"
-    }})
-  }};
-
-  let activeBase = baseLayers.osm.addTo(map);
-  const allLatLngs = D.lat.map((la, i) => [la, D.lon[i]]);
-  const fullBounds = L.latLngBounds(allLatLngs);
-  map.fitBounds(fullBounds, {{ padding: [24, 24] }});
-
-  // Borde oscuro inferior para máximo contraste sobre calles claras y satélite
-  L.polyline(allLatLngs, {{
-    color: "#090D16",
-    weight: 8,
-    opacity: 0.72,
-    lineJoin: "round",
-    lineCap: "round",
-    interactive: false
-  }}).addTo(map);
-
-  // Capa de segmentos coloreados + capa de resaltado de zoom + viento + geles
-  const routeLayer = L.layerGroup().addTo(map);
-  const zoomHighlightLayer = L.layerGroup().addTo(map);
-  const windLayer = L.layerGroup().addTo(map);
-  const gelLayer = L.layerGroup().addTo(map);
-
+  const isSynthetic = Boolean(D.is_synthetic_gps);
+  let map = null;
+  let baseLayers = {{}};
+  let activeBase = null;
+  let fullBounds = null;
+  let routeLayer = null;
+  let zoomHighlightLayer = null;
+  let windLayer = null;
+  let gelLayer = null;
+  let syncMarker = null;
+  let syncAdded = false;
   let currentColorMode = "grade";
   let showWind = true;
   let showGels = true;
   let currentZoomIdxs = null;
 
-  // Marcador dinámico sincronizado (cyan brillante)
-  const syncMarker = L.circleMarker([D.lat[0], D.lon[0]], {{
-    radius: 8,
-    color: "#FFFFFF",
-    weight: 3,
-    fillColor: "#00EEFF",
-    fillOpacity: 1.0,
-    interactive: false
-  }});
-  let syncAdded = false;
+  if (isSynthetic) {{
+    mapDiv.innerHTML = `<div style="height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; background:radial-gradient(circle at center, rgba(0,238,255,0.08), #0B101A 75%);">
+      <div style="font-size:2.1rem; margin-bottom:8px;">📍</div>
+      <div style="color:#FFD700; font-weight:900; font-size:0.95rem; margin-bottom:6px;">Plan guardado sin trazado GPS real</div>
+      <div style="color:#CBD5E1; font-size:0.79rem; line-height:1.5; max-width:360px;">
+        Este escenario fue guardado en una versión anterior que solo almacenaba la tabla de splits (sin coordenadas GPS).<br><br>
+        <b>Solución en 1 clic:</b> vincula el archivo <code>.GPX</code> o <code>.FIT</code> real arriba en el aviso amarillo (o elige <i>Subir archivo FIT / GPX / TCX</i>) para ver las calles reales de tu carrera y su altimetría exacta.
+      </div>
+    </div>`;
+    legendEl.style.display = "none";
+  }} else {{
+    map = L.map("map_{uid}", {{
+      zoomControl: true,
+      attributionControl: true,
+      preferCanvas: true
+    }});
+    map.attributionControl.setPrefix("");
+
+    baseLayers = {{
+      osm: L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png", {{
+        maxZoom: 19, attribution: "© OpenStreetMap"
+      }}),
+      voyager: L.tileLayer("https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png", {{
+        maxZoom: 19, attribution: "© CARTO / OSM"
+      }}),
+      dark: L.tileLayer("https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png", {{
+        maxZoom: 19, attribution: "© CARTO / OSM"
+      }}),
+      sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", {{
+        maxZoom: 18, attribution: "© Esri Satélite"
+      }}),
+      topo: L.tileLayer("https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png", {{
+        maxZoom: 17, attribution: "© OpenTopoMap"
+      }})
+    }};
+
+    activeBase = baseLayers.osm.addTo(map);
+    const allLatLngs = D.lat.map((la, i) => [la, D.lon[i]]);
+    fullBounds = L.latLngBounds(allLatLngs);
+    map.fitBounds(fullBounds, {{ padding: [24, 24] }});
+
+    L.polyline(allLatLngs, {{
+      color: "#090D16",
+      weight: 8,
+      opacity: 0.72,
+      lineJoin: "round",
+      lineCap: "round",
+      interactive: false
+    }}).addTo(map);
+
+    routeLayer = L.layerGroup().addTo(map);
+    zoomHighlightLayer = L.layerGroup().addTo(map);
+    windLayer = L.layerGroup().addTo(map);
+    gelLayer = L.layerGroup().addTo(map);
+
+    syncMarker = L.circleMarker([D.lat[0], D.lon[0]], {{
+      radius: 8,
+      color: "#FFFFFF",
+      weight: 3,
+      fillColor: "#00EEFF",
+      fillOpacity: 1.0,
+      interactive: false
+    }});
+  }}
 
   function showCursorAt(idx) {{
     if (idx === undefined || idx < 0 || idx >= N) return;
+    Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [elevCursorIdx]);
+    if (!map || !syncMarker) return;
     const ll = [D.lat[idx], D.lon[idx]];
     syncMarker.setLatLng(ll);
     if (!syncAdded) {{ syncMarker.addTo(map); syncAdded = true; }}
-    Plotly.restyle(elevDiv, {{ x: [[D.dist_km[idx]]], y: [[D.ele_m[idx]]] }}, [elevCursorIdx]);
 
     let hud = `Km ${{D.dist_km[idx].toFixed(1)}} · ${{Math.round(D.ele_m[idx])}}m · ${{D.grade_pct[idx] >= 0 ? "+" : ""}}${{D.grade_pct[idx].toFixed(1)}}%`;
     if (D.has_sim) {{
@@ -761,12 +782,13 @@ def render_synced_elevation_planimetry_widget(
   }}
 
   function hideCursor() {{
-    if (syncAdded) {{ map.removeLayer(syncMarker); syncAdded = false; }}
+    if (map && syncAdded && syncMarker) {{ map.removeLayer(syncMarker); syncAdded = false; }}
     Plotly.restyle(elevDiv, {{ x: [[null]], y: [[null]] }}, [elevCursorIdx]);
     hudEl.style.display = "none";
   }}
 
   function updateLegend(mode) {{
+    if (isSynthetic) return;
     if (mode === "wind") {{
       legendEl.innerHTML =
         `<span><i class="lg-dot" style="background:#00E676"></i>A favor</span>` +
@@ -794,6 +816,7 @@ def render_synced_elevation_planimetry_widget(
   }}
 
   function renderColoredRoute(mode, dimmed) {{
+    if (!routeLayer) return;
     routeLayer.clearLayers();
     const op = dimmed ? 0.30 : 0.96;
     const wt = dimmed ? 4.5 : 5.2;
@@ -815,26 +838,29 @@ def render_synced_elevation_planimetry_widget(
   }}
 
   // Pines de Salida y Meta sobre el mapa real
-  L.marker([D.lat[0], D.lon[0]], {{
-    icon: L.divIcon({{
-      className: "",
-      html: `<div class="pin-lbl" style="border:1.5px solid #00FF88; color:#00FF88;">🟢 Salida</div>`,
-      iconSize: [64, 20],
-      iconAnchor: [32, 24]
-    }})
-  }}).addTo(map);
+  if (map) {{
+    L.marker([D.lat[0], D.lon[0]], {{
+      icon: L.divIcon({{
+        className: "",
+        html: `<div class="pin-lbl" style="border:1.5px solid #00FF88; color:#00FF88;">🟢 Salida</div>`,
+        iconSize: [64, 20],
+        iconAnchor: [32, 24]
+      }})
+    }}).addTo(map);
 
-  L.marker([D.lat[N - 1], D.lon[N - 1]], {{
-    icon: L.divIcon({{
-      className: "",
-      html: `<div class="pin-lbl" style="border:1.5px solid #FF5252; color:#FF8A80;">🏁 Meta</div>`,
-      iconSize: [58, 20],
-      iconAnchor: [29, -4]
-    }})
-  }}).addTo(map);
+    L.marker([D.lat[N - 1], D.lon[N - 1]], {{
+      icon: L.divIcon({{
+        className: "",
+        html: `<div class="pin-lbl" style="border:1.5px solid #FF5252; color:#FF8A80;">🏁 Meta</div>`,
+        iconSize: [58, 20],
+        iconAnchor: [29, -4]
+      }})
+    }}).addTo(map);
+  }}
 
   // Renderizar flechas de viento sobre calles reales
   function renderWindArrows() {{
+    if (!windLayer) return;
     windLayer.clearLayers();
     if (!showWind || !D.wind_arrows || !D.wind_arrows.length) return;
     for (const wa of D.wind_arrows) {{
@@ -853,6 +879,7 @@ def render_synced_elevation_planimetry_widget(
 
   // Renderizar pines GPS de Geles (Running)
   function renderGelPins() {{
+    if (!gelLayer) return;
     gelLayer.clearLayers();
     if (!showGels || !D.gel_pins || !D.gel_pins.length) return;
     for (const gp of D.gel_pins) {{
@@ -873,7 +900,9 @@ def render_synced_elevation_planimetry_widget(
   renderWindArrows();
   renderGelPins();
 
-  map.on("mouseout", () => hideCursor());
+  if (map) {{
+    map.on("mouseout", () => hideCursor());
+  }}
 
   function updateSummary(x0, x1, isZoom) {{
     let idxs = [];
@@ -915,20 +944,22 @@ def render_synced_elevation_planimetry_widget(
     document.getElementById("m_grd_{uid}").textContent = `${{avgG >= 0 ? "+" : ""}}${{avgG.toFixed(1)}}% / +${{Math.max(0, maxG).toFixed(1)}}%`;
     document.getElementById("m_ele_{uid}").textContent = `${{Math.round(eMin)}}–${{Math.round(eMax)}} m`;
 
-    zoomHighlightLayer.clearLayers();
-    if (isZoom) {{
-      currentZoomIdxs = idxs;
-      renderColoredRoute(currentColorMode, true);
-      const hLatLngs = idxs.map(i => [D.lat[i], D.lon[i]]);
-      L.polyline(hLatLngs, {{ color: "#000000", weight: 9, opacity: 0.75, interactive: false }}).addTo(zoomHighlightLayer);
-      L.polyline(hLatLngs, {{ color: "#FFD700", weight: 5.5, opacity: 1.0, interactive: false }}).addTo(zoomHighlightLayer);
-      if (hLatLngs.length >= 2) {{
-        map.fitBounds(L.latLngBounds(hLatLngs), {{ padding: [32, 32], maxZoom: 16 }});
+    if (zoomHighlightLayer && map) {{
+      zoomHighlightLayer.clearLayers();
+      if (isZoom) {{
+        currentZoomIdxs = idxs;
+        renderColoredRoute(currentColorMode, true);
+        const hLatLngs = idxs.map(i => [D.lat[i], D.lon[i]]);
+        L.polyline(hLatLngs, {{ color: "#000000", weight: 9, opacity: 0.75, interactive: false }}).addTo(zoomHighlightLayer);
+        L.polyline(hLatLngs, {{ color: "#FFD700", weight: 5.5, opacity: 1.0, interactive: false }}).addTo(zoomHighlightLayer);
+        if (hLatLngs.length >= 2) {{
+          map.fitBounds(L.latLngBounds(hLatLngs), {{ padding: [32, 32], maxZoom: 16 }});
+        }}
+      }} else {{
+        currentZoomIdxs = null;
+        renderColoredRoute(currentColorMode, false);
+        map.fitBounds(fullBounds, {{ padding: [24, 24] }});
       }}
-    }} else {{
-      currentZoomIdxs = null;
-      renderColoredRoute(currentColorMode, false);
-      map.fitBounds(fullBounds, {{ padding: [24, 24] }});
     }}
   }}
 
@@ -965,6 +996,7 @@ def render_synced_elevation_planimetry_widget(
   // Selector de mapa base real (Calles / Claro / Oscuro / Satélite / Topo)
   document.querySelectorAll("#bmap_grp_{uid} .pill[data-bmap]").forEach(btn => {{
     btn.addEventListener("click", () => {{
+      if (!map) return;
       document.querySelectorAll("#bmap_grp_{uid} .pill[data-bmap]").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       const key = btn.getAttribute("data-bmap");
@@ -978,7 +1010,7 @@ def render_synced_elevation_planimetry_widget(
   // Inicializar Plotly Altimetría + Sincronización
   Plotly.newPlot(elevDiv, elevTraces, elevLayout, cfg).then(() => {{
     updateSummary(0, D.total_dist_km + 1, false);
-    setTimeout(() => map.invalidateSize(), 180);
+    if (map) {{ setTimeout(() => map.invalidateSize(), 180); }}
 
     elevDiv.on("plotly_hover", function(ev) {{
       if (!ev || !ev.points || !ev.points.length) return;

@@ -1228,6 +1228,44 @@ def render_running_strategy_section(
     saved_ctx = None
     if loaded_saved_sc is not None:
         route_sig, route_data, saved_ctx = _build_run_ctx_from_saved(loaded_saved_sc, ath)
+        if route_data.get("reconstructed_from_splits"):
+            st.warning(
+                f"⚠️ El plan Running guardado **{loaded_saved_sc.scenario_name}** fue creado sin coordenadas GPS reales. "
+                "Vincula abajo el archivo `.GPX` / `.FIT` real para actualizar este plan permanentemente."
+            )
+            with st.expander("📎 Vincular el archivo GPX / FIT real a este plan guardado (1 sola vez)", expanded=True):
+                c_rl1, c_rl2, c_rl3 = st.columns([2.2, 0.8, 1.1])
+                with c_rl1:
+                    r_link_up = st.file_uploader(
+                        "Sube el archivo .GPX / .FIT / .TCX real de esta carrera:",
+                        type=["fit", "gpx", "tcx", "zip", "gz"],
+                        key=f"run_link_gps_up_{loaded_saved_sc.id}",
+                    )
+                with c_rl2:
+                    r_link_laps = st.number_input("Vueltas:", min_value=1, max_value=15, value=1, step=1, key=f"run_link_gps_laps_{loaded_saved_sc.id}")
+                with c_rl3:
+                    st.markdown("<div style='height:27px;'></div>", unsafe_allow_html=True)
+                    if st.button("💾 Guardar GPS en este plan", type="primary", use_container_width=True, disabled=(r_link_up is None), key=f"run_link_gps_btn_{loaded_saved_sc.id}"):
+                        try:
+                            from cda_estimator import parse_route_from_any_file
+                            from race_strategy_ui import _compress_route_data
+                            rd_real = parse_route_from_any_file(r_link_up.getvalue(), r_link_up.name, laps=int(r_link_laps))
+                            gz_real = _compress_route_data(rd_real)
+                            with SessionLocal() as _s_up:
+                                _obj = _s_up.query(RaceStrategyScenario).filter(RaceStrategyScenario.id == loaded_saved_sc.id).first()
+                                if _obj:
+                                    _cfg_old = _safe_json(_obj.config_json, {})
+                                    if not isinstance(_cfg_old, dict):
+                                        _cfg_old = {}
+                                    _cfg_old["route_data_gz"] = gz_real
+                                    _obj.config_json = json.dumps(_cfg_old, ensure_ascii=False)
+                                    _obj.distance_km = rd_real["total_distance_km"]
+                                    _obj.elevation_gain_m = rd_real["elevation_gain_m"]
+                                    _s_up.commit()
+                            st.toast("✅ Trazado GPS real guardado en este plan Running!", icon="🗺️")
+                            st.rerun()
+                        except Exception as _rl_err:
+                            st.error(f"Error vinculando el archivo GPS: {_rl_err}")
     elif route_file_bytes:
         fhash = hashlib.sha256(route_file_bytes).hexdigest()[:16]
         route_sig = f"run_{fhash}_{route_file_label}_{int(laps)}"
