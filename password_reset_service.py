@@ -31,6 +31,7 @@ from sqlalchemy import func
 
 from birthday_service import _send_raw_smtp_email, get_smtp_config
 from database import AthleteUser, Member, SessionLocal, init_db
+from security_utils import hash_password_secure
 
 
 RESET_CODE_TTL_MINUTES = 15
@@ -39,7 +40,7 @@ MIN_PASSWORD_LEN = 6
 
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return hash_password_secure(password)
 
 
 def _hash_reset_code(email_norm: str, code: str) -> str:

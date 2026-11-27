@@ -8,13 +8,13 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
-    for _m in ("wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+    for _m in ("security_utils", "wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
         if _m in sys.modules:
             del sys.modules[_m]
     import app_atletas
     st.stop()
 
-# Configuración de página principal del CRM Administrador (Build v2.22)
+# Configuración de página principal del CRM Administrador (Build v2.27 - Hardened)
 st.set_page_config(
     page_title="AlphaX CRM",
     page_icon="🏆",
@@ -23,20 +23,46 @@ st.set_page_config(
 )
 
 from streamlit_cookies_controller import CookieController
+from security_utils import (
+    ADMIN_COOKIE_NAME,
+    ATHLETE_COOKIE_NAME,
+    check_rate_limit,
+    clear_rate_limit,
+    create_athlete_invite_token,
+    create_signed_token,
+    export_full_crm_backup_json,
+    hash_password_secure,
+    is_admin_password_in_secrets,
+    record_failed_attempt,
+    set_admin_password,
+    verify_admin_password,
+    verify_signed_token,
+)
 
 # Initialize cookie controller
 cookie_controller = CookieController()
 
-# --- REDIRECCIÓN AUTOMÁTICA SI EL DISPOSITIVO ES DE UN ATLETA ---
-# Si abren el link raíz sin parámetros en el teléfono pero ya tienen guardada la cookie de atleta:
+def _get_admin_client_ip() -> str:
+    try:
+        headers = st.context.headers
+        for h_name in ("x-forwarded-for", "x-real-ip"):
+            val = headers.get(h_name)
+            if val:
+                return val.split(",")[0].strip()
+    except Exception:
+        pass
+    return "local"
+
+# --- REDIRECCIÓN AUTOMÁTICA SI EL DISPOSITIVO ES DE UN ATLETA (COOKIE FIRMADA) ---
 try:
-    auth_cookie = cookie_controller.get("crm_admin_auth")
-    athlete_cookie = cookie_controller.get("athlete_user_cookie")
-    if athlete_cookie and auth_cookie != "authorized_alphax_2026" and not st.session_state.get("password_correct"):
+    admin_tok = cookie_controller.get(ADMIN_COOKIE_NAME)
+    ath_tok = cookie_controller.get(ATHLETE_COOKIE_NAME)
+    admin_ok_cookie = verify_signed_token(admin_tok, expected_role="admin") is not None
+    ath_payload = verify_signed_token(ath_tok, expected_role="athlete")
+    if ath_payload and not admin_ok_cookie and not st.session_state.get("password_correct"):
         st.query_params["app"] = "atletas"
-        st.query_params["athlete"] = athlete_cookie
         import sys
-        for _m in ("wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+        for _m in ("security_utils", "wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
             if _m in sys.modules:
                 del sys.modules[_m]
         import app_atletas
@@ -44,36 +70,54 @@ try:
 except Exception:
     pass
 
-# --- SEGURIDAD: CONTRASEÑA DEL CRM ---
+# --- SEGURIDAD: CONTRASEÑA DEL CRM (COOKIE FIRMADA HMAC 30 DÍAS + RATE LIMIT) ---
 def check_password():
-    """Returns `True` if the user had the correct password or has a valid cookie."""
-    # 1. Check session state first
+    """Retorna True si el administrador inició sesión o posee una cookie HMAC válida en este dispositivo."""
     if st.session_state.get("password_correct"):
         return True
 
-    # 2. Check cookie if session state doesn't have it
+    # Verificar cookie firmada criptográficamente (mantiene sesión 30 días en el mismo equipo/celular)
     try:
-        auth_cookie = cookie_controller.get("crm_admin_auth")
-        if auth_cookie == "authorized_alphax_2026":
+        admin_tok = cookie_controller.get(ADMIN_COOKIE_NAME)
+        if verify_signed_token(admin_tok, expected_role="admin") is not None:
             st.session_state["password_correct"] = True
             return True
     except Exception:
         pass
 
+    client_id = _get_admin_client_ip()
+
     def password_entered():
         if "password" not in st.session_state:
             return
-        # Contraseña quemada para mayor simplicidad
-        if st.session_state["password"] == "AlphaX2026!":
+        allowed, wait_s = check_rate_limit("admin_login", client_id)
+        if not allowed:
+            st.session_state["password_correct"] = False
+            st.session_state["admin_rate_limit_wait"] = wait_s
+            del st.session_state["password"]
+            return
+
+        entered = st.session_state["password"]
+        if verify_admin_password(entered):
+            clear_rate_limit("admin_login", client_id)
+            st.session_state.pop("admin_rate_limit_wait", None)
+            st.session_state.pop("admin_attempts_left", None)
             st.session_state["password_correct"] = True
             try:
-                # Set cookie for 30 days
-                cookie_controller.set("crm_admin_auth", "authorized_alphax_2026", max_age=30 * 86400)
+                signed_tok = create_signed_token(role="admin", subject="alphax_admin", ttl_seconds=30 * 86400)
+                cookie_controller.set(ADMIN_COOKIE_NAME, signed_tok, max_age=30 * 86400)
+                # Limpiar cookie legacy sin firma si existiera
+                cookie_controller.set("crm_admin_auth", "", max_age=0)
             except Exception:
                 pass
-            del st.session_state["password"]  # don't store password
+            del st.session_state["password"]
         else:
+            left, lock_s = record_failed_attempt("admin_login", client_id, max_attempts=5, window_sec=600, lock_sec=300)
             st.session_state["password_correct"] = False
+            st.session_state["admin_attempts_left"] = left
+            if lock_s > 0:
+                st.session_state["admin_rate_limit_wait"] = lock_s
+            del st.session_state["password"]
 
     def render_athlete_portal_shortcut():
         st.markdown("---")
@@ -90,19 +134,30 @@ def check_password():
             st.query_params["app"] = "atletas"
             st.rerun()
 
+    allowed_now, wait_now = check_rate_limit("admin_login", client_id)
     if "password_correct" not in st.session_state:
         st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
-        st.text_input(
-            "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
-        )
+        if not allowed_now:
+            st.error(f"🛡️ Demasiados intentos fallidos. Por seguridad espera **{wait_now} segundos** antes de volver a intentar.")
+        else:
+            st.text_input(
+                "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
+            )
+            st.caption("🔐 Tu sesión quedará recordada de forma cifrada durante 30 días en este dispositivo.")
         render_athlete_portal_shortcut()
         return False
     elif not st.session_state["password_correct"]:
         st.markdown("<h2 style='text-align: center; color: #00EEFF;'>🔒 Acceso Privado CRM</h2>", unsafe_allow_html=True)
-        st.text_input(
-            "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
-        )
-        st.error("Contraseña incorrecta 🛑")
+        wait_msg = wait_now or st.session_state.get("admin_rate_limit_wait", 0)
+        if not allowed_now and wait_msg > 0:
+            st.error(f"🛡️ Acceso bloqueado temporalmente por seguridad. Espera **{wait_msg} segundos** e intenta de nuevo.")
+        else:
+            st.text_input(
+                "Por favor, ingresa la contraseña de administrador:", type="password", on_change=password_entered, key="password"
+            )
+            left_n = st.session_state.get("admin_attempts_left")
+            extra_l = f" (te quedan {left_n} intentos antes de pausa de seguridad)" if left_n is not None and left_n > 0 else ""
+            st.error(f"Contraseña incorrecta 🛑{extra_l}")
         render_athlete_portal_shortcut()
         return False
     else:
@@ -268,15 +323,24 @@ def render_athlete_links_box(athletes_names=None, title="📲 Enlaces App de Atl
                 )
                 
         with tab_ind:
-            st.markdown("**Enlace Directo por Atleta (Sin Contraseña):**")
-            st.caption("Genera un link específico para que un deportista ingrese directamente a su perfil sin clave:")
+            st.markdown("**Enlace Seguro Firmado por Atleta (Válido 7 días):**")
+            st.caption("Genera un link cifrado único para ese deportista. Al abrirlo, queda conectado 30 días en su celular sin poder acceder a otros perfiles:")
             
             if not athletes_names:
                 athletes_names = get_cached_active_member_names()
                     
             sel_ath = st.selectbox("Seleccionar Deportista:", ["-- Seleccionar --"] + (athletes_names or []), key=f"{key_prefix}_sel_ath")
             if sel_ath != "-- Seleccionar --":
-                indiv_link = f"{base_url}/?app=atletas&athlete={urllib.parse.quote(sel_ath)}"
+                _inv_mid = 0
+                try:
+                    with SessionLocal() as _s_inv:
+                        _m_inv = _s_inv.query(Member.id).filter(Member.name == sel_ath).first()
+                        if _m_inv:
+                            _inv_mid = int(_m_inv[0])
+                except Exception:
+                    _inv_mid = 0
+                signed_inv = create_athlete_invite_token(sel_ath, _inv_mid, ttl_days=7)
+                indiv_link = f"{base_url}/?app=atletas&token={urllib.parse.quote(signed_inv)}"
                 st.code(indiv_link, language="text")
                 
                 wa_ind_msg = f"¡Hola {sel_ath}! Ingresa a tu App AlphaX para revisar tus análisis, Wolfy AI y reporte de descanso aquí 🐺: {indiv_link}"
@@ -1055,7 +1119,7 @@ elif page == "Socios":
                                 if clash and clash.athlete_name != sel_m_acc.name:
                                     st.error(f"Ese correo ya está asignado a **{clash.athlete_name}**.")
                                 else:
-                                    pw_hash = _hl.sha256(pw_clean.encode("utf-8")).hexdigest()
+                                    pw_hash = hash_password_secure(pw_clean)
                                     if sel_u_acc:
                                         sel_u_acc.email = em_clean
                                         sel_u_acc.password_hash = pw_hash
@@ -1461,35 +1525,116 @@ elif page == "Configuración":
         st.warning(f"No se pudo cargar el módulo de cumpleaños: {bday_cfg_err}")
 
     st.markdown("---")
-    
-    if st.button("⚠️ BORRAR BASE DE DATOS (RESETEO TOTAL)"):
-        session = SessionLocal()
-        try:
-            from sqlalchemy import text
-            # HARD RESET: Drop tables to force schema rebuild (Fixes BigInt vs Boolean issues)
-            session.execute(text("DROP TABLE IF EXISTS transactions CASCADE;"))
-            session.execute(text("DROP TABLE IF EXISTS expenses CASCADE;"))
-            session.execute(text("DROP TABLE IF EXISTS members CASCADE;"))
-            session.commit()
-            st.warning("Tablas eliminadas...")
-            
-            # Re-init DB to create tables with correct schema
-            from database import init_db
-            init_db()
-            st.success("♻️ Base de datos RECONSTRUIDA y lista. (Schema Fixed)")
-            
-        except Exception as e:
-            st.error(f"Error reseteando: {e}")
-        finally:
-            session.close()
-            
-    with st.expander("🧹 Limpiar Contabilidad (Mantener Atletas)"):
-        st.warning("Esta opción borrará todos los **Pagos** y **Gastos** registrados, pero mantendrá intacta tu lista de Socios, Grupos y Teléfonos.")
-        if st.button("BORRAR SÓLO PAGOS Y GASTOS", type="primary"):
+    st.subheader("🛡️ Seguridad, Contraseña Admin y Copias de Seguridad (Backup)")
+
+    sec_badges = [
+        "✅ Cookies firmadas HMAC-SHA256 (30 días en tu equipo)",
+        "✅ Contraseñas cifradas PBKDF2 + Salt",
+        "✅ Rate Limiting anti fuerza bruta (5 intentos)",
+        "✅ Enlaces de atletas con token firmado",
+        "✅ Modo Debug oculto + XSRF/CORS activos",
+    ]
+    st.markdown(" · ".join(sec_badges))
+
+    if not is_admin_password_in_secrets():
+        st.caption(
+            "💡 Recomendación extra: también puedes definir `ADMIN_PASSWORD` y `APP_SECRET_KEY` en "
+            "**Streamlit Cloud → Settings → Secrets** (o cambiar tu contraseña de administrador aquí abajo)."
+        )
+
+    c_sec1, c_sec2 = st.columns([1.05, 1.15])
+    with c_sec1:
+        st.markdown("##### 💾 Copia de Seguridad Completa del CRM")
+        st.caption(
+            "Descarga en un solo archivo `.json` toda tu base de datos (socios, pagos, gastos, lactato, "
+            "hemogramas, sueño, estrategias de carrera y chats Wolfy) para resguardarla en tu Mac o Google Drive."
+        )
+        if st.button("📦 Generar Backup Completo Ahora", type="primary", use_container_width=True, key="btn_gen_full_backup"):
+            try:
+                bkp_bytes, bkp_counts = export_full_crm_backup_json()
+                st.session_state["_crm_backup_bytes"] = bkp_bytes
+                st.session_state["_crm_backup_counts"] = bkp_counts
+                st.session_state["_crm_backup_fname"] = f"alphax_crm_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+            except Exception as bkp_err:
+                st.error(f"Error generando backup: {bkp_err}")
+        if st.session_state.get("_crm_backup_bytes"):
+            cnts = st.session_state.get("_crm_backup_counts", {})
+            st.download_button(
+                f"⬇️ Descargar {st.session_state['_crm_backup_fname']} ({round(len(st.session_state['_crm_backup_bytes'])/1024, 1)} KB)",
+                data=st.session_state["_crm_backup_bytes"],
+                file_name=st.session_state["_crm_backup_fname"],
+                mime="application/json",
+                use_container_width=True,
+                key="btn_dl_full_backup",
+            )
+            st.caption(
+                f"Incluye: **{cnts.get('members', 0)}** socios · **{cnts.get('transactions', 0)}** pagos · "
+                f"**{cnts.get('lactate_tests', 0)}** lactatos · **{cnts.get('bloodwork_records', 0)}** hemogramas · "
+                f"**{cnts.get('sleep_records', 0)}** sueños · **{cnts.get('race_strategy_scenarios', 0)}** planes."
+            )
+
+    with c_sec2:
+        st.markdown("##### 🔑 Cambiar Contraseña de Administrador")
+        if is_admin_password_in_secrets():
+            st.info("Tu contraseña de administrador está gestionada desde `ADMIN_PASSWORD` en **Streamlit Cloud Secrets**.")
+        else:
+            cur_adm_pw = st.text_input("Contraseña actual:", type="password", key="cfg_cur_adm_pw")
+            new_adm_pw1 = st.text_input("Nueva contraseña (mín. 8 caracteres):", type="password", key="cfg_new_adm_pw1")
+            new_adm_pw2 = st.text_input("Confirmar nueva contraseña:", type="password", key="cfg_new_adm_pw2")
+            if st.button("🔐 Actualizar Contraseña Admin", use_container_width=True, key="cfg_save_adm_pw"):
+                if not verify_admin_password(cur_adm_pw):
+                    st.error("La contraseña actual es incorrecta.")
+                elif new_adm_pw1 != new_adm_pw2:
+                    st.error("Las nuevas contraseñas no coinciden.")
+                else:
+                    ok_pw, msg_pw = set_admin_password(new_adm_pw1)
+                    if ok_pw:
+                        st.success(f"✅ {msg_pw}")
+                    else:
+                        st.error(msg_pw)
+
+        if st.button("🚪 Cerrar Sesión Admin en este dispositivo", use_container_width=True, key="cfg_admin_logout"):
+            st.session_state["password_correct"] = False
+            try:
+                cookie_controller.set(ADMIN_COOKIE_NAME, "", max_age=0)
+                cookie_controller.set("crm_admin_auth", "", max_age=0)
+            except Exception:
+                pass
+            st.rerun()
+
+    st.markdown("---")
+    with st.expander("🧨 Zona de Peligro (Borrado de Datos — Requiere Doble Confirmación)", expanded=False):
+        st.error("⚠️ Estas acciones son **IRREVERSIBLES**. Descarga primero un **Backup Completo** arriba.")
+        danger_confirm = st.text_input(
+            "Para habilitar el borrado, escribe exactamente `CONFIRMAR BORRADO TOTAL`:",
+            key="cfg_danger_phrase",
+        )
+        danger_pw = st.text_input("Ingresa tu contraseña de administrador:", type="password", key="cfg_danger_pw")
+        can_wipe = (danger_confirm.strip() == "CONFIRMAR BORRADO TOTAL") and verify_admin_password(danger_pw)
+
+        if st.button("⚠️ BORRAR BASE DE DATOS (RESETEO TOTAL)", disabled=not can_wipe, key="cfg_wipe_db_btn"):
             session = SessionLocal()
             try:
                 from sqlalchemy import text
-                # Delete records from transactions and expenses, keep tables
+                session.execute(text("DROP TABLE IF EXISTS transactions CASCADE;"))
+                session.execute(text("DROP TABLE IF EXISTS expenses CASCADE;"))
+                session.execute(text("DROP TABLE IF EXISTS members CASCADE;"))
+                session.commit()
+                st.warning("Tablas eliminadas...")
+                from database import init_db
+                init_db()
+                st.success("♻️ Base de datos RECONSTRUIDA y lista.")
+            except Exception as e:
+                st.error(f"Error reseteando: {e}")
+            finally:
+                session.close()
+            
+        st.markdown("---")
+        st.warning("Limpiar solo contabilidad (borra **Pagos** y **Gastos**, mantiene Socios y datos deportivos):")
+        if st.button("🧹 BORRAR SÓLO PAGOS Y GASTOS", type="primary", disabled=not can_wipe, key="cfg_wipe_acct_btn"):
+            session = SessionLocal()
+            try:
+                from sqlalchemy import text
                 session.execute(text("DELETE FROM transactions;"))
                 session.execute(text("DELETE FROM expenses;"))
                 session.commit()

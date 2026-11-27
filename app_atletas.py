@@ -19,6 +19,17 @@ from password_reset_service import (
     verify_crm_identity_and_set_password,
     verify_email_reset_code_and_set_password,
 )
+from security_utils import (
+    ATHLETE_COOKIE_NAME,
+    check_rate_limit,
+    clear_rate_limit,
+    create_signed_token,
+    esc,
+    hash_password_secure,
+    record_failed_attempt,
+    verify_password_secure,
+    verify_signed_token,
+)
 
 try:
     from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, Transaction, engine
@@ -315,7 +326,7 @@ def delta_html_ath(current, previous, default_color="#888888"):
         return f'<span style="color:#FF4B4B; font-weight:bold; font-size:0.82rem;">▼ {diff:.1f}</span>'
 
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    return hash_password_secure(password)
 
 def clean_and_normalize(name):
     if not name:
@@ -457,100 +468,84 @@ if not st.session_state["cookie_checked"]:
     st.session_state["cookie_checked"] = True
     st.rerun()
 
-# Iniciar login automático multicapa (EXCLUSIVO PARA SOCIOS ACTIVOS)
+# Iniciar sesión automática segura (EXCLUSIVO PARA SOCIOS ACTIVOS):
+#   1. Enlace firmado con token HMAC enviado por el entrenador (?app=atletas&token=...)
+#   2. Cookie firmada HMAC-SHA256 guardada en ESTE mismo teléfono/computador (30 días)
+#   (Se eliminan accesos inseguros por ?athlete=Nombre sin firma e IP compartida de Wi-Fi)
 if not st.session_state["logged_out"] and st.session_state["athlete_user"] is None:
-    # 1. Query Parameters
-    query_athlete = st.query_params.get("athlete")
-    query_email = st.query_params.get("email")
-    
-    if query_athlete or query_email:
-        try:
-            with SessionLocal() as session:
-                target_member = None
-                if query_email:
-                    u_chk = session.query(AthleteUser).filter(AthleteUser.email == query_email.lower().strip()).first()
-                    if u_chk:
-                        target_member = session.query(Member).filter(Member.name == u_chk.athlete_name).first()
-                elif query_athlete:
-                    target_member = session.query(Member).filter(Member.name == query_athlete).first()
-                
-                # REGLA ESTRICTA: Solo permitir si existe y active == True
-                if target_member:
-                    if not target_member.active:
+    # Limpiar parámetros legacy inseguros sin firma si alguien los pone manualmente en la URL
+    if st.query_params.get("athlete") or st.query_params.get("email"):
+        st.query_params.pop("athlete", None)
+        st.query_params.pop("email", None)
+
+    # 1. Token de invitación firmado por el entrenador (?app=atletas&token=...)
+    invite_token = st.query_params.get("token")
+    if invite_token:
+        inv_payload = verify_signed_token(invite_token, expected_role="athlete_invite")
+        st.query_params.pop("token", None)
+        if inv_payload and inv_payload.get("s"):
+            try:
+                with SessionLocal() as session:
+                    target_member = session.query(Member).filter(Member.name == inv_payload["s"]).first()
+                    if target_member and not target_member.active:
                         st.session_state["athlete_user"] = None
                         st.session_state["athlete_member_id"] = None
                         st.session_state["inactive_denied_athlete"] = target_member.name
                         try:
-                            cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                            cookie_controller.set(ATHLETE_COOKIE_NAME, "", max_age=0)
                         except Exception:
                             pass
-                        st.query_params.pop("athlete", None)
-                        st.query_params.pop("email", None)
-                    else:
+                    elif target_member and target_member.active:
                         st.session_state["athlete_user"] = target_member.name
                         st.session_state["athlete_member_id"] = target_member.id
                         st.session_state.pop("inactive_denied_athlete", None)
-                        
-                        user = session.query(AthleteUser).filter(AthleteUser.athlete_name == target_member.name).first()
-                        client_ip = get_client_ip()
-                        if user and client_ip:
-                            user.last_ip = client_ip
-                            session.commit()
-                        cookie_controller.set("athlete_user_cookie", target_member.name, max_age=30*86400)
+                        signed_ath = create_signed_token(
+                            role="athlete",
+                            subject=target_member.name,
+                            ttl_seconds=30 * 86400,
+                            extra={"uid": int(target_member.id)},
+                        )
+                        cookie_controller.set(ATHLETE_COOKIE_NAME, signed_ath, max_age=30 * 86400)
+                        try:
+                            cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                        except Exception:
+                            pass
                         st.query_params["app"] = "atletas"
-                        st.query_params["athlete"] = target_member.name
                         st.rerun()
-        except Exception:
-            pass
+            except Exception:
+                pass
+        else:
+            st.warning("⚠️ Este enlace de acceso expiró o no es válido. Inicia sesión con tu correo y contraseña (o pide un nuevo enlace a tu entrenador).")
 
-    # 2. Cookies (Validar que el socio siga activo)
+    # 2. Cookie firmada HMAC-SHA256 del dispositivo (recuerda tu sesión 30 días en este teléfono/PC)
     try:
-        athlete_cookie = cookie_controller.get("athlete_user_cookie")
+        signed_cookie = cookie_controller.get(ATHLETE_COOKIE_NAME)
     except Exception:
-        athlete_cookie = None
-    if athlete_cookie and st.session_state["athlete_user"] is None:
-        try:
-            with SessionLocal() as session:
-                m_obj = session.query(Member).filter(Member.name == athlete_cookie).first()
-                if m_obj and m_obj.active:
-                    st.session_state["athlete_user"] = m_obj.name
-                    st.session_state["athlete_member_id"] = m_obj.id
-                    st.session_state.pop("inactive_denied_athlete", None)
-                    st.query_params["app"] = "atletas"
-                    st.query_params["athlete"] = m_obj.name
-                    st.rerun()
-                elif m_obj and not m_obj.active:
-                    try:
-                        cookie_controller.set("athlete_user_cookie", "", max_age=0)
-                    except Exception:
-                        pass
-                    st.session_state["inactive_denied_athlete"] = m_obj.name
-        except Exception:
-            pass
+        signed_cookie = None
 
-    # 3. IP del Dispositivo (Validar que el socio siga activo)
-    if st.session_state["athlete_user"] is None:
-        client_ip = get_client_ip()
-        if client_ip and client_ip not in ["127.0.0.1", "localhost", "::1", ""]:
+    if signed_cookie and st.session_state["athlete_user"] is None:
+        ath_payload = verify_signed_token(signed_cookie, expected_role="athlete")
+        if ath_payload and ath_payload.get("s"):
             try:
                 with SessionLocal() as session:
-                    user = session.query(AthleteUser).filter(AthleteUser.last_ip == client_ip).first()
-                    if user:
-                        m_obj = session.query(Member).filter(Member.name == user.athlete_name).first()
-                        if m_obj and m_obj.active:
-                            st.session_state["athlete_user"] = user.athlete_name
-                            st.session_state["athlete_member_id"] = m_obj.id
-                            st.session_state.pop("inactive_denied_athlete", None)
-                            cookie_controller.set("athlete_user_cookie", user.athlete_name, max_age=30*86400)
-                            st.query_params["app"] = "atletas"
-                            st.query_params["athlete"] = user.athlete_name
-                            st.rerun()
-                        elif m_obj and not m_obj.active:
-                            try:
-                                cookie_controller.set("athlete_user_cookie", "", max_age=0)
-                            except Exception:
-                                pass
-                            st.session_state["inactive_denied_athlete"] = m_obj.name
+                    m_obj = session.query(Member).filter(Member.name == ath_payload["s"]).first()
+                    if m_obj and m_obj.active:
+                        st.session_state["athlete_user"] = m_obj.name
+                        st.session_state["athlete_member_id"] = m_obj.id
+                        st.session_state.pop("inactive_denied_athlete", None)
+                        st.query_params["app"] = "atletas"
+                        st.rerun()
+                    elif m_obj and not m_obj.active:
+                        try:
+                            cookie_controller.set(ATHLETE_COOKIE_NAME, "", max_age=0)
+                        except Exception:
+                            pass
+                        st.session_state["inactive_denied_athlete"] = m_obj.name
+            except Exception:
+                pass
+        else:
+            try:
+                cookie_controller.set(ATHLETE_COOKIE_NAME, "", max_age=0)
             except Exception:
                 pass
 
@@ -602,33 +597,65 @@ if not st.session_state["athlete_user"]:
         login_email = st.text_input("Correo Electrónico", key="login_email")
         login_pass = st.text_input("Contraseña", type="password", key="login_pass")
         if st.button("Entrar", use_container_width=True, key="btn_login"):
-            try:
-                with SessionLocal() as session:
-                    acc_status, user, m_obj = resolve_account_by_email(session, login_email)
-                    if acc_status == "inactive":
-                        ath_inact = (m_obj.name if m_obj else (user.athlete_name if user else login_email))
-                        st.session_state["athlete_user"] = None
-                        st.session_state["athlete_member_id"] = None
-                        st.session_state["inactive_denied_athlete"] = ath_inact
-                        _render_inactive_member_notice(ath_inact)
-                    elif acc_status == "active" and user and user.password_hash and user.password_hash == hash_password(login_pass):
-                        st.session_state["athlete_user"] = m_obj.name
-                        st.session_state["athlete_member_id"] = m_obj.id
-                        st.session_state["logged_out"] = False
-                        st.session_state.pop("inactive_denied_athlete", None)
-                        client_ip = get_client_ip()
-                        if client_ip:
-                            user.last_ip = client_ip
-                            session.commit()
-                        cookie_controller.set("athlete_user_cookie", m_obj.name, max_age=30*86400)
-                        st.query_params["app"] = "atletas"
-                        st.query_params["athlete"] = m_obj.name
-                        st.rerun()
-                    else:
-                        st.error("Correo o contraseña incorrectos. Si olvidaste tu clave, puedes restablecerla en la pestaña **🔑 Recuperar Contraseña**.")
-            except Exception as e:
-                st.error(f"Error al iniciar sesión: {e}")
-        st.caption("¿Olvidaste tu contraseña? Entra a la pestaña **🔑 Recuperar Contraseña** arriba para restablecerla tú mismo al instante.")
+            rl_key = f"{get_client_ip() or 'local'}:{(login_email or '').strip().lower()}"
+            allowed_rl, wait_rl = check_rate_limit("athlete_login", rl_key)
+            if not allowed_rl:
+                st.error(f"🛡️ Demasiados intentos fallidos. Por seguridad espera **{wait_rl} segundos** antes de intentar nuevamente.")
+            else:
+                try:
+                    with SessionLocal() as session:
+                        acc_status, user, m_obj = resolve_account_by_email(session, login_email)
+                        if acc_status == "inactive":
+                            ath_inact = (m_obj.name if m_obj else (user.athlete_name if user else login_email))
+                            st.session_state["athlete_user"] = None
+                            st.session_state["athlete_member_id"] = None
+                            st.session_state["inactive_denied_athlete"] = ath_inact
+                            _render_inactive_member_notice(ath_inact)
+                        else:
+                            pw_ok, needs_rehash = (
+                                verify_password_secure(login_pass, user.password_hash)
+                                if (acc_status == "active" and user and user.password_hash)
+                                else (False, False)
+                            )
+                            if pw_ok:
+                                clear_rate_limit("athlete_login", rl_key)
+                                st.session_state["athlete_user"] = m_obj.name
+                                st.session_state["athlete_member_id"] = m_obj.id
+                                st.session_state["logged_out"] = False
+                                st.session_state.pop("inactive_denied_athlete", None)
+                                # Actualizar hash heredado a PBKDF2 con salt transparentemente
+                                changed_u = False
+                                if needs_rehash:
+                                    user.password_hash = hash_password_secure(login_pass)
+                                    changed_u = True
+                                client_ip = get_client_ip()
+                                if client_ip and user.last_ip != client_ip:
+                                    user.last_ip = client_ip
+                                    changed_u = True
+                                if changed_u:
+                                    session.commit()
+                                signed_ath = create_signed_token(
+                                    role="athlete",
+                                    subject=m_obj.name,
+                                    ttl_seconds=30 * 86400,
+                                    extra={"uid": int(m_obj.id)},
+                                )
+                                cookie_controller.set(ATHLETE_COOKIE_NAME, signed_ath, max_age=30 * 86400)
+                                try:
+                                    cookie_controller.set("athlete_user_cookie", "", max_age=0)
+                                except Exception:
+                                    pass
+                                st.query_params["app"] = "atletas"
+                                st.rerun()
+                            else:
+                                left_a, lock_a = record_failed_attempt("athlete_login", rl_key, max_attempts=5, window_sec=600, lock_sec=300)
+                                if lock_a > 0:
+                                    st.error(f"🛡️ Cuenta pausada {lock_a // 60} min por seguridad tras varios intentos fallidos. También puedes usar **🔑 Recuperar Contraseña**.")
+                                else:
+                                    st.error(f"Correo o contraseña incorrectos (intentos restantes: {left_a}). Si olvidaste tu clave, ve a **🔑 Recuperar Contraseña**.")
+                except Exception as e:
+                    st.error(f"Error al iniciar sesión: {e}")
+        st.caption("🔐 Tu sesión quedará recordada de forma cifrada durante 30 días en este dispositivo.")
             
     with tab2:
         st.markdown("¿Es tu primera vez? Crea tu cuenta para vincular tu progreso.")
@@ -711,18 +738,17 @@ if not st.session_state["athlete_user"]:
             st.session_state.pop("inactive_denied_athlete", None)
             st.session_state.pop("pwd_reset_email_sent", None)
             try:
-                client_ip = get_client_ip()
-                if client_ip:
-                    with SessionLocal() as s_ip:
-                        u_ip = s_ip.query(AthleteUser).filter(AthleteUser.athlete_name == ath_n).first()
-                        if u_ip:
-                            u_ip.last_ip = client_ip
-                            s_ip.commit()
-                cookie_controller.set("athlete_user_cookie", ath_n, max_age=30*86400)
+                signed_ath = create_signed_token(
+                    role="athlete",
+                    subject=ath_n,
+                    ttl_seconds=30 * 86400,
+                    extra={"uid": int(mem_id or 0)},
+                )
+                cookie_controller.set(ATHLETE_COOKIE_NAME, signed_ath, max_age=30 * 86400)
+                cookie_controller.set("athlete_user_cookie", "", max_age=0)
             except Exception:
                 pass
             st.query_params["app"] = "atletas"
-            st.query_params["athlete"] = ath_n
             st.rerun()
 
         if smtp_ready:
@@ -839,6 +865,7 @@ else:
             st.session_state["athlete_member_id"] = None
             st.session_state["inactive_denied_athlete"] = atleta
             try:
+                cookie_controller.set(ATHLETE_COOKIE_NAME, "", max_age=0)
                 cookie_controller.set("athlete_user_cookie", "", max_age=0)
             except Exception:
                 pass
@@ -849,10 +876,11 @@ else:
             member_id = m_check.id
             st.session_state["athlete_member_id"] = member_id
 
-    # Garantizar que los query params siempre identifiquen al atleta en la barra de direcciones del navegador
-    if st.query_params.get("app") != "atletas" or st.query_params.get("athlete") != atleta:
+    # Mantener app=atletas sin exponer el nombre del deportista en la URL
+    if st.query_params.get("app") != "atletas":
         st.query_params["app"] = "atletas"
-        st.query_params["athlete"] = atleta
+    if "athlete" in st.query_params:
+        st.query_params.pop("athlete", None)
 
     # Consultar datos más recientes para el Physiological HUD (Estilo TrainingPeaks)
     latest_sleep = None
@@ -886,7 +914,7 @@ else:
 <span style="position: absolute; bottom: 0; right: 0; width: 9px; height: 9px; border-radius: 50%; background: #00FF88; border: 2px solid #07090E; box-shadow: 0 0 6px #00FF88;"></span>
 </div>
 <div style="line-height: 1.2; overflow: hidden;">
-<div style="color: #FFFFFF; font-size: 1.02rem; font-weight: 800; letter-spacing: -0.2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">{atleta}</div>
+<div style="color: #FFFFFF; font-size: 1.02rem; font-weight: 800; letter-spacing: -0.2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">{esc(atleta)}</div>
 <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
 <span style="background: rgba(0,238,255,0.12); color: #00EEFF; font-size: 0.62rem; font-weight: 800; padding: 1px 6px; border-radius: 5px; letter-spacing: 0.8px;">⚡ ATLETA PRO</span>
 <span style="color: #8E9BAE; font-size: 0.7rem; font-weight: 600;">Sincronizado</span>
@@ -916,7 +944,11 @@ else:
             st.session_state["athlete_user"] = None
             st.session_state["athlete_member_id"] = None
             st.session_state["logged_out"] = True
-            cookie_controller.remove("athlete_user_cookie")
+            try:
+                cookie_controller.set(ATHLETE_COOKIE_NAME, "", max_age=0)
+                cookie_controller.set("athlete_user_cookie", "", max_age=0)
+            except Exception:
+                pass
             st.query_params.clear()
             st.query_params["app"] = "atletas"
             st.rerun()

@@ -4,3 +4,12 @@ backgroundColor = "#0e1117"
 secondaryBackgroundColor = "#121212"
 textColor = "#00EEFF"
 font = "sans serif"
+
+[client]
+showErrorDetails = "none"
+toolbarMode = "minimal"
+
+[server]
+enableCORS = true
+enableXsrfProtection = true
+maxUploadSize = 50

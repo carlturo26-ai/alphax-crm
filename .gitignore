@@ -37,6 +37,13 @@ temp_*
 # Temporary Scratch / Local experiments
 scratch/
 *.log
+audit_*.py
+test_*.py
+migrate_to_cloud.py
+extract_formulas.py
+read_alejandro_excel.py
+check_theme.py
+bot_cobranza.py
 
 # Operating System files
 .DS_Store
