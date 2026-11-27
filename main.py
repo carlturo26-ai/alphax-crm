@@ -8,7 +8,7 @@ import streamlit as st
 # su propio título ("AlphaX Atletas"), ícono ("⚡") y layout centrado en móvil.
 if st.query_params.get("app") == "atletas":
     import sys
-    for _m in ("wolfy_bot", "birthday_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+    for _m in ("wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
         if _m in sys.modules:
             del sys.modules[_m]
     import app_atletas
@@ -36,7 +36,7 @@ try:
         st.query_params["app"] = "atletas"
         st.query_params["athlete"] = athlete_cookie
         import sys
-        for _m in ("wolfy_bot", "birthday_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
+        for _m in ("wolfy_bot", "birthday_service", "password_reset_service", "interactive_course_charts", "race_strategy_engine", "running_strategy_engine", "running_strategy_ui", "race_strategy_ui", "app_atletas"):
             if _m in sys.modules:
                 del sys.modules[_m]
         import app_atletas
@@ -196,13 +196,18 @@ ensure_db_ready()
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_active_member_names():
-    s = SessionLocal()
-    try:
-        return [m[0] for m in s.query(Member.name).filter(Member.active == True).order_by(Member.name).all()]
-    except Exception:
-        return []
-    finally:
-        s.close()
+    for attempt in range(2):
+        s = SessionLocal()
+        try:
+            return [m[0] for m in s.query(Member.name).filter(Member.active == True).order_by(Member.name).all()]
+        except Exception:
+            try:
+                engine.dispose()
+            except Exception:
+                pass
+        finally:
+            s.close()
+    return []
 
 import urllib.parse
 

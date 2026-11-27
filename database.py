@@ -48,6 +48,7 @@ def get_engine(db_url):
             max_overflow=10,
             pool_recycle=240,
             pool_pre_ping=True,
+            pool_timeout=15,
             connect_args={"connect_timeout": 10},
         )
 
@@ -312,103 +313,149 @@ def set_club_setting(key: str, value: str) -> bool:
 _db_initialized = False
 
 def init_db():
+    """
+    Inicializa tablas y columnas faltantes de forma 100% libre de bloqueos (lock-free):
+      - Primero consulta metadatos (information_schema / PRAGMA) con un SELECT instantáneo.
+      - Solo ejecuta CREATE TABLE / ALTER TABLE si realmente falta alguna tabla o columna,
+        aplicando `lock_timeout = 3s` en PostgreSQL para jamás colgar la aplicación.
+    """
     global _db_initialized
     if _db_initialized:
         return
+
+    from sqlalchemy import text
+    is_sqlite = "sqlite" in str(engine.url)
+
+    migrations = {
+        "members": [
+            ("gender", "VARCHAR DEFAULT 'Hombre'"),
+            ("email", "VARCHAR"),
+            ("city", "VARCHAR"),
+            ("height_cm", "FLOAT"),
+            ("weight_kg", "FLOAT"),
+            ("birth_date", "DATE"),
+            ("primary_sport", "VARCHAR"),
+            ("sport_interests", "TEXT"),
+            ("experience_level", "VARCHAR"),
+            ("weekly_hours", "FLOAT"),
+            ("resting_hr", "INTEGER"),
+            ("max_hr", "INTEGER"),
+            ("altitude_m", "INTEGER"),
+            ("athlete_goal", "VARCHAR"),
+            ("goal_race_date", "DATE"),
+            ("shirt_size", "VARCHAR"),
+            ("blood_type", "VARCHAR"),
+            ("emergency_contact", "VARCHAR"),
+            ("medical_notes", "VARCHAR"),
+            ("calibrated_cda", "FLOAT"),
+            ("calibrated_cda_bike", "VARCHAR"),
+            ("calibrated_cda_date", "DATE"),
+            ("pb_5k", "VARCHAR"),
+            ("pb_10k", "VARCHAR"),
+            ("pb_21k", "VARCHAR"),
+            ("pb_42k", "VARCHAR"),
+            ("run_cp_w", "FLOAT"),
+            ("run_re", "FLOAT"),
+            ("birthday_email_last_year", "INTEGER"),
+        ],
+        "bloodwork_records": [
+            ("ck", "FLOAT"),
+            ("vitamin_b12", "FLOAT"),
+            ("folic_acid", "FLOAT"),
+            ("total_cholesterol", "FLOAT"),
+            ("hdl", "FLOAT"),
+            ("ldl", "FLOAT"),
+            ("triglycerides", "FLOAT"),
+            ("glucose", "FLOAT"),
+            ("hba1c", "FLOAT"),
+            ("pcr_us", "FLOAT"),
+        ],
+        "athlete_users": [
+            ("last_ip", "VARCHAR"),
+            ("reset_code_hash", "VARCHAR"),
+            ("reset_code_expires", "TIMESTAMP"),
+            ("reset_attempts", "INTEGER DEFAULT 0"),
+        ],
+        "sleep_records": [
+            ("raw_medications", "VARCHAR"),
+        ],
+    }
+
+    expected_tables = set(Base.metadata.tables.keys())
+
     try:
-        Base.metadata.create_all(bind=engine)
-    except Exception:
-        engine.dispose()
-        Base.metadata.create_all(bind=engine)
-    migrated_ok = False
-    try:
-        from sqlalchemy import text
-        is_sqlite = "sqlite" in str(engine.url)
-        
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            # Migración de perfil biométrico y género en tabla members
-            member_cols_to_add = [
-                ("gender", "VARCHAR DEFAULT 'Hombre'"),
-                ("email", "VARCHAR"),
-                ("city", "VARCHAR"),
-                ("height_cm", "FLOAT"),
-                ("weight_kg", "FLOAT"),
-                ("birth_date", "DATE"),
-                ("primary_sport", "VARCHAR"),
-                ("sport_interests", "TEXT"),
-                ("experience_level", "VARCHAR"),
-                ("weekly_hours", "FLOAT"),
-                ("resting_hr", "INTEGER"),
-                ("max_hr", "INTEGER"),
-                ("altitude_m", "INTEGER"),
-                ("athlete_goal", "VARCHAR"),
-                ("goal_race_date", "DATE"),
-                ("shirt_size", "VARCHAR"),
-                ("blood_type", "VARCHAR"),
-                ("emergency_contact", "VARCHAR"),
-                ("medical_notes", "VARCHAR"),
-                ("calibrated_cda", "FLOAT"),
-                ("calibrated_cda_bike", "VARCHAR"),
-                ("calibrated_cda_date", "DATE"),
-                ("pb_5k", "VARCHAR"),
-                ("pb_10k", "VARCHAR"),
-                ("pb_21k", "VARCHAR"),
-                ("pb_42k", "VARCHAR"),
-                ("run_cp_w", "FLOAT"),
-                ("run_re", "FLOAT"),
-                ("birthday_email_last_year", "INTEGER"),
-            ]
-            for col_name, col_type in member_cols_to_add:
-                try:
-                    if is_sqlite:
-                        conn.execute(text(f"ALTER TABLE members ADD COLUMN {col_name} {col_type};"))
-                    else:
-                        conn.execute(text(f"ALTER TABLE members ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-                except Exception:
-                    pass
+            # 1. Revisar tablas existentes sin tomar locks
+            if is_sqlite:
+                res_t = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()
+            else:
+                res_t = conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public';")).fetchall()
+            existing_tables = {r[0] for r in res_t}
 
-            # Migración de marcadores en tabla bloodwork_records
-            cols_to_add = [
-                ("ck", "FLOAT"),
-                ("vitamin_b12", "FLOAT"),
-                ("folic_acid", "FLOAT"),
-                ("total_cholesterol", "FLOAT"),
-                ("hdl", "FLOAT"),
-                ("ldl", "FLOAT"),
-                ("triglycerides", "FLOAT"),
-                ("glucose", "FLOAT"),
-                ("hba1c", "FLOAT"),
-                ("pcr_us", "FLOAT"),
-            ]
-            for col_name, col_type in cols_to_add:
-                try:
-                    if is_sqlite:
-                        conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN {col_name} {col_type};"))
-                    else:
-                        conn.execute(text(f"ALTER TABLE bloodwork_records ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-                except Exception:
-                    pass
-            # Migración de columnas de recuperación de contraseña en athlete_users
-            athlete_user_cols = [
-                ("last_ip", "VARCHAR"),
-                ("reset_code_hash", "VARCHAR"),
-                ("reset_code_expires", "TIMESTAMP"),
-                ("reset_attempts", "INTEGER DEFAULT 0"),
-            ]
-            for col_name, col_type in athlete_user_cols:
-                try:
-                    if is_sqlite:
-                        conn.execute(text(f"ALTER TABLE athlete_users ADD COLUMN {col_name} {col_type};"))
-                    else:
-                        conn.execute(text(f"ALTER TABLE athlete_users ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
-                except Exception:
-                    pass
+            if not expected_tables.issubset(existing_tables):
+                Base.metadata.create_all(bind=engine)
 
-            migrated_ok = True
-    except Exception:
-        migrated_ok = False
-    if migrated_ok:
+            # 2. Revisar columnas existentes en un solo SELECT sin bloqueos
+            existing_cols = {tbl: set() for tbl in migrations}
+            if is_sqlite:
+                for tbl in migrations:
+                    try:
+                        rows = conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()
+                        existing_cols[tbl] = {str(r[1]).lower() for r in rows}
+                    except Exception:
+                        pass
+            else:
+                rows = conn.execute(
+                    text(
+                        "SELECT table_name, column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name IN "
+                        "('members', 'bloodwork_records', 'athlete_users', 'sleep_records');"
+                    )
+                ).fetchall()
+                for t_name, c_name in rows:
+                    if t_name in existing_cols:
+                        existing_cols[t_name].add(str(c_name).lower())
+
+            # 3. Ejecutar ALTER TABLE ÚNICAMENTE para las columnas que realmente falten
+            missing_ops = []
+            for tbl, cols in migrations.items():
+                present = existing_cols.get(tbl, set())
+                for col_name, col_type in cols:
+                    if col_name.lower() not in present:
+                        missing_ops.append((tbl, col_name, col_type))
+
+            if missing_ops:
+                if not is_sqlite:
+                    try:
+                        conn.execute(text("SET lock_timeout = '3s';"))
+                    except Exception:
+                        pass
+                for tbl, col_name, col_type in missing_ops:
+                    try:
+                        if is_sqlite:
+                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type};"))
+                        else:
+                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col_name} {col_type};"))
+                    except Exception:
+                        pass
+                if not is_sqlite:
+                    try:
+                        conn.execute(text("RESET lock_timeout;"))
+                    except Exception:
+                        pass
+
         _db_initialized = True
+    except Exception:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+        # Reintento ligero solo para crear tablas si es BD nueva
+        try:
+            Base.metadata.create_all(bind=engine)
+            _db_initialized = True
+        except Exception:
+            pass
 
     
 def get_db():

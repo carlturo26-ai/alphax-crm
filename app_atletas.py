@@ -22,17 +22,13 @@ from password_reset_service import (
 
 try:
     from database import init_db, SessionLocal, Member, SleepRecord, AthleteUser, LactateTest, LactateTestStep, BloodworkRecord, Transaction, engine
-    from sqlalchemy import text
-    init_db()
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        try:
-            conn.execute(text("ALTER TABLE sleep_records ADD COLUMN raw_medications VARCHAR;"))
-        except:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE athlete_users ADD COLUMN last_ip VARCHAR;"))
-        except:
-            pass
+
+    @st.cache_resource(show_spinner=False)
+    def _ensure_athlete_db_ready() -> bool:
+        init_db()
+        return True
+
+    _ensure_athlete_db_ready()
 except Exception as e:
     st.error(f"💀 Error de Importación de DB: {e}")
     st.stop()
