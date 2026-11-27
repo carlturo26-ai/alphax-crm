@@ -24,6 +24,7 @@ import hmac
 import html
 import re
 import secrets
+import unicodedata
 from typing import Dict, Optional, Tuple
 
 from sqlalchemy import func
@@ -136,15 +137,36 @@ def _build_reset_code_email_html(athlete_name: str, code: str, expires_min: int 
     """
 
 
+def _normalize_name_tokens(text: str) -> list:
+    if not text:
+        return []
+    n = "".join(c for c in unicodedata.normalize("NFD", str(text)) if unicodedata.category(c) != "Mn")
+    n = n.lower().replace("ñ", "n")
+    n = "".join(c if c.isalnum() or c.isspace() else " " for c in n)
+    return [w for w in n.split() if len(w) >= 2]
+
+
+def _names_roughly_match(stored_name: str, input_name: str) -> bool:
+    """Verifica que al menos un nombre o apellido coincida (tolerando tildes, mayúsculas o nombre parcial)."""
+    s_toks = _normalize_name_tokens(stored_name)
+    i_toks = _normalize_name_tokens(input_name)
+    if not s_toks or not i_toks:
+        return False
+    for iw in i_toks:
+        if any(iw == sw or (len(iw) >= 3 and (iw in sw or sw in iw)) for sw in s_toks):
+            return True
+    return False
+
+
 def resolve_account_by_email(session, email_input: str) -> Tuple[str, Optional[AthleteUser], Optional[Member]]:
     """
-    Busca una cuenta por correo electrónico (en AthleteUser.email o Member.email) y
-    valida el estado de membresía (`Member.active`) en el CRM administrativo.
+    Busca una cuenta por correo electrónico (en AthleteUser.email o Member.email,
+    tolerando mayúsculas y espacios) y valida el estado de membresía (`Member.active`) en el CRM.
 
     Retorna `(status, athlete_user, member)`:
-      - `"active"`   -> El deportista existe y está ACTIVO en el CRM.
-      - `"inactive"` -> El deportista existe pero está INACTIVO (o fue dado de baja) en el CRM.
-      - `"not_found"`-> No existe ninguna cuenta ni perfil CRM con ese correo.
+      - `"active"`    -> El deportista existe y está ACTIVO en el CRM.
+      - `"inactive"`  -> El deportista existe pero está INACTIVO en el CRM.
+      - `"not_found"` -> No existe ninguna cuenta ni perfil CRM con ese correo.
     """
     email_norm = (email_input or "").strip().lower()
     if not email_norm or "@" not in email_norm:
@@ -152,7 +174,7 @@ def resolve_account_by_email(session, email_input: str) -> Tuple[str, Optional[A
 
     user = (
         session.query(AthleteUser)
-        .filter(func.lower(AthleteUser.email) == email_norm)
+        .filter(func.lower(func.trim(AthleteUser.email)) == email_norm)
         .first()
     )
     member = None
@@ -160,20 +182,18 @@ def resolve_account_by_email(session, email_input: str) -> Tuple[str, Optional[A
     if user:
         member = session.query(Member).filter(Member.name == user.athlete_name).first()
         if not member:
-            # Fallback por si el correo coincide directamente en Member.email
             member = (
                 session.query(Member)
-                .filter(func.lower(Member.email) == email_norm)
+                .filter(func.lower(func.trim(Member.email)) == email_norm)
                 .first()
             )
     else:
         member = (
             session.query(Member)
-            .filter(func.lower(Member.email) == email_norm)
+            .filter(func.lower(func.trim(Member.email)) == email_norm)
             .first()
         )
         if member:
-            # Revisar si ya tiene un AthleteUser vinculado por nombre (aunque con otro correo)
             user = session.query(AthleteUser).filter(AthleteUser.athlete_name == member.name).first()
 
     if not user and not member:
@@ -183,6 +203,37 @@ def resolve_account_by_email(session, email_input: str) -> Tuple[str, Optional[A
         return "inactive", user, member
 
     return "active", user, member
+
+
+def resolve_account_by_email_or_phone(
+    session,
+    email_input: str,
+    phone_input: str = "",
+) -> Tuple[str, Optional[AthleteUser], Optional[Member], str]:
+    """
+    Resuelve la cuenta primero por correo electrónico y, si el deportista aún no tiene
+    correo guardado en el CRM o usó otro correo, busca por su número de Teléfono/WhatsApp
+    en `Member.phone`.
+    Retorna `(status, athlete_user, member, matched_by)` donde `matched_by` es `'email'`, `'phone'` o `''`.
+    """
+    st_e, u_e, m_e = resolve_account_by_email(session, email_input)
+    if st_e != "not_found":
+        return st_e, u_e, m_e, "email"
+
+    p_digits = normalize_phone_digits(phone_input)
+    if len(p_digits) >= 7:
+        all_members = session.query(Member).all()
+        # Preferir miembro activo si hubiera duplicados históricos por teléfono
+        phone_matches = [m for m in all_members if _phones_match(getattr(m, "phone", ""), p_digits)]
+        if phone_matches:
+            active_matches = [m for m in phone_matches if bool(m.active)]
+            chosen = active_matches[0] if active_matches else phone_matches[0]
+            user = session.query(AthleteUser).filter(AthleteUser.athlete_name == chosen.name).first()
+            if not bool(chosen.active):
+                return "inactive", user, chosen, "phone"
+            return "active", user, chosen, "phone"
+
+    return "not_found", None, None, ""
 
 
 def is_email_recovery_available() -> bool:
@@ -396,13 +447,18 @@ def verify_crm_identity_and_set_password(
     phone_input: str,
     birth_date_input: Optional[date],
     new_password: str,
+    name_input: str = "",
 ) -> Dict:
     """
-    Respaldo autónomo de restablecimiento de contraseña mediante verificación de datos reales
+    Restablecimiento/activación autónoma de contraseña mediante verificación de datos reales
     del CRM administrativo (solo deportistas ACTIVOS):
-      - Correo registrado (coincidencia exacta con AthleteUser.email o Member.email)
-      - Teléfono / WhatsApp registrado en `Member.phone` (obligatorio)
-      - Fecha de nacimiento `Member.birth_date` (obligatoria si está registrada en el CRM)
+      - Localiza al atleta por correo electrónico (AthleteUser/Member) O por su Teléfono/WhatsApp (`Member.phone`)
+        para cubrir el caso donde el CRM aún no tenía su correo o el atleta nunca había creado cuenta.
+      - Exige membresía activa (`Member.active == True`).
+      - Verifica teléfono exacto (`Member.phone`) + segundo factor:
+          * Fecha de nacimiento (`Member.birth_date`) si está registrada en el CRM, y/o
+          * Nombre/Apellido coincidente con `Member.name` cuando la búsqueda fue por teléfono sin fecha registrada.
+      - Crea o actualiza su cuenta `AthleteUser` con el correo y nueva contraseña y sincroniza `Member.email`.
     """
     init_db()
     email_norm = (email_input or "").strip().lower()
@@ -419,7 +475,7 @@ def verify_crm_identity_and_set_password(
 
     try:
         with SessionLocal() as session:
-            status, user, member = resolve_account_by_email(session, email_norm)
+            status, user, member, matched_by = resolve_account_by_email_or_phone(session, email_norm, phone_input)
             if status == "inactive":
                 ath_name = (member.name if member else (user.athlete_name if user else "Deportista"))
                 return {
@@ -432,7 +488,10 @@ def verify_crm_identity_and_set_password(
                 return {
                     "ok": False,
                     "status": "not_found",
-                    "message": "No encontramos un deportista activo con ese correo electrónico.",
+                    "message": (
+                        "No encontramos un deportista activo con ese correo ni con ese número de WhatsApp/teléfono en AlphaX CRM. "
+                        "Verifica el número registrado o pídele a tu entrenador que revise tu ficha."
+                    ),
                 }
 
             # Verificar teléfono registrado en CRM
@@ -450,10 +509,11 @@ def verify_crm_identity_and_set_password(
                 return {
                     "ok": False,
                     "status": "mismatch",
-                    "message": "Los datos ingresados no coinciden con tu ficha registrada en AlphaX CRM.",
+                    "message": "El número de teléfono/WhatsApp no coincide con tu ficha registrada en AlphaX CRM.",
                 }
 
-            # Si el CRM tiene fecha de nacimiento registrada, exigir coincidencia exacta
+            # Segundo factor de seguridad:
+            # 1) Si el CRM tiene fecha de nacimiento registrada, exigir coincidencia exacta
             stored_bdate = getattr(member, "birth_date", None)
             if stored_bdate is not None:
                 if birth_date_input is None or birth_date_input != stored_bdate:
@@ -462,8 +522,37 @@ def verify_crm_identity_and_set_password(
                         "status": "mismatch",
                         "message": "La fecha de nacimiento no coincide con la registrada en tu ficha de AlphaX CRM.",
                     }
+            elif matched_by == "phone":
+                # Si se ubicó por teléfono y el CRM no tiene fecha de nacimiento, exigir coincidencia de nombre
+                if not name_input or not _names_roughly_match(member.name, name_input):
+                    return {
+                        "ok": False,
+                        "status": "mismatch",
+                        "message": "Ingresa tu Nombre y Apellido tal como figuras en AlphaX para confirmar tu identidad.",
+                    }
 
-            # Validación exitosa -> actualizar o crear AthleteUser
+            # Si el usuario indicó un nombre y no coincide en absoluto con el dueño de ese teléfono, rechazar
+            if name_input and name_input.strip() and not _names_roughly_match(member.name, name_input):
+                return {
+                    "ok": False,
+                    "status": "mismatch",
+                    "message": "El nombre ingresado no coincide con la ficha del deportista asociada a esos datos.",
+                }
+
+            # Verificar que el correo deseado no esté ocupado por OTRO deportista distinto
+            email_owner = (
+                session.query(AthleteUser)
+                .filter(func.lower(func.trim(AthleteUser.email)) == email_norm)
+                .first()
+            )
+            if email_owner and email_owner.athlete_name != member.name:
+                return {
+                    "ok": False,
+                    "status": "email_taken",
+                    "message": "Ese correo electrónico ya está asociado a otro deportista. Usa tu correo personal.",
+                }
+
+            # Validación exitosa -> crear o actualizar AthleteUser + sincronizar Member.email
             if not user:
                 user = AthleteUser(
                     email=email_norm,
@@ -472,12 +561,12 @@ def verify_crm_identity_and_set_password(
                 )
                 session.add(user)
             else:
+                user.email = email_norm
                 user.password_hash = hash_password(new_password)
                 user.reset_code_hash = None
                 user.reset_code_expires = None
                 user.reset_attempts = 0
-            if not getattr(member, "email", None):
-                member.email = user.email
+            member.email = email_norm
             session.commit()
 
             return {
@@ -486,7 +575,7 @@ def verify_crm_identity_and_set_password(
                 "athlete_name": member.name,
                 "member_id": member.id,
                 "email": user.email,
-                "message": f"✅ Identidad verificada. Contraseña actualizada para **{member.name}**.",
+                "message": f"✅ Identidad verificada. Acceso y contraseña actualizados para **{member.name}** ({user.email}).",
             }
     except Exception as exc:
         return {"ok": False, "status": "error", "message": f"Error verificando identidad: {exc}"}

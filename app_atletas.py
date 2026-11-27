@@ -780,7 +780,8 @@ if not st.session_state["athlete_user"]:
             crm_box = st.container()
 
         with crm_box:
-            crm_email = st.text_input("Correo Electrónico registrado:", placeholder="ejemplo@correo.com", key="crm_rst_email")
+            crm_name = st.text_input("Tu Nombre y Apellido (como figuras en AlphaX):", placeholder="Ej. Carlos Adame", key="crm_rst_name")
+            crm_email = st.text_input("Tu Correo Electrónico (para ingresar a la App):", placeholder="ejemplo@correo.com", key="crm_rst_email")
             crm_phone = st.text_input("Teléfono / WhatsApp registrado en AlphaX:", placeholder="Ej. 3001234567", key="crm_rst_phone")
             crm_bdate = st.date_input(
                 "Fecha de Nacimiento (si está registrada en tu ficha del club):",
@@ -795,7 +796,13 @@ if not st.session_state["athlete_user"]:
                 if crm_p1 != crm_p2:
                     st.error("Las contraseñas no coinciden.")
                 else:
-                    res_crm = verify_crm_identity_and_set_password(crm_email, crm_phone, crm_bdate, crm_p1)
+                    res_crm = verify_crm_identity_and_set_password(
+                        crm_email,
+                        crm_phone,
+                        crm_bdate,
+                        crm_p1,
+                        name_input=crm_name,
+                    )
                     if res_crm.get("ok"):
                         st.success(res_crm["message"])
                         _complete_auto_login(res_crm)

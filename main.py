@@ -979,24 +979,107 @@ elif page == "Socios":
             session.close(); st.rerun()
             
         st.markdown("---")
-        st.subheader("🔑 Restablecer Acceso de Atleta")
-        st.markdown("Si un atleta olvidó su contraseña o correo, puedes eliminar su acceso actual. Esto le permitirá registrarse nuevamente con sus nuevos datos.")
+        st.subheader("🔑 Gestionar / Restablecer Acceso de Atleta (App)")
+        st.markdown(
+            "Aquí aparecen **todos los deportistas del club** (tengan o no cuenta creada todavía). "
+            "Puedes asignarles un correo y contraseña temporal al instante o eliminar su acceso para que se registren de nuevo."
+        )
         
         try:
+            import hashlib as _hl
             from database import AthleteUser
+            all_club_members = session.query(Member).order_by(Member.active.desc(), Member.name.asc()).all()
             registered_users = session.query(AthleteUser).all()
-            if registered_users:
-                user_names = [u.athlete_name for u in registered_users]
-                selected_reset = st.selectbox("Selecciona al atleta para restablecer", ["-- Seleccionar --"] + user_names)
-                if selected_reset != "-- Seleccionar --":
-                    if st.button("Eliminar Acceso (Restablecer)", type="primary"):
-                        user_to_delete = session.query(AthleteUser).filter(AthleteUser.athlete_name == selected_reset).first()
-                        if user_to_delete:
-                            session.delete(user_to_delete)
-                            session.commit()
-                            st.success(f"Acceso de {selected_reset} eliminado. Ahora puede ir a la app y 'Crear Cuenta' de nuevo.")
+            users_by_name = {u.athlete_name: u for u in registered_users}
+
+            if all_club_members:
+                acc_options = {}
+                for m_acc in all_club_members:
+                    u_acc = users_by_name.get(m_acc.name)
+                    if not m_acc.active:
+                        status_tag = f"🔒 Inactivo" + (f" · cuenta: {u_acc.email}" if u_acc else "")
+                    elif u_acc:
+                        status_tag = f"✅ Con cuenta App ({u_acc.email})"
+                    else:
+                        crm_em = getattr(m_acc, "email", None)
+                        status_tag = f"⚪ Sin cuenta App aún" + (f" · CRM: {crm_em}" if crm_em else "")
+                    acc_options[f"{m_acc.name} — {status_tag}"] = (m_acc, u_acc)
+
+                sel_acc_lbl = st.selectbox(
+                    "Selecciona al deportista:",
+                    ["-- Seleccionar --"] + list(acc_options.keys()),
+                    key="admin_reset_athlete_sel",
+                )
+                if sel_acc_lbl != "-- Seleccionar --":
+                    sel_m_acc, sel_u_acc = acc_options[sel_acc_lbl]
+                    default_em = (
+                        (sel_u_acc.email if (sel_u_acc and sel_u_acc.email) else None)
+                        or getattr(sel_m_acc, "email", None)
+                        or ""
+                    )
+                    if not sel_m_acc.active:
+                        st.warning(f"⚠️ **{sel_m_acc.name}** está marcado como **INACTIVO** en el CRM. Aunque le crees contraseña, la App bloqueará su ingreso hasta que lo actives en la tabla de arriba.")
+
+                    c_adm1, c_adm2 = st.columns(2)
+                    with c_adm1:
+                        adm_new_email = st.text_input(
+                            "📧 Correo de acceso a la App:",
+                            value=default_em,
+                            placeholder="correo@ejemplo.com",
+                            key=f"adm_rst_email_{sel_m_acc.id}",
+                        )
+                    with c_adm2:
+                        adm_new_pass = st.text_input(
+                            "🔑 Nueva contraseña temporal (mín. 6 caracteres):",
+                            placeholder="Ej. AlphaX2026",
+                            key=f"adm_rst_pass_{sel_m_acc.id}",
+                        )
+
+                    c_btn1, c_btn2 = st.columns([1.4, 1])
+                    with c_btn1:
+                        if st.button("💾 Guardar / Restablecer Correo y Contraseña", type="primary", use_container_width=True, key=f"adm_save_acc_{sel_m_acc.id}"):
+                            em_clean = (adm_new_email or "").strip().lower()
+                            pw_clean = (adm_new_pass or "").strip()
+                            if not em_clean or "@" not in em_clean:
+                                st.error("Ingresa un correo electrónico válido.")
+                            elif len(pw_clean) < 6:
+                                st.error("La contraseña debe tener al menos 6 caracteres.")
+                            else:
+                                # Verificar que el correo no esté usado por otro deportista
+                                clash = session.query(AthleteUser).filter(AthleteUser.email == em_clean).first()
+                                if clash and clash.athlete_name != sel_m_acc.name:
+                                    st.error(f"Ese correo ya está asignado a **{clash.athlete_name}**.")
+                                else:
+                                    pw_hash = _hl.sha256(pw_clean.encode("utf-8")).hexdigest()
+                                    if sel_u_acc:
+                                        sel_u_acc.email = em_clean
+                                        sel_u_acc.password_hash = pw_hash
+                                        sel_u_acc.reset_code_hash = None
+                                        sel_u_acc.reset_code_expires = None
+                                        sel_u_acc.reset_attempts = 0
+                                    else:
+                                        session.add(AthleteUser(
+                                            email=em_clean,
+                                            password_hash=pw_hash,
+                                            athlete_name=sel_m_acc.name,
+                                        ))
+                                    sel_m_acc.email = em_clean
+                                    session.commit()
+                                    st.success(f"✅ Acceso listo para **{sel_m_acc.name}** (`{em_clean}`). Ya puede iniciar sesión con la nueva contraseña.")
+                                    session.close()
+                                    st.rerun()
+                    with c_btn2:
+                        if sel_u_acc:
+                            if st.button("🗑️ Eliminar Acceso (Crear de cero)", use_container_width=True, key=f"adm_del_acc_{sel_m_acc.id}"):
+                                session.delete(sel_u_acc)
+                                session.commit()
+                                st.success(f"Acceso de **{sel_m_acc.name}** eliminado. Ahora puede ir a la app y 'Crear Cuenta' de nuevo.")
+                                session.close()
+                                st.rerun()
+                        else:
+                            st.caption("Aún no tiene cuenta App creada; usa el botón de la izquierda para creársela directo.")
             else:
-                st.info("No hay atletas registrados en la aplicación de recuperación todavía.")
+                st.info("No hay deportistas registrados en el CRM todavía.")
         except Exception as e:
             st.error(f"Error cargando usuarios: {e}")
             
